@@ -1,6 +1,5 @@
 import {
   Button,
-  ButtonGroup,
   Callout,
   Card,
   Divider,
@@ -21,6 +20,12 @@ import { androidApi } from './android-api'
 import { appendSampledPoint, isTapPath, mapPointerToFrame } from './pointer-gesture'
 import { downloadUiTree } from './ui-tree-download'
 import {
+  findDeepestUiNodeAtPoint,
+  framePointToUiTreePoint,
+  scaleUiBounds,
+  uiNodeSelectorHint,
+} from './ui-tree-focus'
+import {
   buildCompressedHierarchy,
   countCompressedRows,
   isActionableUiNode,
@@ -30,11 +35,12 @@ import type { CompressedHierarchyRow } from './ui-tree/hierarchy-compression'
 import type { AndroidDebugController } from './useAndroidDebug'
 import { useMacroRuntime } from '../macro-runtime/useMacroRuntime'
 import { MacroEventLog } from '../macro-runtime/MacroEventLog'
+import type { MacroRuntimeEvent } from '../macro-runtime/types'
 import {
   IntegratedMacroPanel,
   type IntegratedMacroPanelHandle,
 } from '../macro-editor/IntegratedMacroPanel'
-import type { JsonValue } from '../macro-editor/types'
+import { ko } from '../../i18n/ko'
 
 interface AndroidDebugWorkspaceProps {
   controller: AndroidDebugController
@@ -210,9 +216,10 @@ function macroIntent(status: string | undefined) {
 export function AndroidDebugWorkspace({
   controller,
 }: AndroidDebugWorkspaceProps) {
-  const { status, debug } = controller
+  const { status, debug, setSelectedUiNodeId } = controller
   const liveMacro = useMacroRuntime(controller.deviceId)
   const macroPanelRef = useRef<IntegratedMacroPanelHandle>(null)
+  const [macroCanvasAvailable, setMacroCanvasAvailable] = useState(false)
   const currentGeometry = useMemo(
     () =>
       validGeometry(status?.stream?.width, status?.stream?.height) ??
@@ -263,31 +270,39 @@ export function AndroidDebugWorkspace({
   )
   const overlayUiNode = hoveredUiNode ?? selectedUiNode
   const selectedUiBoundsFromTree =
-    controller.uiTree?.screen_width === frameWidth &&
-    controller.uiTree.screen_height === frameHeight
-      ? (overlayUiNode?.bounds ?? null)
+    controller.uiTree && overlayUiNode
+      ? scaleUiBounds(
+          overlayUiNode.bounds,
+          controller.uiTree.screen_width,
+          controller.uiTree.screen_height,
+          frameWidth,
+          frameHeight,
+        )
       : null
   const macroBounds = liveMacro.overlay.bounds
-  const selectedUiBounds = macroBounds
-    ? {
-        left: macroBounds[0],
-        top: macroBounds[1],
-        right: macroBounds[2],
-        bottom: macroBounds[3],
-      }
-    : selectedUiBoundsFromTree
-  const selectedUiLabel = macroBounds
-    ? `Macro · ${liveMacro.overlay.nodeId ?? 'tap'}`
-    : overlayUiNode
+  const selectedUiBounds =
+    selectedUiBoundsFromTree ??
+    (macroBounds
+      ? {
+          left: macroBounds[0],
+          top: macroBounds[1],
+          right: macroBounds[2],
+          bottom: macroBounds[3],
+        }
+      : null)
+  const selectedUiLabel = overlayUiNode
     ? (overlayUiNode.text ??
       overlayUiNode.content_description ??
       shortClassName(overlayUiNode.class_name))
-    : null
+    : macroBounds
+      ? `매크로 · ${liveMacro.overlay.nodeId ?? '탭'}`
+      : null
   const overlayFrameMatches =
     !debug?.frame ||
     (debug.frame.width === frameWidth && debug.frame.height === frameHeight)
   const [recordingPath, setRecordingPath] = useState<AndroidPointerPoint[]>([])
   const [recentPath, setRecentPath] = useState<AndroidPointerPoint[]>([])
+  const [inspectMode, setInspectMode] = useState(false)
   const isRecording = recordingPath.length > 0
   const activePointer = useRef<{
     id: number
@@ -310,6 +325,8 @@ export function AndroidDebugWorkspace({
       setRecordingPath([])
       setRecentPath([])
       setHoveredUiNodeId(null)
+      setInspectMode(false)
+      setMacroCanvasAvailable(false)
     }, 0)
     return () => window.clearTimeout(reset)
   }, [controller.deviceId])
@@ -346,6 +363,16 @@ export function AndroidDebugWorkspace({
     [],
   )
 
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setHoveredUiNodeId(null)
+      setSelectedUiNodeId(null)
+    }
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [setSelectedUiNodeId])
+
   const eventPoint = (
     event: ReactPointerEvent<HTMLDivElement>,
     bounds: PointerBoundsSnapshot,
@@ -355,7 +382,7 @@ export function AndroidDebugWorkspace({
     mapPointerToFrame(event.clientX, event.clientY, bounds, width, height)
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!canControl || event.button !== 0) return
+    if (event.button !== 0 || (!inspectMode && !canControl)) return
     const rect = event.currentTarget.getBoundingClientRect()
     const bounds = {
       left: rect.left,
@@ -364,8 +391,28 @@ export function AndroidDebugWorkspace({
       height: rect.height,
     }
     const point = eventPoint(event, bounds, frameWidth, frameHeight)
-    if (!point) return
     event.preventDefault()
+    if (inspectMode) {
+      const tree = controller.uiTree
+      const treePoint =
+        tree && point
+          ? framePointToUiTreePoint(
+              point,
+              frameWidth,
+              frameHeight,
+              tree.screen_width,
+              tree.screen_height,
+            )
+          : null
+      const node =
+        tree && treePoint
+          ? findDeepestUiNodeAtPoint(tree.nodes, treePoint.x, treePoint.y)
+          : null
+      setHoveredUiNodeId(null)
+      controller.setSelectedUiNodeId(node?.node_id ?? null)
+      return
+    }
+    if (!point) return
     event.currentTarget.setPointerCapture?.(event.pointerId)
     const first = { ...point, t_ms: 0 }
     activePointer.current = {
@@ -442,21 +489,21 @@ export function AndroidDebugWorkspace({
     <section className="android-debug-workspace" aria-labelledby="android-debug-title">
       <div className="android-debug-heading">
         <div>
-          <span>PC-controlled canonical screen</span>
-          <h1 id="android-debug-title">Android Remote Debug</h1>
+          <span>PC 제어 화면</span>
+          <h1 id="android-debug-title">{ko.panels.androidRemoteDebug}</h1>
         </div>
         <div className="android-debug-heading__tags">
           <Tag intent={status?.connected ? 'success' : 'danger'} minimal>
-            Android {status?.connected ? 'ONLINE' : 'OFFLINE'}
+            안드로이드 {status?.connected ? '온라인' : '오프라인'}
           </Tag>
           <Tag intent={status?.stream?.running ? 'success' : 'warning'} minimal>
-            Stream {status?.stream?.running ? 'LIVE' : 'FALLBACK'}
+            스트림 {status?.stream?.running ? '실시간' : '대체 모드'}
           </Tag>
           <Tag intent={controller.uiTree ? 'success' : 'none'} minimal>
-            UI Tree {controller.uiTree ? 'OK' : '—'}
+            {ko.panels.uiTree} {controller.uiTree ? '정상' : '—'}
           </Tag>
           <Tag intent={macroIntent(debug?.macro.status)} minimal>
-            Macro {debug?.macro.status ?? 'IDLE'}
+            매크로 {debug?.macro.status ?? '대기'}
           </Tag>
         </div>
       </div>
@@ -469,10 +516,25 @@ export function AndroidDebugWorkspace({
         >
           <header className="android-card-heading">
             <div>
-              <span>Canonical source</span>
-              <strong>Android Live Screen</strong>
+              <span>기준 화면 소스</span>
+              <strong>{ko.panels.androidLiveScreen}</strong>
             </div>
             <div>
+              <Button
+                minimal
+                small
+                icon="selection"
+                text="요소 검사"
+                active={inspectMode}
+                intent={inspectMode ? 'primary' : 'none'}
+                disabled={!controller.uiTree}
+                aria-pressed={inspectMode}
+                onClick={() => {
+                  cancelPointerRecording()
+                  setRecentPath([])
+                  setInspectMode((current) => !current)
+                }}
+              />
               {frameWidth > 0 && frameHeight > 0 && (
                 <Tag minimal>
                   {frameWidth} × {frameHeight}
@@ -485,7 +547,9 @@ export function AndroidDebugWorkspace({
 
           <div className="android-live-shell">
             <div
-              className={`android-live-stage ${canControl ? 'is-tap-mode' : ''}`}
+              className={`android-live-stage ${
+                inspectMode ? 'is-inspect-mode' : canControl ? 'is-tap-mode' : ''
+              }`}
               style={{
                 aspectRatio: `${frameWidth.toString()} / ${frameHeight.toString()}`,
               }}
@@ -494,13 +558,14 @@ export function AndroidDebugWorkspace({
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerCancel}
               onContextMenu={(event) => event.preventDefault()}
-              role={canControl ? 'button' : undefined}
-              tabIndex={canControl ? 0 : undefined}
+              role={canControl || inspectMode ? 'button' : undefined}
+              tabIndex={canControl || inspectMode ? 0 : undefined}
+              aria-label={inspectMode ? '실시간 화면에서 UI 요소 검사' : undefined}
               data-geometry={`${frameWidth.toString()}x${frameHeight.toString()}`}
             >
               <img
                 src={status?.connected ? imageSource : undefined}
-                alt="Android live screen"
+                alt="안드로이드 실시간 화면"
                 draggable={false}
                 onError={() => {
                   if (useStream) controller.setStreamFailed(true)
@@ -519,10 +584,14 @@ export function AndroidDebugWorkspace({
               />
               <div className="android-live-badges">
                 <Tag intent={useStream ? 'success' : 'warning'} minimal>
-                  {useStream ? 'MJPEG LIVE' : 'SCREENSHOT FALLBACK'}
+                  {useStream ? 'MJPEG 실시간' : '스크린샷 대체 모드'}
                 </Tag>
                 <Tag intent={canControl ? 'success' : 'warning'}>
-                  {canControl ? 'CONTROL READY' : 'CONTROL UNAVAILABLE'}
+                  {inspectMode
+                    ? '요소 검사 모드'
+                    : canControl
+                      ? '제어 준비됨'
+                      : '제어할 수 없음'}
                 </Tag>
                 {!overlayFrameMatches && (
                   <Tag intent="warning">OVERLAY GEOMETRY STALE</Tag>
@@ -534,9 +603,9 @@ export function AndroidDebugWorkspace({
               >
                 {status === null ? <Spinner size={36} /> : null}
                 <strong>
-                  {status === null ? 'Connecting' : 'Android unavailable'}
+                  {status === null ? '연결 중' : '안드로이드 연결 불가'}
                 </strong>
-                <span>{status?.error ?? 'Waiting for Android Agent status.'}</span>
+                <span>{status?.error ?? '안드로이드 에이전트 상태를 기다리는 중입니다.'}</span>
               </div>
             </div>
           </div>
@@ -544,21 +613,21 @@ export function AndroidDebugWorkspace({
           <div className="android-control-bar">
             <Button
               icon="camera"
-              text="Screenshot"
+              text="스크린샷"
               loading={controller.busy === 'Screenshot'}
               disabled={!status?.connected}
               onClick={() => void controller.saveScreenshot()}
             />
             <Button
               icon="undo"
-              text="Back"
+              text="뒤로"
               loading={controller.busy === 'Back'}
               disabled={!canControl}
               onClick={() => void controller.back()}
             />
             <Button
               icon="home"
-              text="Home"
+              text="홈"
               loading={controller.busy === 'Home'}
               disabled={!canControl}
               onClick={() => void controller.home()}
@@ -566,7 +635,7 @@ export function AndroidDebugWorkspace({
             <Button
               className={controller.streamFailed ? '' : 'is-placeholder-control'}
               icon="refresh"
-              text="Reconnect Stream"
+              text="스트림 다시 연결"
               disabled={!controller.streamFailed}
               onClick={controller.reconnectStream}
             />
@@ -579,6 +648,7 @@ export function AndroidDebugWorkspace({
             ref={macroPanelRef}
             deviceId={controller.deviceId}
             runtime={liveMacro}
+            onAvailabilityChange={setMacroCanvasAvailable}
           />
         )}
 
@@ -604,12 +674,12 @@ export function AndroidDebugWorkspace({
             node={selectedUiNode}
             frameWidth={frameWidth}
             frameHeight={frameHeight}
-            onUseInMacro={(kind) => {
+            macroCanvasAvailable={macroCanvasAvailable}
+            onAddFindElement={() => {
               if (!selectedUiNode) return
-              macroPanelRef.current?.addElement(
-                selectorForNode(selectedUiNode, controller.uiTree?.nodes ?? []),
+              macroPanelRef.current?.addFindElement(
+                uiNodeSelectorHint(selectedUiNode),
                 nodeTitle(selectedUiNode),
-                kind,
               )
             }}
           />
@@ -618,6 +688,7 @@ export function AndroidDebugWorkspace({
       </div>
 
       <AndroidConsolePanel
+        key={controller.deviceId ?? 'no-device'}
         controller={controller}
         selectedDetection={selected}
         macroEvents={liveMacro.events}
@@ -626,7 +697,8 @@ export function AndroidDebugWorkspace({
   )
 }
 
-type ConsoleTab = 'console' | 'vision' | 'macro'
+type ConsoleTab = 'system' | 'user' | 'vision' | 'macro'
+type UserDebugLevel = 'all' | 'debug' | 'info' | 'warning' | 'error'
 
 function shortClassName(className: string | null): string {
   return className?.split('.').at(-1) ?? 'Node'
@@ -692,38 +764,29 @@ function preferredSelector(node: AndroidUiNode): string {
   return `snapshotNode == ${JSON.stringify(node.node_id)}`
 }
 
-function selectorForNode(
-  node: AndroidUiNode,
-  nodes: AndroidUiNode[],
-): Record<string, JsonValue> {
-  if (
-    node.content_description &&
-    nodes.filter((candidate) => candidate.content_description === node.content_description).length === 1
-  ) {
-    return { content_description: node.content_description, visible_to_user: true }
-  }
-  if (
-    node.text &&
-    nodes.filter((candidate) => candidate.text === node.text).length === 1
-  ) {
-    return {
-      text: node.text,
-      ...(node.clickable ? { clickable: true } : {}),
-      visible_to_user: true,
-    }
-  }
-  if (
-    node.view_id_resource_name &&
-    nodes.filter((candidate) => candidate.view_id_resource_name === node.view_id_resource_name).length === 1
-  ) {
-    return { view_id: node.view_id_resource_name }
-  }
-  return {
-    class_name: node.class_name ?? 'android.view.View',
-    clickable: node.clickable,
-    enabled: node.enabled,
-    visible_to_user: node.visible_to_user,
-  }
+function UiNodeFindAction({
+  disabled,
+  macroCanvasAvailable,
+  onAddFindElement,
+}: {
+  disabled: boolean
+  macroCanvasAvailable: boolean
+  onAddFindElement: () => void
+}) {
+  return (
+    <div className="android-node-actions" aria-label="매크로 엘리먼트 액션">
+      <Button
+        small
+        icon="add"
+        text="Find Element 추가"
+        disabled={disabled}
+        onClick={onAddFindElement}
+      />
+      {!macroCanvasAvailable && (
+        <small className="android-node-action-message">활성 매크로가 없습니다</small>
+      )}
+    </div>
+  )
 }
 
 function InspectorMessages({ controller }: { controller: AndroidDebugController }) {
@@ -737,12 +800,12 @@ function InspectorMessages({ controller }: { controller: AndroidDebugController 
       aria-live="polite"
     >
       {status && !status.configured && (
-        <Callout intent="warning" title="Android Agent is not configured">
-          Configure an Android Agent in the PC backend.
+        <Callout intent="warning" title="안드로이드 에이전트가 설정되지 않았습니다">
+          PC 백엔드에서 안드로이드 에이전트를 설정하세요.
         </Callout>
       )}
       {controller.error && (
-        <Callout intent="danger" title="Android debug error">
+        <Callout intent="danger" title="안드로이드 디버그 오류">
           {controller.error}
         </Callout>
       )}
@@ -763,6 +826,7 @@ function UiTreeHierarchy({
   controller: AndroidDebugController
   onHoverNode: (nodeId: string | null) => void
 }) {
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [query, setQuery] = useState('')
   const [visibleOnly, setVisibleOnly] = useState(true)
   const [clickableOnly, setClickableOnly] = useState(false)
@@ -828,13 +892,21 @@ function UiTreeHierarchy({
     })
   }
 
+  useEffect(() => {
+    if (!controller.selectedUiNodeId) return
+    const selected = scrollContainerRef.current?.querySelector<HTMLElement>(
+      '[data-ui-node-selected="true"]',
+    )
+    selected?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' })
+  }, [controller.selectedUiNodeId, hierarchy])
+
   return (
-    <section className="android-hierarchy-panel" aria-label="UI Tree Hierarchy">
+    <section className="android-hierarchy-panel" aria-label={ko.panels.uiTreeHierarchy}>
       <header className="android-editor-section-heading">
         <div>
-          <strong>UI Tree Hierarchy</strong>
+          <strong>{ko.panels.uiTreeHierarchy}</strong>
           <small>
-            {tree?.package_name ?? controller.uiTree?.package_name ?? 'No package'}
+            {tree?.package_name ?? controller.uiTree?.package_name ?? '패키지 없음'}
           </small>
         </div>
         <span className="android-tree-heading-actions">
@@ -842,8 +914,8 @@ function UiTreeHierarchy({
             minimal
             small
             icon="download"
-            text="Download"
-            aria-label="Download UI tree JSON"
+            text="다운로드"
+            aria-label="UI 트리 JSON 다운로드"
             disabled={!controller.uiTree}
             onClick={() => {
               if (controller.uiTree) downloadUiTree(controller.uiTree)
@@ -853,7 +925,7 @@ function UiTreeHierarchy({
             minimal
             small
             icon="refresh"
-            aria-label="Refresh UI tree"
+            aria-label="UI 트리 새로고침"
             loading={controller.uiTreeLoading}
             disabled={!controller.deviceId}
             onClick={() => void controller.refreshUiTree()}
@@ -861,24 +933,24 @@ function UiTreeHierarchy({
         </span>
       </header>
       <div className="android-tree-status">
-        <span>{controller.uiTree?.node_count ?? 0} nodes</span>
-        {hierarchy?.root && <span>· {hierarchy.rowCount} rows</span>}
+        <span>노드 {controller.uiTree?.node_count ?? 0}개</span>
+        {hierarchy?.root && <span>· 행 {hierarchy.rowCount}개</span>}
         <span>
           {controller.uiTree?.captured_at
             ? new Date(controller.uiTree.captured_at).toLocaleTimeString()
-            : 'not captured'}
+            : '캡처되지 않음'}
         </span>
         {controller.uiTree?.truncated && (
           <Tag intent="warning" minimal>
-            TRUNCATED
+            일부 생략됨
           </Tag>
         )}
       </div>
       <input
         className="android-tree-search"
-        aria-label="Search UI tree"
+        aria-label="UI 트리 검색"
         value={query}
-        placeholder="Search text, class, view id…"
+        placeholder="텍스트, 클래스, 뷰 ID 검색…"
         onChange={(event) => setQuery(event.currentTarget.value)}
       />
       <div className="android-tree-filters">
@@ -888,7 +960,7 @@ function UiTreeHierarchy({
             checked={visibleOnly}
             onChange={(event) => setVisibleOnly(event.currentTarget.checked)}
           />
-          Visible
+          표시된 노드
         </label>
         <label>
           <input
@@ -896,7 +968,7 @@ function UiTreeHierarchy({
             checked={clickableOnly}
             onChange={(event) => setClickableOnly(event.currentTarget.checked)}
           />
-          Clickable
+          클릭 가능
         </label>
         <label>
           <input
@@ -904,7 +976,7 @@ function UiTreeHierarchy({
             checked={enabledOnly}
             onChange={(event) => setEnabledOnly(event.currentTarget.checked)}
           />
-          Enabled
+          활성화
         </label>
         <label className="android-tree-compression-toggle">
           <input
@@ -912,15 +984,21 @@ function UiTreeHierarchy({
             checked={compressChains}
             onChange={(event) => setCompressChains(event.currentTarget.checked)}
           />
-          Compress chains
+          체인 압축
         </label>
       </div>
-      <div className="android-hierarchy-scroll">
+      <div
+        ref={scrollContainerRef}
+        className="android-hierarchy-scroll"
+        onClick={(event) => {
+          if (event.target === event.currentTarget) controller.setSelectedUiNodeId(null)
+        }}
+      >
         {controller.uiTreeLoading && !tree && (
-          <div className="android-panel-empty">Loading UI tree…</div>
+          <div className="android-panel-empty">UI 트리 불러오는 중…</div>
         )}
         {controller.uiTreeError && (
-          <Callout intent="warning" title="UI tree unavailable">
+          <Callout intent="warning" title="UI 트리를 사용할 수 없음">
             {controller.uiTreeError}
           </Callout>
         )}
@@ -939,10 +1017,10 @@ function UiTreeHierarchy({
           />
         )}
         {!controller.uiTreeLoading && !controller.uiTreeError && !tree && (
-          <div className="android-panel-empty">No UI tree snapshot.</div>
+          <div className="android-panel-empty">UI 트리 스냅샷이 없습니다.</div>
         )}
         {tree && !hierarchy?.root && (
-          <div className="android-panel-empty">No matching UI nodes.</div>
+          <div className="android-panel-empty">일치하는 UI 노드가 없습니다.</div>
         )}
       </div>
     </section>
@@ -989,7 +1067,7 @@ function CompressedHierarchyRowView({
         <button
           className="android-tree-chevron"
           type="button"
-          aria-label={`${open ? 'Collapse' : 'Expand'} ${rowLabel}`}
+          aria-label={`${open ? '접기' : '펼치기'} ${rowLabel}`}
           disabled={row.children.length === 0}
           onClick={() => onToggle(row)}
         >
@@ -1020,6 +1098,8 @@ function CompressedHierarchyRowView({
                     .filter(Boolean)
                     .join(' ')}
                   type="button"
+                  data-ui-node-id={node.node_id}
+                  data-ui-node-selected={selected ? 'true' : undefined}
                   title={`${node.class_name ?? 'Unknown class'}\nnode_id=${node.node_id}\nbounds=[${node.bounds.left}, ${node.bounds.top}, ${node.bounds.right}, ${node.bounds.bottom}]`}
                   onClick={() => onSelect(node.node_id)}
                   onMouseEnter={() => onHover(node.node_id)}
@@ -1065,21 +1145,30 @@ function UiNodeInspector({
   node,
   frameWidth,
   frameHeight,
-  onUseInMacro,
+  macroCanvasAvailable,
+  onAddFindElement,
 }: {
   controller: AndroidDebugController
   node: AndroidUiNode | null
   frameWidth: number
   frameHeight: number
-  onUseInMacro: (kind: 'find' | 'tap') => void
+  macroCanvasAvailable: boolean
+  onAddFindElement: () => void
 }) {
   if (!node) {
     return (
-      <section className="android-node-inspector" aria-label="Node Inspector">
+      <section className="android-node-inspector" aria-label={ko.panels.nodeInspector}>
         <header className="android-editor-section-heading">
-          <strong>Node Inspector</strong>
+          <strong>{ko.panels.nodeInspector}</strong>
         </header>
-        <div className="android-panel-empty">Select a UI node to inspect it.</div>
+        <div className="android-node-inspector-scroll">
+          <div className="android-panel-empty">검사할 UI 노드를 선택하세요.</div>
+          <UiNodeFindAction
+            disabled
+            macroCanvasAvailable={macroCanvasAvailable}
+            onAddFindElement={onAddFindElement}
+          />
+        </div>
       </section>
     )
   }
@@ -1097,21 +1186,20 @@ function UiNodeInspector({
     bounds.top >= 0 &&
     bounds.right <= frameWidth &&
     bounds.bottom <= frameHeight
-  const canTap = node.visible_to_user && node.enabled && inViewport
   const centerX = (bounds.left + bounds.right) / 2
   const centerY = (bounds.top + bounds.bottom) / 2
   const fields = [
-    ['Node ID', node.node_id],
-    ['Parent', node.parent_id ?? '—'],
-    ['Depth', node.depth.toString()],
-    ['Class', node.class_name ?? '—'],
-    ['Package', node.package_name ?? '—'],
-    ['Text', node.text ?? '—'],
-    ['Description', node.content_description ?? '—'],
-    ['View ID', node.view_id_resource_name ?? '—'],
-    ['Bounds', `${bounds.left}, ${bounds.top} → ${bounds.right}, ${bounds.bottom}`],
-    ['Size', `${width} × ${height}`],
-    ['Center', `${centerX.toFixed(1)}, ${centerY.toFixed(1)}`],
+    { label: '노드 ID', value: node.node_id, code: true },
+    { label: '부모', value: node.parent_id ?? '—', code: true },
+    { label: '깊이', value: node.depth.toString(), code: true },
+    { label: '클래스', value: node.class_name ?? '—', code: true },
+    { label: '패키지', value: node.package_name ?? '—', code: true },
+    { label: '텍스트', value: node.text ?? '—', code: false },
+    { label: '설명', value: node.content_description ?? '—', code: false },
+    { label: '뷰 ID', value: node.view_id_resource_name ?? '—', code: true },
+    { label: '경계', value: `${bounds.left}, ${bounds.top} → ${bounds.right}, ${bounds.bottom}`, code: true },
+    { label: '크기', value: `${width} × ${height}`, code: true },
+    { label: '중앙', value: `${centerX.toFixed(1)}, ${centerY.toFixed(1)}`, code: true },
   ]
   const states = [
     ['clickable', node.clickable],
@@ -1127,20 +1215,20 @@ function UiNodeInspector({
     ['password', node.password],
   ] as const
   return (
-    <section className="android-node-inspector" aria-label="Node Inspector">
+    <section className="android-node-inspector" aria-label={ko.panels.nodeInspector}>
       <header className="android-editor-section-heading">
         <div>
-          <strong>Node Inspector</strong>
+          <strong>{ko.panels.nodeInspector}</strong>
           <small>{nodeTitle(node)}</small>
         </div>
-        {!inViewport && <Tag intent="warning">OFFSCREEN</Tag>}
+        {!inViewport && <Tag intent="warning">화면 밖</Tag>}
       </header>
       <div className="android-node-inspector-scroll">
         <dl className="android-node-fields">
-          {fields.map(([label, value]) => (
+          {fields.map(({ label, value, code }) => (
             <div key={label}>
               <dt>{label}</dt>
-              <dd title={value}>{value}</dd>
+              <dd className={code ? 'code-text' : undefined} title={value}>{value}</dd>
             </div>
           ))}
         </dl>
@@ -1152,44 +1240,14 @@ function UiNodeInspector({
           ))}
         </div>
         <label className="android-selector-preview">
-          <span>Preferred selector</span>
+          <span>권장 선택자</span>
           <textarea readOnly rows={2} value={preferredSelector(node)} />
         </label>
-        <div className="android-node-actions">
-          <ButtonGroup>
-            <Button
-              small
-              icon="add"
-              text="Add Find Element"
-              onClick={() => onUseInMacro('find')}
-            />
-            <Button
-              small
-              icon="selection"
-              text="Add Tap Element"
-              onClick={() => onUseInMacro('tap')}
-            />
-          </ButtonGroup>
-          <Button
-            small
-            intent="primary"
-            icon="locate"
-            text="Tap Center"
-            disabled={!canTap}
-            onClick={() => void controller.tap(centerX, centerY)}
-          />
-          {!canTap && (
-            <small>
-              {!geometryMatches
-                ? 'Tree and viewport geometry do not match.'
-                : !node.visible_to_user
-                  ? 'Node is not visible.'
-                  : !node.enabled
-                    ? 'Node is disabled.'
-                    : 'Node is outside the current viewport.'}
-            </small>
-          )}
-        </div>
+        <UiNodeFindAction
+          disabled={!macroCanvasAvailable}
+          macroCanvasAvailable={macroCanvasAvailable}
+          onAddFindElement={onAddFindElement}
+        />
       </div>
     </section>
   )
@@ -1231,7 +1289,7 @@ function VisionInspector({
           </Button>
         ))}
         {!detections.length && (
-          <div className="android-panel-empty">No detections yet.</div>
+          <div className="android-panel-empty">아직 감지 결과가 없습니다.</div>
         )}
       </div>
       <div className="android-selected-detection">
@@ -1286,7 +1344,7 @@ function MacroInspector({ controller }: { controller: AndroidDebugController }) 
   )
 }
 
-function AndroidConsolePanel({
+export function AndroidConsolePanel({
   controller,
   selectedDetection,
   macroEvents,
@@ -1295,7 +1353,42 @@ function AndroidConsolePanel({
   selectedDetection: VisionDetection | null
   macroEvents: ReturnType<typeof useMacroRuntime>['events']
 }) {
-  const [tab, setTab] = useState<ConsoleTab>('console')
+  const [tab, setTab] = useState<ConsoleTab>('user')
+  const [dismissedUserEvents, setDismissedUserEvents] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  )
+  const [level, setLevel] = useState<UserDebugLevel>('all')
+  const [autoScroll, setAutoScroll] = useState(true)
+  const [clearOnStart, setClearOnStart] = useState(true)
+  const userLogBody = useRef<HTMLDivElement | null>(null)
+
+  const userLogs = useMemo(() => {
+    let lastRuntimeStart = -1
+    if (clearOnStart) {
+      for (let index = macroEvents.length - 1; index >= 0; index -= 1) {
+        if (macroEvents[index]?.type === 'macro.runtime.started') {
+          lastRuntimeStart = index
+          break
+        }
+      }
+    }
+    return macroEvents
+      .slice(lastRuntimeStart + 1)
+      .filter((event) => (
+        event.type === 'macro.user_debug' && !dismissedUserEvents.has(event.event_id)
+      ))
+      .slice(-500)
+  }, [clearOnStart, dismissedUserEvents, macroEvents])
+
+  const shownUserLogs = useMemo(() => userLogs.filter((event) => (
+    level === 'all' || userDebugLevel(event) === level
+  )), [level, userLogs])
+
+  useEffect(() => {
+    if (tab !== 'user' || !autoScroll || !userLogBody.current) return
+    userLogBody.current.scrollTop = userLogBody.current.scrollHeight
+  }, [autoScroll, shownUserLogs, tab])
+
   return (
     <Card
       className="android-console-panel"
@@ -1304,13 +1397,17 @@ function AndroidConsolePanel({
     >
       <header className="android-card-heading">
         <div>
-          <span>Bounded bottom panel</span>
+          <span>{ko.panels.console}</span>
           <strong>
-            {tab === 'console' ? 'Console' : tab === 'vision' ? 'Vision' : 'Macro'}
+            {tab === 'system'
+              ? ko.panels.system
+              : tab === 'user'
+                ? ko.panels.userDebug
+                : tab === 'vision' ? '비전' : '매크로'}
           </strong>
         </div>
-        <div className="android-console-tabs" role="tablist" aria-label="Bottom panel">
-          {(['console', 'vision', 'macro'] as const).map((value) => (
+        <div className="android-console-tabs" role="tablist" aria-label="하단 패널">
+          {(['system', 'user', 'vision', 'macro'] as const).map((value) => (
             <Button
               key={value}
               minimal
@@ -1319,11 +1416,13 @@ function AndroidConsolePanel({
               role="tab"
               aria-selected={tab === value}
               text={
-                value === 'console'
-                  ? `Console (${controller.events.length.toString()})`
+                value === 'system'
+                  ? `${ko.panels.system} (${controller.events.length.toString()})`
+                  : value === 'user'
+                    ? `${ko.panels.userDebug} (${userLogs.length.toString()})`
                   : value === 'vision'
-                    ? 'Vision'
-                    : 'Macro'
+                    ? '비전'
+                    : '매크로'
               }
               onClick={() => setTab(value)}
             />
@@ -1331,7 +1430,7 @@ function AndroidConsolePanel({
         </div>
       </header>
       <div className="android-console-content">
-        {tab === 'console' && (
+        {tab === 'system' && (
           <div className="android-event-list">
             {controller.events.length ? (
               controller.events.map((event) => (
@@ -1347,7 +1446,7 @@ function AndroidConsolePanel({
                 </div>
               ))
             ) : (
-              <div className="android-panel-empty">No debug events yet.</div>
+              <div className="android-panel-empty">아직 디버그 이벤트가 없습니다.</div>
             )}
           </div>
         )}
@@ -1363,9 +1462,87 @@ function AndroidConsolePanel({
             <MacroInspector controller={controller} />
           </div>
         )}
+        {tab === 'user' && (
+          <section className="user-debug-console" aria-label="사용자 디버그 콘솔">
+            <header className="user-debug-console__toolbar">
+              <select
+                aria-label="사용자 디버그 레벨"
+                value={level}
+                onChange={(event) => setLevel(event.target.value as UserDebugLevel)}
+              >
+                <option value="all">모든 레벨</option>
+                <option value="debug">디버그</option>
+                <option value="info">정보</option>
+                <option value="warning">경고</option>
+                <option value="error">오류</option>
+              </select>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={autoScroll}
+                  onChange={(event) => setAutoScroll(event.target.checked)}
+                />
+                자동 스크롤
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={clearOnStart}
+                  onChange={(event) => setClearOnStart(event.target.checked)}
+                />
+                실행 시 비우기
+              </label>
+              <Button
+                small
+                minimal
+                icon="trash"
+                onClick={() => setDismissedUserEvents((current) => {
+                  const next = new Set(current)
+                  userLogs.forEach((event) => next.add(event.event_id))
+                  return next
+                })}
+              >
+                지우기
+              </Button>
+            </header>
+            <div className="user-debug-console__body" ref={userLogBody}>
+              {shownUserLogs.length > 0 ? shownUserLogs.map((event) => {
+                const eventLevel = userDebugLevel(event)
+                return (
+                  <div key={event.event_id} className={`user-debug-row is-${eventLevel}`}>
+                    <time>{new Date(event.timestamp).toLocaleTimeString()}</time>
+                    <Tag minimal intent={userDebugIntent(eventLevel)}>{eventLevel}</Tag>
+                    <span>{userDebugMessage(event)}</span>
+                    <small title={event.runtime_id}>
+                      {event.node_id ?? 'debug'}
+                    </small>
+                  </div>
+                )
+              }) : (
+                <div className="android-panel-empty">아직 사용자 디버그 출력이 없습니다.</div>
+              )}
+            </div>
+          </section>
+        )}
       </div>
     </Card>
   )
+}
+
+function userDebugLevel(event: MacroRuntimeEvent): Exclude<UserDebugLevel, 'all'> {
+  const level = event.payload.level
+  return level === 'debug' || level === 'warning' || level === 'error' ? level : 'info'
+}
+
+function userDebugMessage(event: MacroRuntimeEvent) {
+  return typeof event.payload.message === 'string' ? event.payload.message : ''
+}
+
+function userDebugIntent(level: Exclude<UserDebugLevel, 'all'>) {
+  if (level === 'warning') return 'warning' as const
+  if (level === 'error') return 'danger' as const
+  if (level === 'info') return 'primary' as const
+  return 'none' as const
 }
 
 function StateRows({

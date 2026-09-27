@@ -132,6 +132,58 @@ def test_same_definition_has_isolated_device_runtimes(tmp_path: Path) -> None:
     manager.stop("b")
 
 
+def test_debug_print_is_published_as_structured_user_event(tmp_path: Path) -> None:
+    registry = create_default_node_registry()
+    repository = MacroRepository(FileMacroDefinitionStore(
+        tmp_path / "debug-macros", validator=GraphValidator(registry)
+    ))
+    repository.create(MacroDefinition(
+        id="debug",
+        name="Debug",
+        version=1,
+        nodes=(MacroNode(
+            "print",
+            "debug_print",
+            {"message": "slot selected", "level": "info"},
+        ),),
+        edges=(),
+        entry_node_id="print",
+    ))
+    bindings = DeviceMacroBindingRepository(tmp_path / "debug-bindings.json")
+    bindings.set(DeviceMacroBinding("phone", "debug"))
+    manager = RuntimeManager(
+        repository,
+        bindings,
+        engine_factory=lambda _device_id: GraphEngine(registry),
+        context_factory=lambda device_id, _binding: GraphExecutionContext(
+            device_id=device_id
+        ),
+    )
+
+    manager.start("phone")
+    deadline = time.monotonic() + 1
+    debug_event = None
+    while time.monotonic() < deadline:
+        debug_event = next((
+            event for event in manager.events.history("phone")
+            if event.type == "macro.user_debug"
+        ), None)
+        if debug_event is not None:
+            break
+        time.sleep(0.01)
+
+    assert debug_event is not None
+    assert debug_event.node_id == "print"
+    assert debug_event.runtime_id
+    assert debug_event.macro_id == "debug"
+    assert debug_event.payload == {
+        "screen_id": None,
+        "level": "info",
+        "message": "slot selected",
+    }
+    manager.close()
+
+
 def test_one_active_runtime_per_device_and_offline_pause(tmp_path: Path) -> None:
     _repository, _bindings, manager = setup(tmp_path)
     manager.step("a")

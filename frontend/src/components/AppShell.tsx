@@ -4,8 +4,7 @@ import { Header } from './Header'
 
 export function AppShell() {
   const location = useLocation()
-  const isAndroidDebug = location.pathname.startsWith('/debug')
-  const isFullWorkspace = isAndroidDebug || location.pathname.startsWith('/macros')
+  const isFullWorkspace = location.pathname.startsWith('/debug')
 
   return (
     <div

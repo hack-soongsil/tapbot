@@ -4,28 +4,44 @@ from tapbot.macro import (
     EventEntryNodeIds,
     MacroDefinition,
     MacroNode,
-    ScreenDefinition,
     ScreenLifecycleDispatcher,
 )
-from tapbot.ui_resolution.screens import DEFAULT_SSUTODAY_SCREENS
 from tests.ui_resolution.test_screens import detail_tree, home_tree
 
 
-def definition(screen_id: str) -> MacroDefinition:
-    screen = next(item for item in DEFAULT_SSUTODAY_SCREENS if item.id == screen_id)
+def definition(*screen_ids: str) -> MacroDefinition:
+    entries = {
+        screen_id: EventEntryNodeIds(
+            f"{screen_id}-enter",
+            f"{screen_id}-update",
+            f"{screen_id}-exit",
+        )
+        for screen_id in screen_ids
+    }
+    nodes = tuple(
+        MacroNode(
+            f"{screen_id}-{kind}",
+            f"screen_{kind}",
+            {
+                "screen_id": screen_id,
+                "event": kind,
+                **(
+                    {"interval_ms": 1_000, "skip_if_running": True}
+                    if kind == "update" else {}
+                ),
+            },
+        )
+        for screen_id in screen_ids
+        for kind in ("enter", "update", "exit")
+    )
     return MacroDefinition(
-        id=f"{screen_id}-macro",
-        name=screen_id,
+        id="reservation-macro",
+        name="reservation",
         version=1,
-        nodes=(
-            MacroNode("enter", "screen_enter"),
-            MacroNode("update", "screen_update", {"interval_ms": 1_000, "skip_if_running": True}),
-            MacroNode("exit", "screen_exit"),
-        ),
+        nodes=nodes,
         edges=(),
         entry_node_id=None,
-        screen=ScreenDefinition(screen.id, screen.match),
-        event_entry_node_ids=EventEntryNodeIds("enter", "update", "exit"),
+        screen_event_entry_node_ids=entries,
     )
 
 
@@ -33,7 +49,7 @@ def test_enter_update_and_transition_order() -> None:
     calls: list[tuple[str, str]] = []
     now = [0.0]
     dispatcher = ScreenLifecycleDispatcher(
-        (definition("reservation_home"), definition("reservation_detail")),
+        (definition("reservation_home", "reservation_detail"),),
         lambda _definition, event, _tree: calls.append((event.kind, event.screen_id)),
         monotonic=lambda: now[0],
     )

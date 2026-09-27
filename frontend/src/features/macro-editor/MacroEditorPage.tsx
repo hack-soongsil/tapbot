@@ -12,16 +12,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '../../lib/api-client'
 import { BLOCK_BY_TYPE, cloneDefaultConfig } from './blocks'
 import { BlockPalette } from './BlockPalette'
-import { flowToMacroDefinition, macroDefinitionToFlow } from './graph-converters'
+import { flowToMacroDefinition, macroDefinitionToFlow, migrateLegacyEntry } from './graph-converters'
 import { macroEditorApi } from './api'
 import { MacroCanvas } from './MacroCanvas'
 import { MacroToolbar } from './MacroToolbar'
 import { NodeInspector } from './NodeInspector'
+import { createEmptyMacroDefinition, MACRO_DRAFT_STORAGE_KEY } from './definition-factory'
 import { MacroEventLog } from '../macro-runtime/MacroEventLog'
 import { useMacroRuntime } from '../macro-runtime/useMacroRuntime'
 import type {
   BackendValidationResponse,
-  JsonValue,
   MacroDefinition,
   MacroFlowEdge,
   MacroFlowNode,
@@ -35,49 +35,7 @@ import {
 import '@xyflow/react/dist/style.css'
 import './macro-editor.css'
 
-export const MACRO_DRAFT_STORAGE_KEY = 'tapbot.macro-editor.draft.v1'
-
-const screenMatch = (screenId: string): Record<string, JsonValue> => (
-  screenId === 'reservation_detail'
-    ? {
-        all: [
-          { text: '한 칸은 30분입니다. 예약된 시간은 선택할 수 없어요' },
-          { text: '초기화' },
-          { text_regex: '^[0-9]{4}년 [0-9]{1,2}월 [0-9]{1,2}일\\([월화수목금토일]\\)$' },
-        ],
-      }
-    : {
-        all: [
-          { content_description: '예약 내역' },
-          { content_description: '공지' },
-          { content_description: '예약' },
-          { content_description: '마이' },
-          { text_regex: '^(월|화|수|목|금|토|일) [0-9]{1,2}$', min_count: 1 },
-        ],
-      }
-)
-
-const emptyDefinition = (): MacroDefinition => ({
-  id: 'untitled-macro',
-  name: 'Untitled Macro',
-  version: 1,
-  screen: {
-    id: 'reservation_home',
-    match: screenMatch('reservation_home'),
-  },
-  event_entry_node_ids: {
-    enter: 'event-enter',
-    update: 'event-update',
-    exit: 'event-exit',
-  },
-  nodes: [
-    { id: 'event-enter', type: 'screen_enter', config: {}, position: { x: 80, y: 60 } },
-    { id: 'event-update', type: 'screen_update', config: { interval_ms: 1_000, skip_if_running: true }, position: { x: 340, y: 60 } },
-    { id: 'event-exit', type: 'screen_exit', config: {}, position: { x: 600, y: 60 } },
-  ],
-  edges: [],
-  metadata: {},
-})
+export { MACRO_DRAFT_STORAGE_KEY } from './definition-factory'
 
 function loadDraft(): MacroDefinition {
   try {
@@ -89,7 +47,7 @@ function loadDraft(): MacroDefinition {
   } catch {
     // A corrupt or unavailable draft must not prevent the editor from opening.
   }
-  return emptyDefinition()
+  return createEmptyMacroDefinition()
 }
 
 export function MacroEditorPage() {
@@ -97,7 +55,7 @@ export function MacroEditorPage() {
   const runtimeDeviceId = query.get('device_id')
   const requestedMacroId = query.get('macro_id')
   const [initialState] = useState(() => {
-    const definition = loadDraft()
+    const definition = migrateLegacyEntry(loadDraft())
     return { definition, flow: macroDefinitionToFlow(definition) }
   })
   const initial = initialState.definition
@@ -109,6 +67,9 @@ export function MacroEditorPage() {
     entry_node_id: initial.entry_node_id,
     screen: initial.screen,
     event_entry_node_ids: initial.event_entry_node_ids,
+    screen_event_entry_node_ids: initial.screen_event_entry_node_ids,
+    functions: initial.functions,
+    variables: initial.variables,
     metadata: initial.metadata,
   }))
   const [nodes, setNodes] = useState<MacroFlowNode[]>(initialFlow.nodes)
@@ -128,15 +89,19 @@ export function MacroEditorPage() {
     let active = true
     void macroEditorApi.get(requestedMacroId).then((next) => {
       if (!active) return
-      const flow = macroDefinitionToFlow(next)
+      const normalized = migrateLegacyEntry(next)
+      const flow = macroDefinitionToFlow(normalized)
       setMeta({
-        id: next.id,
-        name: next.name,
-        version: next.version,
-        entry_node_id: next.entry_node_id,
-        screen: next.screen,
-        event_entry_node_ids: next.event_entry_node_ids,
-        metadata: next.metadata,
+        id: normalized.id,
+        name: normalized.name,
+        version: normalized.version,
+        entry_node_id: normalized.entry_node_id,
+        screen: normalized.screen,
+        event_entry_node_ids: normalized.event_entry_node_ids,
+        screen_event_entry_node_ids: normalized.screen_event_entry_node_ids,
+        functions: normalized.functions,
+        variables: normalized.variables,
+        metadata: normalized.metadata,
       })
       setNodes(flow.nodes)
       setEdges(flow.edges)
@@ -144,7 +109,7 @@ export function MacroEditorPage() {
       setMessage(null)
     }).catch((error: unknown) => {
       if (!active) return
-      setMessage(errorMessage(error, 'Could not load the device macro.'))
+      setMessage(errorMessage(error, '기기 매크로를 불러오지 못했습니다.'))
       setMessageIntent('danger')
     })
     return () => { active = false }
@@ -204,7 +169,7 @@ export function MacroEditorPage() {
       if (!anchor || anchor.target === '_blank') return
       const destination = new URL(anchor.href, window.location.href)
       if (destination.origin !== window.location.origin) return
-      if (!window.confirm('Discard unsaved macro changes?')) {
+      if (!window.confirm('저장하지 않은 매크로 변경 사항을 버릴까요?')) {
         event.preventDefault()
         event.stopPropagation()
       }
@@ -231,28 +196,28 @@ export function MacroEditorPage() {
 
   const addNode = useCallback((type: MacroNodeType, position?: { x: number; y: number }) => {
     const block = BLOCK_BY_TYPE.get(type)
-    if (!block) return
-    setNodes((current) => {
-      const id = nextNodeId(type, current)
-      const node: MacroFlowNode = {
-        id,
-        type: block.category,
-        position: position ?? { x: 120 + (current.length % 3) * 240, y: 100 + Math.floor(current.length / 3) * 170 },
-        data: {
-          nodeType: type,
-          category: block.category,
-          label: block.label,
-          definitionLabel: undefined,
-          config: cloneDefaultConfig(type),
-          isEntry: false,
-          errors: [],
-        },
-      }
-      setSelectedNodeId(id)
-      return [...current, node]
-    })
+    if (!block) return null
+    const id = nextNodeId(type, nodes)
+    const config = cloneDefaultConfig(type)
+    const node: MacroFlowNode = {
+      id,
+      type: block.category,
+      position: position ?? { x: 120 + (nodes.length % 3) * 240, y: 100 + Math.floor(nodes.length / 3) * 170 },
+      data: {
+        nodeType: type,
+        category: block.category,
+        label: block.label,
+        definitionLabel: undefined,
+        config,
+        isEntry: false,
+        errors: [],
+      },
+    }
+    setSelectedNodeId(id)
+    setNodes((current) => [...current, node])
     markChanged()
-  }, [])
+    return { id, type, config }
+  }, [nodes])
 
   const changeNodes = (changes: NodeChange<MacroFlowNode>[]) => {
     setNodes((current) => applyNodeChanges(changes, current))
@@ -306,7 +271,7 @@ export function MacroEditorPage() {
   const validate = async () => {
     const clientIssues = validateClient()
     if (clientIssues.length > 0) {
-      show('Fix validation errors before saving or running.', 'danger')
+      show('저장하거나 실행하기 전에 검증 오류를 수정하세요.', 'danger')
       return false
     }
     try {
@@ -314,18 +279,18 @@ export function MacroEditorPage() {
       const backendIssues = mapBackendValidationErrors(response)
       setIssues(backendIssues)
       if (!response.valid || backendIssues.length > 0) {
-        show('Backend validation found graph errors.', 'danger')
+        show('백엔드 검증에서 그래프 오류를 발견했습니다.', 'danger')
         return false
       }
-      show('Graph is valid.', 'success')
+      show('그래프가 유효합니다.', 'success')
     } catch (error) {
       const backendIssues = issuesFromApiError(error)
       if (backendIssues.length > 0) {
         setIssues(backendIssues)
-        show('Backend validation found graph errors.', 'danger')
+        show('백엔드 검증에서 그래프 오류를 발견했습니다.', 'danger')
         return false
       }
-      show('Client validation passed. Backend validation is unavailable.', 'warning')
+      show('클라이언트 검증은 통과했지만 백엔드 검증을 사용할 수 없습니다.', 'warning')
     }
     return true
   }
@@ -333,7 +298,7 @@ export function MacroEditorPage() {
   const save = async () => {
     const clientIssues = validateClient()
     if (clientIssues.length > 0) {
-      show('Fix validation errors before saving.', 'danger')
+      show('저장하기 전에 검증 오류를 수정하세요.', 'danger')
       return
     }
     setBusy(true)
@@ -343,20 +308,20 @@ export function MacroEditorPage() {
       const backendIssues = mapBackendValidationErrors(response)
       if (!response.valid || backendIssues.length > 0) {
         setIssues(backendIssues)
-        show('Saved locally, but backend validation rejected the graph.', 'danger')
+        show('로컬에는 저장했지만 백엔드 검증에서 그래프를 거부했습니다.', 'danger')
         return
       }
       const saved = await macroEditorApi.save(definition)
       setMeta((current) => ({ ...current, version: saved.version }))
       setIssues([])
-      show('Macro saved.', 'success')
+      show('매크로를 저장했습니다.', 'success')
     } catch (error) {
       const backendIssues = issuesFromApiError(error)
       if (backendIssues.length > 0) {
         setIssues(backendIssues)
-        show('Saved locally, but backend validation rejected the graph.', 'danger')
+        show('로컬에는 저장했지만 백엔드 검증에서 그래프를 거부했습니다.', 'danger')
       } else {
-        show('Saved locally. Backend macro storage is unavailable.', 'warning')
+        show('로컬에 저장했습니다. 백엔드 매크로 저장소는 사용할 수 없습니다.', 'warning')
       }
     } finally {
       setDirty(false)
@@ -366,7 +331,7 @@ export function MacroEditorPage() {
 
   const run = async () => {
     if (!runtimeDeviceId) {
-      show('Open this macro from a device to run it.', 'warning')
+      show('실행하려면 기기에서 이 매크로를 여세요.', 'warning')
       return
     }
     if (!(await validate())) return
@@ -379,9 +344,9 @@ export function MacroEditorPage() {
       await macroEditorApi.bind(runtimeDeviceId, definition.id)
       const response = await macroEditorApi.command(runtimeDeviceId, 'start')
       setRunStatus(response.runtime.state)
-      show(`Macro started on ${runtimeDeviceId}.`, 'success')
+      show(`${runtimeDeviceId}에서 매크로를 시작했습니다.`, 'success')
     } catch (error) {
-      show(errorMessage(error, 'Run API is unavailable until macro CRUD is enabled.'), 'danger')
+      show(errorMessage(error, '매크로 CRUD가 활성화될 때까지 실행 API를 사용할 수 없습니다.'), 'danger')
     } finally {
       setBusy(false)
     }
@@ -389,16 +354,16 @@ export function MacroEditorPage() {
 
   const stop = async () => {
     if (!runtimeDeviceId) {
-      show('Open this macro from a device to control its runtime.', 'warning')
+      show('실행 상태를 제어하려면 기기에서 이 매크로를 여세요.', 'warning')
       return
     }
     setBusy(true)
     try {
       const response = await macroEditorApi.command(runtimeDeviceId, 'stop')
       setRunStatus(response.runtime.state)
-      show('Macro stopped.', 'success')
+      show('매크로를 중지했습니다.', 'success')
     } catch (error) {
-      show(errorMessage(error, 'Could not stop the macro.'), 'danger')
+      show(errorMessage(error, '매크로를 중지하지 못했습니다.'), 'danger')
     } finally {
       setBusy(false)
     }
@@ -406,7 +371,7 @@ export function MacroEditorPage() {
 
   const runtimeCommand = async (name: 'pause' | 'resume' | 'step' | 'reset') => {
     if (!runtimeDeviceId) {
-      show('Open this macro from a device to control its runtime.', 'warning')
+      show('실행 상태를 제어하려면 기기에서 이 매크로를 여세요.', 'warning')
       return
     }
     setBusy(true)
@@ -422,37 +387,41 @@ export function MacroEditorPage() {
   }
 
   const reset = () => {
-    if (dirty && !window.confirm('Discard unsaved macro changes?')) return
-    loadDefinition(emptyDefinition())
+    if (dirty && !window.confirm('저장하지 않은 매크로 변경 사항을 버릴까요?')) return
+    loadDefinition(createEmptyMacroDefinition())
   }
 
   const loadSavedDraft = () => {
-    if (dirty && !window.confirm('Discard unsaved macro changes?')) return
+    if (dirty && !window.confirm('저장하지 않은 매크로 변경 사항을 버릴까요?')) return
     loadDefinition(loadDraft())
-    show('Loaded the latest local draft.', 'success')
+    show('최신 로컬 초안을 불러왔습니다.', 'success')
   }
 
   const duplicate = () => {
     setMeta((current) => ({
       ...current,
       id: `${current.id}-copy`,
-      name: `${current.name} Copy`,
+      name: `${current.name} 복사본`,
       version: 1,
     }))
     setDirty(true)
-    show('Created an unsaved copy.', 'success')
+    show('저장되지 않은 복사본을 만들었습니다.', 'success')
   }
 
   const loadDefinition = (next: MacroDefinition) => {
-    const flow = macroDefinitionToFlow(next)
+    const normalized = migrateLegacyEntry(next)
+    const flow = macroDefinitionToFlow(normalized)
     setMeta({
-      id: next.id,
-      name: next.name,
-      version: next.version,
-      entry_node_id: next.entry_node_id,
-      screen: next.screen,
-      event_entry_node_ids: next.event_entry_node_ids,
-      metadata: next.metadata,
+      id: normalized.id,
+      name: normalized.name,
+      version: normalized.version,
+      entry_node_id: normalized.entry_node_id,
+      screen: normalized.screen,
+      event_entry_node_ids: normalized.event_entry_node_ids,
+      screen_event_entry_node_ids: normalized.screen_event_entry_node_ids,
+      functions: normalized.functions,
+      variables: normalized.variables,
+      metadata: normalized.metadata,
     })
     setNodes(flow.nodes)
     setEdges(flow.edges)
@@ -475,16 +444,8 @@ export function MacroEditorPage() {
         busy={busy}
         runStatus={liveRuntime.runtime?.state ?? runStatus}
         runtimeVersion={liveRuntime.runtime?.definition_version}
-        screenId={meta.screen?.id}
         onNameChange={(name) => {
           setMeta((current) => ({ ...current, name }))
-          markChanged()
-        }}
-        onScreenChange={(screenId) => {
-          setMeta((current) => ({
-            ...current,
-            screen: { id: screenId, match: screenMatch(screenId) },
-          }))
           markChanged()
         }}
         onNew={reset}
@@ -524,12 +485,14 @@ export function MacroEditorPage() {
             markChanged()
           }}
           onDelete={deleteSelected}
+          functions={definition.functions ?? []}
+          variables={definition.variables ?? []}
         />
       </div>
       {runtimeDeviceId && (
         <div className="macro-runtime-bottom">
           <span className={liveRuntime.connected ? 'is-connected' : 'is-disconnected'}>
-            {liveRuntime.connected ? 'Live' : 'Reconnecting'} · {liveRuntime.runtime?.runtime_id ?? 'No runtime'}
+            {liveRuntime.connected ? '실시간 연결' : '다시 연결 중'} · {liveRuntime.runtime?.runtime_id ?? '실행 없음'}
           </span>
           <MacroEventLog events={liveRuntime.events} />
         </div>
@@ -584,6 +547,9 @@ function isMacroDefinition(value: unknown): value is MacroDefinition {
     (typeof candidate.entry_node_id === 'string' || (
       typeof candidate.event_entry_node_ids === 'object' &&
       candidate.event_entry_node_ids !== null
+    ) || (
+      typeof candidate.screen_event_entry_node_ids === 'object' &&
+      candidate.screen_event_entry_node_ids !== null
     )) &&
     Array.isArray(candidate.nodes) &&
     Array.isArray(candidate.edges) &&

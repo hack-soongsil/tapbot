@@ -169,6 +169,140 @@ class EventEntryNodeIds:
         return tuple(value for value in (self.enter, self.update, self.exit) if value)
 
 
+_FUNCTION_PORT_TYPES = {
+    "any", "bool", "int", "float", "string", "position", "rect", "element"
+}
+
+
+@dataclass(frozen=True, slots=True)
+class FunctionPortDefinition:
+    id: str
+    type: str
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("function port id must not be empty")
+        if self.type not in _FUNCTION_PORT_TYPES:
+            raise ValueError(f"unsupported function port type: {self.type!r}")
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> FunctionPortDefinition:
+        return cls(
+            id=_text(value.get("id", ""), "function port id"),
+            type=_text(value.get("type", ""), "function port type"),
+        )
+
+    def to_dict(self) -> JsonObject:
+        return {"id": self.id, "type": self.type}
+
+
+@dataclass(frozen=True, slots=True)
+class MacroFunctionDefinition:
+    id: str
+    name: str
+    inputs: tuple[FunctionPortDefinition, ...]
+    outputs: tuple[FunctionPortDefinition, ...]
+    nodes: tuple[MacroNode, ...]
+    edges: tuple[MacroEdge, ...]
+    entry_node_id: str
+    return_node_id: str
+
+    def __post_init__(self) -> None:
+        input_config = [port.to_dict() for port in self.inputs]
+        output_config = [port.to_dict() for port in self.outputs]
+        nodes = tuple(
+            MacroNode(
+                node.id,
+                node.type,
+                {
+                    **node.config,
+                    **({"inputs": input_config} if node.id == self.entry_node_id else {}),
+                    **({"outputs": output_config} if node.id == self.return_node_id else {}),
+                },
+                node.position,
+                node.label,
+            )
+            for node in self.nodes
+        )
+        if nodes != self.nodes:
+            object.__setattr__(self, "nodes", nodes)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> MacroFunctionDefinition:
+        raw_nodes = value.get("nodes", [])
+        raw_edges = value.get("edges", [])
+        raw_inputs = value.get("inputs", [])
+        raw_outputs = value.get("outputs", [])
+        if not all(isinstance(items, list) for items in (
+            raw_nodes, raw_edges, raw_inputs, raw_outputs
+        )):
+            raise ValueError("function inputs, outputs, nodes, and edges must be arrays")
+        nodes, edges = _migrate_click_screen_elements(
+            tuple(MacroNode.from_dict(_mapping(item, "function node")) for item in raw_nodes),
+            tuple(MacroEdge.from_dict(_mapping(item, "function edge")) for item in raw_edges),
+        )
+        return cls(
+            id=_text(value.get("id", ""), "function id"),
+            name=_text(value.get("name", ""), "function name"),
+            inputs=tuple(
+                FunctionPortDefinition.from_dict(_mapping(item, "function input"))
+                for item in raw_inputs
+            ),
+            outputs=tuple(
+                FunctionPortDefinition.from_dict(_mapping(item, "function output"))
+                for item in raw_outputs
+            ),
+            nodes=nodes,
+            edges=edges,
+            entry_node_id=_text(value.get("entry_node_id", ""), "function entry node id"),
+            return_node_id=_text(value.get("return_node_id", ""), "function return node id"),
+        )
+
+    def to_dict(self) -> JsonObject:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "inputs": [port.to_dict() for port in self.inputs],
+            "outputs": [port.to_dict() for port in self.outputs],
+            "nodes": [node.to_dict() for node in self.nodes],
+            "edges": [edge.to_dict() for edge in self.edges],
+            "entry_node_id": self.entry_node_id,
+            "return_node_id": self.return_node_id,
+        }
+
+
+_VARIABLE_TYPES = {"bool", "int", "float", "string", "position", "rect", "element"}
+
+
+@dataclass(frozen=True, slots=True)
+class MacroVariableDefinition:
+    name: str
+    type: str
+    default: JsonValue = None
+
+    def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("variable name must not be empty")
+        if self.type not in _VARIABLE_TYPES:
+            raise ValueError(f"unsupported variable type: {self.type!r}")
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> MacroVariableDefinition:
+        default = value.get("default")
+        assert_json_value(default, name="variable default")
+        return cls(
+            name=_text(value.get("name", ""), "variable name"),
+            type=_text(value.get("type", ""), "variable type"),
+            default=default,
+        )
+
+    def to_dict(self) -> JsonObject:
+        result: JsonObject = {"name": self.name, "type": self.type}
+        if self.default is not None:
+            result["default"] = _json_copy(self.default)
+        return result
+
+
 @dataclass(frozen=True, slots=True)
 class MacroDefinition:
     id: str
@@ -180,6 +314,9 @@ class MacroDefinition:
     metadata: JsonObject = field(default_factory=dict)
     screen: ScreenDefinition | None = None
     event_entry_node_ids: EventEntryNodeIds | None = None
+    screen_event_entry_node_ids: dict[str, EventEntryNodeIds] | None = None
+    functions: tuple[MacroFunctionDefinition, ...] = ()
+    variables: tuple[MacroVariableDefinition, ...] = ()
 
     def __post_init__(self) -> None:
         if self.event_entry_node_ids is None and self.entry_node_id:
@@ -188,6 +325,28 @@ class MacroDefinition:
                 "event_entry_node_ids",
                 EventEntryNodeIds(enter=self.entry_node_id),
             )
+        functions_by_id = {function.id: function for function in self.functions}
+        variables_by_name = {variable.name: variable for variable in self.variables}
+        object.__setattr__(self, "nodes", _with_variable_definitions(
+            _with_function_call_signatures(self.nodes, functions_by_id),
+            variables_by_name,
+        ))
+        object.__setattr__(self, "functions", tuple(
+            MacroFunctionDefinition(
+                function.id,
+                function.name,
+                function.inputs,
+                function.outputs,
+                _with_variable_definitions(
+                    _with_function_call_signatures(function.nodes, functions_by_id),
+                    variables_by_name,
+                ),
+                function.edges,
+                function.entry_node_id,
+                function.return_node_id,
+            )
+            for function in self.functions
+        ))
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> MacroDefinition:
@@ -211,18 +370,80 @@ class MacroDefinition:
             )
         )
         raw_screen = value.get("screen")
+        raw_screen_event_entries = value.get("screen_event_entry_node_ids")
+        raw_functions = value.get("functions", [])
+        raw_variables = value.get("variables", [])
+        if not isinstance(raw_functions, list):
+            raise ValueError("macro functions must be an array")
+        if not isinstance(raw_variables, list):
+            raise ValueError("macro variables must be an array")
+        screen_event_entries = (
+            None
+            if raw_screen_event_entries is None
+            else {
+                _text(
+                    screen_id,
+                    "screen event screen id",
+                ): EventEntryNodeIds.from_dict(
+                    _mapping(entries, f"screen event entries for {screen_id}")
+                )
+                for screen_id, entries in _mapping(
+                    raw_screen_event_entries,
+                    "screen_event_entry_node_ids",
+                ).items()
+            }
+        )
+        # The global lifecycle shape remains readable, but is normalized into the
+        # per-screen model whenever the legacy definition identifies its screen.
+        migrated_screen_id: str | None = None
+        if (
+            screen_event_entries is None
+            and event_entries is not None
+            and raw_screen is not None
+        ):
+            legacy_screen = ScreenDefinition.from_dict(_mapping(raw_screen, "screen"))
+            screen_event_entries = {legacy_screen.id: event_entries}
+            migrated_screen_id = legacy_screen.id
+        parsed_nodes = tuple(
+            MacroNode.from_dict(_mapping(item, "macro node"))
+            for item in raw_nodes
+        )
+        parsed_edges = tuple(
+            MacroEdge.from_dict(_mapping(item, "macro edge"))
+            for item in raw_edges
+        )
+        parsed_nodes, parsed_edges = _migrate_click_screen_elements(
+            parsed_nodes,
+            parsed_edges,
+        )
+        if migrated_screen_id is not None and event_entries is not None:
+            entry_kinds = {
+                node_id: kind
+                for kind in ("enter", "update", "exit")
+                if (node_id := event_entries.get(kind)) is not None
+            }
+            parsed_nodes = tuple(
+                MacroNode(
+                    id=node.id,
+                    type=node.type,
+                    config={
+                        **node.config,
+                        "screen_id": migrated_screen_id,
+                        "event": entry_kinds[node.id],
+                    },
+                    position=node.position,
+                    label=node.label,
+                )
+                if node.id in entry_kinds
+                else node
+                for node in parsed_nodes
+            )
         return cls(
             id=_text(value.get("id", ""), "macro id"),
             name=_text(value.get("name", ""), "macro name"),
             version=version,
-            nodes=tuple(
-                MacroNode.from_dict(_mapping(item, "macro node"))
-                for item in raw_nodes
-            ),
-            edges=tuple(
-                MacroEdge.from_dict(_mapping(item, "macro edge"))
-                for item in raw_edges
-            ),
+            nodes=parsed_nodes,
+            edges=parsed_edges,
             entry_node_id=entry_node_id,
             metadata=_json_object(value.get("metadata", {}), name="metadata"),
             screen=(
@@ -231,6 +452,15 @@ class MacroDefinition:
                 else ScreenDefinition.from_dict(_mapping(raw_screen, "screen"))
             ),
             event_entry_node_ids=event_entries,
+            screen_event_entry_node_ids=screen_event_entries,
+            functions=tuple(
+                MacroFunctionDefinition.from_dict(_mapping(item, "macro function"))
+                for item in raw_functions
+            ),
+            variables=tuple(
+                MacroVariableDefinition.from_dict(_mapping(item, "macro variable"))
+                for item in raw_variables
+            ),
         )
 
     @classmethod
@@ -247,12 +477,22 @@ class MacroDefinition:
             "edges": [edge.to_dict() for edge in self.edges],
             "metadata": _json_copy(self.metadata),
         }
-        if self.entry_node_id is not None:
+        canonical_lifecycle = self.screen_event_entry_node_ids is not None
+        if self.entry_node_id is not None and not canonical_lifecycle:
             result["entry_node_id"] = self.entry_node_id
-        if self.screen is not None:
+        if self.screen is not None and not canonical_lifecycle:
             result["screen"] = self.screen.to_dict()
-        if self.event_entry_node_ids is not None:
+        if self.event_entry_node_ids is not None and not canonical_lifecycle:
             result["event_entry_node_ids"] = self.event_entry_node_ids.to_dict()
+        if self.screen_event_entry_node_ids is not None:
+            result["screen_event_entry_node_ids"] = {
+                screen_id: entries.to_dict()
+                for screen_id, entries in self.screen_event_entry_node_ids.items()
+            }
+        if self.functions:
+            result["functions"] = [function.to_dict() for function in self.functions]
+        if self.variables:
+            result["variables"] = [variable.to_dict() for variable in self.variables]
         return result
 
     def to_json(self, *, indent: int | None = 2) -> str:
@@ -268,7 +508,20 @@ class MacroDefinition:
 
         return MacroDefinition.from_dict(self.to_dict())
 
-    def entry_for(self, event_kind: str = "enter") -> str | None:
+    def entry_for(
+        self,
+        event_kind: str = "enter",
+        *,
+        screen_id: str | None = None,
+    ) -> str | None:
+        if self.screen_event_entry_node_ids is not None:
+            if screen_id is not None:
+                entries = self.screen_event_entry_node_ids.get(screen_id)
+                return None if entries is None else entries.get(event_kind)
+            if len(self.screen_event_entry_node_ids) == 1:
+                entries = next(iter(self.screen_event_entry_node_ids.values()))
+                return entries.get(event_kind)
+            return None
         if self.event_entry_node_ids is not None:
             selected = self.event_entry_node_ids.get(event_kind)
             if selected is not None:
@@ -277,11 +530,168 @@ class MacroDefinition:
 
     @property
     def entry_node_ids(self) -> tuple[str, ...]:
+        if self.screen_event_entry_node_ids is not None:
+            return tuple(
+                node_id
+                for entries in self.screen_event_entry_node_ids.values()
+                for node_id in entries.values
+            )
         if self.event_entry_node_ids is not None:
             values = self.event_entry_node_ids.values
             if values:
                 return values
         return () if self.entry_node_id is None else (self.entry_node_id,)
+
+    @property
+    def has_screen_lifecycle(self) -> bool:
+        return bool(self.screen_event_entry_node_ids) or self.screen is not None
+
+
+def _with_function_call_signatures(
+    nodes: tuple[MacroNode, ...],
+    functions: dict[str, MacroFunctionDefinition],
+) -> tuple[MacroNode, ...]:
+    normalized: list[MacroNode] = []
+    for node in nodes:
+        function_id = node.config.get("function_id") if node.type == "call_function" else None
+        function = functions.get(function_id) if isinstance(function_id, str) else None
+        if function is None:
+            normalized.append(node)
+            continue
+        normalized.append(MacroNode(
+            node.id,
+            node.type,
+            {
+                **node.config,
+                "inputs": [port.to_dict() for port in function.inputs],
+                "outputs": [port.to_dict() for port in function.outputs],
+            },
+            node.position,
+            node.label,
+        ))
+    return tuple(normalized)
+
+
+def _with_variable_definitions(
+    nodes: tuple[MacroNode, ...],
+    variables: dict[str, MacroVariableDefinition],
+) -> tuple[MacroNode, ...]:
+    normalized: list[MacroNode] = []
+    for node in nodes:
+        name = node.config.get("name") if node.type in {"set_variable", "get_variable"} else None
+        variable = variables.get(name) if isinstance(name, str) else None
+        if variable is None:
+            normalized.append(node)
+            continue
+        config = {**node.config, "name": variable.name, "type": variable.type}
+        if node.type == "set_variable":
+            config["default"] = _json_copy(variable.default)
+        normalized.append(MacroNode(
+            node.id,
+            node.type,
+            config,
+            node.position,
+            node.label,
+        ))
+    return tuple(normalized)
+
+
+def _migrate_click_screen_elements(
+    nodes: tuple[MacroNode, ...],
+    edges: tuple[MacroEdge, ...],
+) -> tuple[tuple[MacroNode, ...], tuple[MacroEdge, ...]]:
+    legacy = tuple(node for node in nodes if node.type == "click_screen_element")
+    if not legacy:
+        return nodes, edges
+    used_node_ids = {node.id for node in nodes}
+    used_edge_ids = {edge.id for edge in edges}
+    click_ids: dict[str, str] = {}
+    migrated_nodes: list[MacroNode] = []
+    generated_edges: list[MacroEdge] = []
+    for node in nodes:
+        if node.type != "click_screen_element":
+            migrated_nodes.append(node)
+            continue
+        click_id = _unique_graph_id(f"{node.id}-click", used_node_ids)
+        used_node_ids.add(click_id)
+        click_ids[node.id] = click_id
+        click_config = node.config.get("click", {})
+        click_options = click_config if isinstance(click_config, dict) else {}
+        sampling_mode = click_options.get("mode", "center")
+        if sampling_mode not in {"center", "uniform", "normal"}:
+            sampling_mode = "center"
+        duration_ms = click_options.get("duration_ms", 70)
+        migrated_nodes.extend((
+            MacroNode(
+                node.id,
+                "find_screen_element",
+                {
+                    "screen_id": node.config.get("screen_id"),
+                    "element_id": node.config.get("element_id"),
+                    "params": node.config.get("params", {}),
+                },
+                node.position,
+                "Find Screen Element",
+            ),
+            MacroNode(
+                click_id,
+                "click_element",
+                {
+                    "sampling_mode": sampling_mode,
+                    "click": {"duration_ms": duration_ms},
+                },
+                (
+                    None
+                    if node.position is None
+                    else NodePosition(node.position.x + 260, node.position.y)
+                ),
+                "Click Element",
+            ),
+        ))
+        exec_id = _unique_graph_id(f"{node.id}-to-click", used_edge_ids)
+        used_edge_ids.add(exec_id)
+        data_id = _unique_graph_id(f"{node.id}-element", used_edge_ids)
+        used_edge_ids.add(data_id)
+        generated_edges.extend((
+            MacroEdge(
+                exec_id,
+                node.id,
+                click_id,
+                source_handle="exec_out",
+                target_handle="exec_in",
+                kind="exec",
+            ),
+            MacroEdge(
+                data_id,
+                node.id,
+                click_id,
+                source_handle="element",
+                target_handle="element",
+                kind="data",
+            ),
+        ))
+    migrated_edges = tuple(
+        MacroEdge(
+            edge.id,
+            click_ids.get(edge.source, edge.source),
+            edge.target,
+            edge.source_handle,
+            edge.condition,
+            edge.target_handle,
+            edge.kind,
+        )
+        for edge in edges
+    )
+    return tuple(migrated_nodes), (*migrated_edges, *generated_edges)
+
+
+def _unique_graph_id(prefix: str, used: set[str]) -> str:
+    if prefix not in used:
+        return prefix
+    index = 2
+    while f"{prefix}-{index}" in used:
+        index += 1
+    return f"{prefix}-{index}"
 
 
 class NodeStatus(StrEnum):
@@ -421,6 +831,12 @@ class GraphExecutionContext:
     control_state: dict[str, int] = field(default_factory=dict)
     input_values: dict[str, object] = field(default_factory=dict)
     node_outputs: dict[str, dict[str, object]] = field(default_factory=dict)
+    function_inputs: dict[str, object] = field(default_factory=dict)
+    function_invoker: Callable[[str, dict[str, object]], dict[str, object]] | None = field(
+        default=None,
+        repr=False,
+    )
+    call_stack: tuple[str, ...] = field(default_factory=tuple)
     sleep: Callable[[float], None] | None = field(default=None, repr=False)
     ensure_active: Callable[[], None] | None = field(default=None, repr=False)
     monotonic: Callable[[], float] | None = field(default=None, repr=False)

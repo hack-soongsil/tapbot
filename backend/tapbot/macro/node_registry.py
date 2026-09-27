@@ -70,7 +70,6 @@ def create_default_node_registry(
         RandomClickAreaNode,
         RandomDragAreaNode,
         ClickElementNode,
-        ClickScreenElementNode,
     )
     from tapbot.macro.nodes.condition import (
         ElementExistsNode,
@@ -88,6 +87,7 @@ def create_default_node_registry(
     )
     from tapbot.macro.nodes.ui import (
         FindElementNode,
+        FindScreenElementNode,
         ReadUiTreeNode,
         RequireElementNode,
     )
@@ -97,6 +97,13 @@ def create_default_node_registry(
         WaitForStateNode,
     )
     from tapbot.macro.nodes.event import ScreenEventNode
+    from tapbot.macro.nodes.debug import DebugPrintNode
+    from tapbot.macro.nodes.function import (
+        CallFunctionNode,
+        FunctionEntryNode,
+        FunctionReturnNode,
+    )
+    from tapbot.macro.nodes.variable import GetVariableNode, SetVariableNode
 
     sampler = (
         tap_point_sampler
@@ -109,12 +116,18 @@ def create_default_node_registry(
             "screen_enter": ScreenEventNode("enter"),
             "screen_update": ScreenEventNode("update"),
             "screen_exit": ScreenEventNode("exit"),
+            "debug_print": DebugPrintNode(),
+            "function_entry": FunctionEntryNode(),
+            "function_return": FunctionReturnNode(),
+            "call_function": CallFunctionNode(),
+            "set_variable": SetVariableNode(),
+            "get_variable": GetVariableNode(),
             "click_point": ClickPointNode(),
             "drag_point": DragPointNode(),
             "random_click_area": RandomClickAreaNode(area_sampler),
             "random_drag_area": RandomDragAreaNode(area_sampler),
-            "click_element": ClickElementNode(),
-            "click_screen_element": ClickScreenElementNode(),
+            "click_element": ClickElementNode(area_sampler),
+            "find_screen_element": FindScreenElementNode(),
             "tap_element": TapElementNode(sampler),
             "tap_point": TapPointNode(),
             "swipe": SwipeNode(),

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { flowToMacroDefinition, macroDefinitionToFlow } from './graph-converters'
-import type { MacroDefinition } from './types'
+import {
+  flowToMacroDefinition,
+  flowToMacroFunction,
+  macroDefinitionToFlow,
+  macroFunctionToFlow,
+} from './graph-converters'
+import { getNodePorts } from './blocks'
+import type { MacroDefinition, MacroFunctionDefinition } from './types'
 import { validateMacroDefinition } from './validation'
 
 const definition: MacroDefinition = {
@@ -44,10 +50,16 @@ describe('macro graph converters', () => {
     const restored = flowToMacroDefinition(definition, flow.nodes, flow.edges)
 
     expect(restored.entry_node_id).toBeUndefined()
-    expect(restored.event_entry_node_ids).toEqual({
-      enter: 'event-enter', update: 'event-update', exit: 'event-exit',
+    expect(restored.event_entry_node_ids).toBeUndefined()
+    expect(restored.screen_event_entry_node_ids).toEqual({
+      reservation_home: {
+        enter: 'event-home-enter', update: 'event-home-update', exit: 'event-home-exit',
+      },
+      reservation_detail: {
+        enter: 'event-detail-enter', update: 'event-detail-update', exit: 'event-detail-exit',
+      },
     })
-    expect(restored.edges[0]).toMatchObject({ source: 'event-enter', target: 'find' })
+    expect(restored.edges[0]).toMatchObject({ source: 'event-home-enter', target: 'find' })
     const restoredFind = restored.nodes.find((node) => node.id === 'find')!
     expect(restoredFind).not.toHaveProperty('selected')
     expect(restoredFind).not.toHaveProperty('measured')
@@ -82,11 +94,19 @@ describe('macro graph converters', () => {
     const flow = macroDefinitionToFlow(lifecycle)
     const restored = flowToMacroDefinition(lifecycle, flow.nodes, flow.edges)
 
-    expect(restored).toEqual(lifecycle)
+    expect(restored).not.toHaveProperty('event_entry_node_ids')
+    expect(restored).not.toHaveProperty('screen')
+    expect(restored.screen_event_entry_node_ids?.reservation_home).toEqual({
+      enter: 'enter', update: 'update', exit: 'exit',
+    })
+    expect(restored.screen_event_entry_node_ids?.reservation_detail).toEqual({
+      enter: 'event-detail-enter', update: 'event-detail-update', exit: 'event-detail-exit',
+    })
+    expect(restored.nodes).toHaveLength(6)
     expect(flow.nodes.every((node) => node.deletable === false)).toBe(true)
   })
 
-  it('preserves extended block config and dynamic execution handles', () => {
+  it('preserves extended config and migrates legacy screen clicks into find and click nodes', () => {
     const extended: MacroDefinition = {
       id: 'extended', name: 'Extended', version: 1,
       screen: { id: 'reservation_home', match: {} },
@@ -119,9 +139,28 @@ describe('macro graph converters', () => {
 
     expect(restored.nodes.find((node) => node.id === 'random')?.config)
       .toEqual(extended.nodes.find((node) => node.id === 'random')?.config)
-    expect(restored.nodes.find((node) => node.id === 'semantic')?.config)
-      .toEqual(extended.nodes.find((node) => node.id === 'semantic')?.config)
-    expect(restored.edges.map((edge) => edge.source_handle)).toEqual(['exec_out', 'then_0', 'then_2'])
+    expect(restored.nodes.find((node) => node.id === 'semantic')).toMatchObject({
+      type: 'find_screen_element',
+      config: {
+        screen_id: 'reservation_home', element_id: 'quick_date', params: { index: 2 },
+      },
+    })
+    expect(restored.nodes.find((node) => node.id === 'semantic-click')).toMatchObject({
+      type: 'click_element',
+      config: { sampling_mode: 'center', click: { duration_ms: 70 } },
+    })
+    expect(restored.edges.find((edge) => edge.id === 'third')?.target).toBe('semantic')
+    expect(restored.edges).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        source: 'semantic', target: 'semantic-click',
+        source_handle: 'element', target_handle: 'element', kind: 'data',
+      }),
+      expect.objectContaining({
+        source: 'semantic', target: 'semantic-click',
+        source_handle: 'exec_out', target_handle: 'exec_in', kind: 'exec',
+      }),
+    ]))
+    expect(restored.nodes.some((node) => node.type === 'click_screen_element')).toBe(false)
   })
 
   it('round-trips typed data edge handles and kind', () => {
@@ -141,6 +180,72 @@ describe('macro graph converters', () => {
     const restored = flowToMacroDefinition(typed, flow.nodes, flow.edges)
 
     expect(restored.edges.filter((edge) => edge.id !== 'legacy-enter')).toEqual(typed.edges)
+  })
+
+  it('round-trips a function subgraph and exposes dynamic call ports', () => {
+    const fn: MacroFunctionDefinition = {
+      id: 'select_time_slot',
+      name: 'Select Time Slot',
+      inputs: [{ id: 'index', type: 'int' as const }],
+      outputs: [{ id: 'success', type: 'bool' as const }],
+      entry_node_id: 'fn-entry',
+      return_node_id: 'fn-return',
+      nodes: [
+        { id: 'fn-entry', type: 'function_entry' as const, config: { inputs: [{ id: 'index', type: 'int' }] } },
+        { id: 'fn-return', type: 'function_return' as const, config: { outputs: [{ id: 'success', type: 'bool' }] } },
+      ],
+      edges: [],
+    }
+    const flow = macroFunctionToFlow(fn)
+    const restored = flowToMacroFunction(fn, flow.nodes, flow.edges)
+    const ports = getNodePorts('call_function', {
+      function_id: fn.id,
+      inputs: fn.inputs,
+      outputs: fn.outputs,
+    })
+
+    expect(restored).toMatchObject({
+      id: fn.id,
+      name: fn.name,
+      inputs: fn.inputs,
+      outputs: fn.outputs,
+      entry_node_id: fn.entry_node_id,
+      return_node_id: fn.return_node_id,
+      edges: [],
+    })
+    expect(flow.nodes.every((node) => node.deletable === false)).toBe(true)
+    expect(ports.inputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'exec_in', type: 'exec' }),
+      expect.objectContaining({ id: 'index', type: 'int' }),
+    ]))
+    expect(ports.outputs).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: 'exec_out', type: 'exec' }),
+      expect.objectContaining({ id: 'success', type: 'bool' }),
+    ]))
+  })
+
+  it('preserves variable declarations and creates typed Set/Get ports', () => {
+    const variableDefinition: MacroDefinition = {
+      ...definition,
+      variables: [{ name: 'count', type: 'int', default: 0 }],
+      nodes: [
+        ...definition.nodes,
+        { id: 'set-count', type: 'set_variable', config: { name: 'count', type: 'int', default: 0 } },
+        { id: 'get-count', type: 'get_variable', config: { name: 'count', type: 'int' } },
+      ],
+    }
+    const flow = macroDefinitionToFlow(variableDefinition)
+    const restored = flowToMacroDefinition(variableDefinition, flow.nodes, flow.edges)
+
+    expect(restored.variables).toEqual([{ name: 'count', type: 'int', default: 0 }])
+    const setPorts = getNodePorts(
+      'set_variable',
+      restored.nodes.find((node) => node.id === 'set-count')!.config,
+    )
+    expect(setPorts.inputs.find((port) => port.id === 'value')).toMatchObject({ type: 'int' })
+    expect(setPorts.outputs.find((port) => port.id === 'value')).toMatchObject({ type: 'int' })
+    expect(getNodePorts('get_variable', restored.nodes.find((node) => node.id === 'get-count')!.config))
+      .toMatchObject({ outputs: [{ id: 'value', type: 'int' }] })
   })
 })
 

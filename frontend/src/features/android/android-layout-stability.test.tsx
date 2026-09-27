@@ -236,7 +236,7 @@ describe('Android live viewport layout stability', () => {
     expect(bottom?.parentElement).toBe(grid?.parentElement)
     expect(
       (view.getByRole('button', {
-        name: 'Download UI tree JSON',
+        name: 'UI 트리 JSON 다운로드',
       }) as HTMLButtonElement).disabled,
     ).toBe(false)
   })
@@ -500,21 +500,20 @@ describe('Unity-style UI tree inspector', () => {
     )
 
     expect(view.container.querySelectorAll('.android-hierarchy-row')).toHaveLength(2)
-    fireEvent.click(view.getByLabelText('Visible'))
-    fireEvent.click(view.getByLabelText('Expand Settings group'))
+    fireEvent.click(view.getByLabelText('표시된 노드'))
+    fireEvent.click(view.getByLabelText('펼치기 Settings group'))
     expect(view.getByText('“Photo verification”')).toBeTruthy()
 
-    fireEvent.change(view.getByLabelText('Search UI tree'), {
+    fireEvent.change(view.getByLabelText('UI 트리 검색'), {
       target: { value: 'photo verification' },
     })
     expect(view.container.querySelectorAll('.is-search-match')).toHaveLength(1)
   })
 
-  it('selects a node, highlights its bounds, previews a selector, and taps center', () => {
+  it('selects a node, highlights its bounds, and exposes only Find Element import', () => {
     const snapshot = nestedTree()
     const setSelectedUiNodeId = vi.fn()
-    const tap = vi.fn()
-    const initial = controller({ uiTree: snapshot, setSelectedUiNodeId, tap })
+    const initial = controller({ uiTree: snapshot, setSelectedUiNodeId })
     const view = render(
       <AndroidDebugWorkspace
         controller={initial}
@@ -523,7 +522,14 @@ describe('Unity-style UI tree inspector', () => {
       />,
     )
 
-    fireEvent.click(view.getByLabelText('Expand Settings group'))
+    expect(
+      (view.getByRole('button', { name: 'Find Element 추가' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(view.queryByRole('button', { name: 'Click Element 추가' })).toBeNull()
+    expect(view.queryByRole('button', { name: '중앙 탭' })).toBeNull()
+
+    fireEvent.click(view.getByLabelText('펼치기 Settings group'))
     fireEvent.click(view.getByText('“Photo verification”'))
     expect(setSelectedUiNodeId).toHaveBeenCalledWith('n2')
 
@@ -533,7 +539,6 @@ describe('Unity-style UI tree inspector', () => {
           uiTree: snapshot,
           selectedUiNodeId: 'n2',
           setSelectedUiNodeId,
-          tap,
         })}
         devices={devices}
         onDeviceChange={vi.fn()}
@@ -544,8 +549,79 @@ describe('Unity-style UI tree inspector', () => {
     expect(highlight?.getAttribute('x')).toBe('40')
     expect(highlight?.getAttribute('width')).toBe('120')
     expect(view.getByDisplayValue(/viewId == "example:id\/button2"/)).toBeTruthy()
-    fireEvent.click(view.getByRole('button', { name: 'Tap Center' }))
-    expect(tap).toHaveBeenCalledWith(100, 45)
+    expect(
+      (view.getByRole('button', { name: 'Find Element 추가' }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true)
+    expect(view.getByText('활성 매크로가 없습니다')).toBeTruthy()
+  })
+
+  it('inspects the deepest live-screen node without sending an Android tap', () => {
+    const snapshot = compressedTree()
+    const setSelectedUiNodeId = vi.fn()
+    const tap = vi.fn()
+    const view = render(
+      <AndroidDebugWorkspace
+        controller={controller({ uiTree: snapshot, setSelectedUiNodeId, tap })}
+        devices={devices}
+        onDeviceChange={vi.fn()}
+      />,
+    )
+    const stage = view.container.querySelector('.android-live-stage') as HTMLDivElement
+    vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      right: 200,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+
+    fireEvent.click(view.getByRole('button', { name: '요소 검사' }))
+    expect(stage.classList.contains('is-inspect-mode')).toBe(true)
+    fireEvent.pointerDown(stage, {
+      pointerId: 17,
+      button: 0,
+      clientX: 100,
+      clientY: 50,
+    })
+
+    expect(setSelectedUiNodeId).toHaveBeenLastCalledWith('n4')
+    expect(tap).not.toHaveBeenCalled()
+  })
+
+  it('previews hovered nodes, restores selection, and clears it with Escape', () => {
+    const snapshot = compressedTree()
+    const setSelectedUiNodeId = vi.fn()
+    const view = render(
+      <AndroidDebugWorkspace
+        controller={controller({
+          uiTree: snapshot,
+          selectedUiNodeId: 'n1',
+          setSelectedUiNodeId,
+        })}
+        devices={devices}
+        onDeviceChange={vi.fn()}
+      />,
+    )
+
+    expect(
+      view.container.querySelector('.android-ui-node-box rect')?.getAttribute('x'),
+    ).toBe('10')
+    fireEvent.mouseEnter(view.getByText('“Reserve”'))
+    expect(
+      view.container.querySelector('.android-ui-node-box rect')?.getAttribute('x'),
+    ).toBe('50')
+    fireEvent.mouseLeave(view.getByText('“Reserve”'))
+    expect(
+      view.container.querySelector('.android-ui-node-box rect')?.getAttribute('x'),
+    ).toBe('10')
+
+    fireEvent.keyDown(window, { key: 'Escape' })
+    expect(setSelectedUiNodeId).toHaveBeenLastCalledWith(null)
   })
 
   it('selects and searches chain segments and collapses the terminal subtree', () => {
@@ -581,29 +657,29 @@ describe('Unity-style UI tree inspector', () => {
       view.container.querySelector('.android-ui-node-box rect')?.getAttribute('x'),
     ).toBe('10')
 
-    fireEvent.change(view.getByLabelText('Search UI tree'), {
+    fireEvent.change(view.getByLabelText('UI 트리 검색'), {
       target: { value: 'LinearLayout' },
     })
     expect(
       view.container.querySelectorAll('.android-tree-segment.is-search-match'),
     ).toHaveLength(1)
 
-    fireEvent.change(view.getByLabelText('Search UI tree'), {
+    fireEvent.change(view.getByLabelText('UI 트리 검색'), {
       target: { value: '' },
     })
     fireEvent.click(
       view.getByLabelText(
-        'Collapse FrameLayout / LinearLayout / FrameLayout / WebView',
+        '접기 FrameLayout / LinearLayout / FrameLayout / WebView',
       ),
     )
     expect(view.queryByText('“Reserve”')).toBeNull()
     fireEvent.click(
-      view.getByLabelText('Expand FrameLayout / LinearLayout / FrameLayout / WebView'),
+      view.getByLabelText('펼치기 FrameLayout / LinearLayout / FrameLayout / WebView'),
     )
     expect(view.getByText('“Reserve”')).toBeTruthy()
 
-    fireEvent.click(view.getByLabelText('Compress chains'))
-    expect(view.getByText('· 5 rows')).toBeTruthy()
+    fireEvent.click(view.getByLabelText('체인 압축'))
+    expect(view.getByText('· 행 5개')).toBeTruthy()
   })
 
   it('keeps unavailable and truncated states inside the inspector', () => {
@@ -617,11 +693,11 @@ describe('Unity-style UI tree inspector', () => {
         onDeviceChange={vi.fn()}
       />,
     )
-    expect(view.getByText('UI tree unavailable')).toBeTruthy()
+    expect(view.getByText('UI 트리를 사용할 수 없음')).toBeTruthy()
     expect(view.getByText('No active accessibility root.')).toBeTruthy()
     expect(
       (view.getByRole('button', {
-        name: 'Download UI tree JSON',
+        name: 'UI 트리 JSON 다운로드',
       }) as HTMLButtonElement).disabled,
     ).toBe(true)
 
@@ -632,6 +708,6 @@ describe('Unity-style UI tree inspector', () => {
         onDeviceChange={vi.fn()}
       />,
     )
-    expect(view.getByText('TRUNCATED')).toBeTruthy()
+    expect(view.getByText('일부 생략됨')).toBeTruthy()
   })
 })

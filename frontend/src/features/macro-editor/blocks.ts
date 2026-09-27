@@ -4,6 +4,7 @@ import type {
   MacroNodeType,
   PortDefinition,
 } from './types'
+import { macroNodeDescriptions, macroNodeLabels } from '../../i18n/ko'
 
 export interface BlockDefinition {
   type: MacroNodeType
@@ -54,6 +55,58 @@ const BLOCK_DEFINITIONS = [
     defaultConfig: {},
     palette: false,
     quickSearch: false,
+  },
+  {
+    type: 'function_entry',
+    label: 'Function Entry',
+    category: 'event',
+    defaultConfig: { inputs: [] as JsonValue[] },
+    palette: false,
+    quickSearch: false,
+  },
+  {
+    type: 'function_return',
+    label: 'Function Return',
+    category: 'control',
+    defaultConfig: { outputs: [] as JsonValue[] },
+    palette: false,
+    quickSearch: false,
+  },
+  {
+    type: 'call_function',
+    label: 'Call Function',
+    category: 'control',
+    defaultConfig: { function_id: '', inputs: [] as JsonValue[], outputs: [] as JsonValue[] },
+    palette: true,
+    keywords: ['call', 'function', 'subgraph', '함수', '호출'],
+    description: 'Run a reusable user-defined function subgraph',
+  },
+  {
+    type: 'set_variable',
+    label: 'Set Variable',
+    category: 'control',
+    defaultConfig: { name: '', type: 'int', default: 0 },
+    palette: true,
+    keywords: ['set', 'variable', 'assign', 'store', '변수', '저장'],
+    description: 'Store a typed value in the current runtime scope',
+  },
+  {
+    type: 'get_variable',
+    label: 'Get Variable',
+    category: 'ui',
+    defaultConfig: { name: '', type: 'int' },
+    palette: true,
+    keywords: ['get', 'variable', 'read', 'load', '변수', '조회'],
+    description: 'Read a typed value from the current runtime scope',
+  },
+  {
+    type: 'debug_print',
+    label: 'Debug Print',
+    category: 'utility',
+    defaultConfig: { message: '', level: 'info' },
+    palette: true,
+    keywords: ['debug', 'print', 'log', 'message', 'console', '출력', '로그'],
+    description: 'Write a value or message to the User Debug console',
   },
   {
     type: 'click_point',
@@ -108,25 +161,28 @@ const BLOCK_DEFINITIONS = [
     label: 'Click Element',
     category: 'action',
     defaultConfig: {
-      selector,
+      selector: {
+        text: '', ui_tree_path: null, clickable: true,
+        enabled: true, visible_to_user: true,
+      },
       resolve: { strategy: 'best_match', require_enabled: true, require_visible: true },
-      click: { mode: 'center', duration_ms: 70 },
+      sampling_mode: 'center',
+      click: { duration_ms: 70 },
     },
     palette: true,
     keywords: ['element', 'selector', 'button', 'tap', '요소', '버튼', '클릭'],
     description: 'Resolve and click a UI tree element',
   },
   {
-    type: 'click_screen_element',
-    label: 'Click Screen Element',
-    category: 'action',
+    type: 'find_screen_element',
+    label: 'Find Screen Element',
+    category: 'ui',
     defaultConfig: {
-      screen_id: 'reservation_home', element_id: 'quick_date',
-      params: { index: 0 }, click: { duration_ms: 70 },
+      screen_id: 'reservation_home', element_id: 'quick_date', params: { index: 0 },
     },
     palette: true,
-    keywords: ['screen', 'semantic', 'element', 'click', 'button', '화면', '버튼', '클릭'],
-    description: 'Click a semantic element from the current screen',
+    keywords: ['screen', 'semantic', 'element', 'find', '화면', '요소', '찾기'],
+    description: 'Resolve a semantic element from the current screen',
   },
   {
     type: 'for_loop',
@@ -295,6 +351,10 @@ const NODE_PORTS: Partial<Record<MacroNodeType, {
   inputs: readonly PortDefinition[]
   outputs: readonly PortDefinition[]
 }>> = {
+  debug_print: {
+    inputs: [execIn, { id: 'value', type: 'any', optional: true }],
+    outputs: [execOut],
+  },
   screen_enter: { inputs: [], outputs: [execOut] },
   screen_update: { inputs: [], outputs: [execOut] },
   screen_exit: { inputs: [], outputs: [execOut] },
@@ -329,8 +389,8 @@ const NODE_PORTS: Partial<Record<MacroNodeType, {
     inputs: [execIn],
     outputs: [
       { id: 'loop', type: 'exec' },
-      { id: 'completed', type: 'exec' },
       { id: 'index', type: 'int' },
+      { id: 'completed', type: 'exec' },
     ],
   },
   find_element: {
@@ -342,12 +402,16 @@ const NODE_PORTS: Partial<Record<MacroNodeType, {
       { id: 'found', type: 'bool' },
     ],
   },
+  find_screen_element: {
+    inputs: [execIn, { id: 'index', type: 'int', optional: true }],
+    outputs: [
+      execOut,
+      { id: 'element', type: 'element' },
+      { id: 'found', type: 'bool' },
+    ],
+  },
   click_element: {
     inputs: [execIn, { id: 'element', type: 'element', optional: true }],
-    outputs: [execOut],
-  },
-  click_screen_element: {
-    inputs: [execIn, { id: 'index', type: 'int', optional: true }],
     outputs: [execOut],
   },
   back: { inputs: [execIn], outputs: [execOut] },
@@ -385,6 +449,23 @@ const NODE_PORTS: Partial<Record<MacroNodeType, {
 }
 
 export function getNodePorts(type: MacroNodeType, config: Record<string, JsonValue>) {
+  if (type === 'set_variable' || type === 'get_variable') {
+    const variableType = variablePortType(config.type)
+    if (type === 'get_variable') {
+      return { inputs: [], outputs: [{ id: 'value', type: variableType }] }
+    }
+    return {
+      inputs: [execIn, { id: 'value', type: variableType, optional: true }],
+      outputs: [execOut, { id: 'value', type: variableType }],
+    }
+  }
+  if (type === 'function_entry' || type === 'function_return' || type === 'call_function') {
+    const inputs = functionPorts(config.inputs)
+    const outputs = functionPorts(config.outputs)
+    if (type === 'function_entry') return { inputs: [], outputs: [execOut, ...inputs] }
+    if (type === 'function_return') return { inputs: [execIn, ...outputs], outputs: [] }
+    return { inputs: [execIn, ...inputs], outputs: [execOut, ...outputs] }
+  }
   if (type === 'sequence') {
     const value = config.outputs
     const count = typeof value === 'number' && Number.isFinite(value)
@@ -401,8 +482,31 @@ export function getNodePorts(type: MacroNodeType, config: Record<string, JsonVal
   return NODE_PORTS[type] ?? { inputs: [execIn], outputs: [] }
 }
 
+function functionPorts(value: JsonValue | undefined): PortDefinition[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return []
+    const id = item.id
+    const type = item.type
+    if (typeof id !== 'string' || !id || typeof type !== 'string') return []
+    if (!['any', 'bool', 'int', 'float', 'string', 'position', 'rect', 'element'].includes(type)) return []
+    return [{ id, type: type as PortDefinition['type'] }]
+  })
+}
+
+function variablePortType(value: JsonValue | undefined): PortDefinition['type'] {
+  return typeof value === 'string' && [
+    'bool', 'int', 'float', 'string', 'position', 'rect', 'element',
+  ].includes(value)
+    ? value as PortDefinition['type']
+    : 'any'
+}
+
 export const BLOCKS: readonly BlockDefinition[] = BLOCK_DEFINITIONS.map((block) => ({
   ...block,
+  label: macroNodeLabels[block.type],
+  description: macroNodeDescriptions[block.type]
+    ?? ('description' in block ? block.description : undefined),
   ...getNodePorts(block.type, block.defaultConfig),
 }))
 

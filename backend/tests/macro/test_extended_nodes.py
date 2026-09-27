@@ -1,3 +1,5 @@
+import pytest
+
 from tapbot.macro import (
     GraphElement,
     GraphEngine,
@@ -133,6 +135,51 @@ def test_click_element_resolves_each_execution_and_uses_center() -> None:
     assert result.runtime.variables["one"]["element_id"] == "stable"
 
 
+@pytest.mark.parametrize("mode", ["uniform", "normal"])
+def test_click_element_supports_internal_random_sampling_modes(mode: str) -> None:
+    actions, result = run_single(MacroNode("one", "click_element", {
+        "selector": {"text": "Button", "ui_tree_path": "n0.0.1"},
+        "click": {"mode": mode},
+    }))
+
+    x, y, duration = actions.taps[0]
+    assert 100 <= x <= 300
+    assert 200 <= y <= 400
+    assert (x, y) != (200, 300)
+    assert duration == 70
+    assert result.runtime.variables["one"]["sampling"] == mode
+
+
+def test_click_element_applies_hidden_safe_defaults_and_preserves_path_hint() -> None:
+    class CapturingUi(Ui):
+        selector = None
+        options = None
+
+        def find_element(self, selector, **options):
+            self.selector = selector
+            self.options = options
+            return GraphElement("stable", TapBounds(100, 200, 300, 400), "Button")
+
+    ui = CapturingUi()
+    run_single(MacroNode("one", "click_element", {
+        "selector": {"text": "Button", "ui_tree_path": "n0.0.1"},
+        "click": {"mode": "center"},
+    }), ui=ui)
+
+    assert ui.selector == {
+        "text": "Button",
+        "ui_tree_path": "n0.0.1",
+        "clickable": True,
+        "enabled": True,
+        "visible_to_user": True,
+    }
+    assert ui.options == {
+        "strategy": "best_match",
+        "require_enabled": True,
+        "require_visible": True,
+    }
+
+
 def test_element_exists_does_not_implicitly_filter_disabled_elements() -> None:
     class CapturingUi(Ui):
         options = None
@@ -154,14 +201,15 @@ def test_element_exists_does_not_implicitly_filter_disabled_elements() -> None:
     }
 
 
-def test_click_screen_element_uses_screen_and_collection_identity() -> None:
-    actions, result = run_single(MacroNode("one", "click_screen_element", {
+def test_find_screen_element_returns_semantic_collection_element() -> None:
+    actions, result = run_single(MacroNode("one", "find_screen_element", {
         "screen_id": "reservation_home", "element_id": "quick_date",
-        "params": {"index": 2}, "click": {"duration_ms": 70},
+        "params": {"index": 2},
     }))
 
-    assert actions.taps == [(70.0, 90.0, 70)]
+    assert actions.taps == []
     assert result.runtime.variables["one"]["element_id"] == "quick_date[2]"
+    assert result.runtime.variables["one"]["found"] is True
 
 
 class IndexRecorder:

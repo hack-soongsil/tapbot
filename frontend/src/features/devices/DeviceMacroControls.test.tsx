@@ -70,12 +70,12 @@ describe('DeviceMacroControls', () => {
     render(<DeviceMacroControls deviceId="phone-a" />)
 
     expect(await screen.findByDisplayValue('Shared flow v3')).toBeTruthy()
-    expect(screen.getByText('Shared by 2 devices')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Run' }))
+    expect(screen.getByText('2개 기기에서 공유')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '실행' }))
 
     await waitFor(() => {
       expect(macroEditorApi.command).toHaveBeenCalledWith('phone-a', 'start')
     })
-    expect(await screen.findByText('running')).toBeTruthy()
+    expect(await screen.findByText('실행 중')).toBeTruthy()
   })
 })

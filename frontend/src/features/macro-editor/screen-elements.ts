@@ -23,6 +23,6 @@ export const SCREEN_ELEMENTS: Record<string, ScreenElementOption[]> = {
 }
 
 export const SCREEN_OPTIONS = [
-  { id: 'reservation_home', label: 'Reservation Home' },
-  { id: 'reservation_detail', label: 'Reservation Detail' },
+  { id: 'reservation_home', label: '스터디룸 예약 메인' },
+  { id: 'reservation_detail', label: '스터디룸 예약 상세' },
 ] as const

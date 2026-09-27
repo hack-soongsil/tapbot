@@ -424,7 +424,7 @@ class _AndroidGraphUi:
         allowed = {
             "text", "text_contains", "text_regex", "content_description",
             "content_description_regex", "view_id", "class_name", "bounds_region",
-            "clickable", "enabled", "visible_to_user", "index",
+            "clickable", "enabled", "visible_to_user", "index", "ui_tree_path",
         }
         query_values = {key: value for key, value in selector.items() if key in allowed}
         if require_enabled:
@@ -450,7 +450,11 @@ class _AndroidGraphUi:
                 element.bbox.x, element.bbox.y, element.bbox.width, element.bbox.height
             ),
             element.text,
-            {"view_id": element.view_id, "class_name": element.class_name},
+            {
+                "view_id": element.view_id,
+                "class_name": element.class_name,
+                "ui_tree_path": element.metadata.get("matched_node_id"),
+            },
         )
 
     def current_state(self) -> str:

@@ -7,7 +7,8 @@
   "required": ["id", "name", "version", "nodes", "edges"],
   "anyOf": [
     {"required": ["entry_node_id"]},
-    {"required": ["screen", "event_entry_node_ids"]}
+    {"required": ["screen", "event_entry_node_ids"]},
+    {"required": ["screen_event_entry_node_ids"]}
   ],
   "properties": {
     "id": {"type": "string", "minLength": 1},
@@ -33,6 +34,20 @@
         "exit": {"type": "string", "minLength": 1}
       }
     },
+    "screen_event_entry_node_ids": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["enter", "update", "exit"],
+        "properties": {
+          "enter": {"type": "string", "minLength": 1},
+          "update": {"type": "string", "minLength": 1},
+          "exit": {"type": "string", "minLength": 1}
+        }
+      }
+    },
     "metadata": {"type": "object", "default": {}},
     "nodes": {
       "type": "array",
@@ -41,9 +56,59 @@
     "edges": {
       "type": "array",
       "items": {"$ref": "#/$defs/edge"}
+    },
+    "functions": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/function"},
+      "default": []
+    },
+    "variables": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/variable"},
+      "default": []
     }
   },
   "$defs": {
+    "variable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "type"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1},
+        "type": {
+          "type": "string",
+          "enum": ["bool", "int", "float", "string", "position", "rect", "element"]
+        },
+        "default": {}
+      }
+    },
+    "functionPort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {
+          "type": "string",
+          "enum": ["any", "bool", "int", "float", "string", "position", "rect", "element"]
+        }
+      }
+    },
+    "function": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "inputs", "outputs", "nodes", "edges", "entry_node_id", "return_node_id"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "name": {"type": "string", "minLength": 1},
+        "inputs": {"type": "array", "items": {"$ref": "#/$defs/functionPort"}},
+        "outputs": {"type": "array", "items": {"$ref": "#/$defs/functionPort"}},
+        "nodes": {"type": "array", "items": {"$ref": "#/$defs/node"}},
+        "edges": {"type": "array", "items": {"$ref": "#/$defs/edge"}},
+        "entry_node_id": {"type": "string", "minLength": 1},
+        "return_node_id": {"type": "string", "minLength": 1}
+      }
+    },
     "node": {
       "type": "object",
       "additionalProperties": false,
@@ -54,8 +119,11 @@
           "type": "string",
           "enum": [
             "screen_enter", "screen_update", "screen_exit",
+            "function_entry", "function_return", "call_function",
+            "set_variable", "get_variable",
+            "debug_print",
             "click_point", "drag_point", "random_click_area", "random_drag_area",
-            "click_element", "click_screen_element", "for_loop", "sequence",
+            "click_element", "find_screen_element", "for_loop", "sequence",
             "tap_element", "tap_point", "swipe", "back", "home", "wait",
             "find_element", "require_element", "read_ui_tree",
             "element_exists", "element_text_equals", "state_equals",

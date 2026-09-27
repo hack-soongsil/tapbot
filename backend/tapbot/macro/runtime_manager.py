@@ -16,10 +16,12 @@ from tapbot.macro.graph_engine import GraphEngine
 from tapbot.macro.events import MacroEventBroker
 from tapbot.macro.graph_models import (
     GraphExecutionContext,
+    GraphElement,
     GraphNodeTrace,
     GraphRuntime,
     GraphRuntimeStatus,
     JsonObject,
+    JsonValue,
     MacroDefinition,
     MacroEdge,
     MacroNode,
@@ -223,7 +225,7 @@ class RuntimeManager:
                 state=session.state,
                 active_screen_id=session.active_screen_id,
                 step_count=0 if runtime is None else runtime.step_count,
-                variables=json.loads(json.dumps(session.context.variables)),
+                variables=_snapshot_variables(session.context.variables),
                 trace=tuple(session.traces),
                 started_at=None if runtime is None else runtime.started_at,
                 error=session.error or (None if runtime is None else runtime.error),
@@ -287,6 +289,14 @@ class RuntimeManager:
                 if definition.event_entry_node_ids is None
                 else definition.event_entry_node_ids.to_dict()
             ),
+            "screen_event_entry_node_ids": (
+                None
+                if definition.screen_event_entry_node_ids is None
+                else {
+                    screen_id: entries.to_dict()
+                    for screen_id, entries in definition.screen_event_entry_node_ids.items()
+                }
+            ),
         })
         session.thread = Thread(
             target=self._run,
@@ -302,7 +312,7 @@ class RuntimeManager:
 
     def _run(self, session: _Session) -> None:
         try:
-            if session.definition.screen is not None:
+            if session.definition.has_screen_lifecycle:
                 self._run_screen_lifecycle(session)
                 return
             result = self.engine_factory(session.device_id).run(
@@ -350,6 +360,8 @@ class RuntimeManager:
             ui_tree: object,
         ) -> None:
             session.context.last_observation = ui_tree
+            with session.condition:
+                session.active_screen_id = event.screen_id
             self._publish(
                 session,
                 f"macro.screen.{event.kind}",
@@ -399,11 +411,13 @@ class RuntimeManager:
         self,
         selected: MacroDefinition,
     ) -> tuple[MacroDefinition, ...]:
+        if selected.screen_event_entry_node_ids and len(selected.screen_event_entry_node_ids) > 1:
+            return (selected,)
         workflow_id = selected.metadata.get("workflow_id")
         candidates = tuple(
             definition.snapshot()
             for definition in self.repository.list()
-            if definition.screen is not None
+            if (definition.screen is not None or definition.screen_event_entry_node_ids)
             and (
                 workflow_id is None
                 or definition.metadata.get("workflow_id") == workflow_id
@@ -502,6 +516,21 @@ class RuntimeManager:
 
     def _publish_node_output(self, session: _Session, trace: GraphNodeTrace) -> None:
         output = trace.output_summary
+        user_debug = output.get("user_debug")
+        if isinstance(user_debug, dict):
+            level = user_debug.get("level", "info")
+            message = user_debug.get("message", "")
+            if isinstance(level, str) and isinstance(message, str):
+                self._publish(
+                    session,
+                    "macro.user_debug",
+                    node_id=trace.node_id,
+                    payload={
+                        "screen_id": session.active_screen_id,
+                        "level": level,
+                        "message": message,
+                    },
+                )
         bounds = output.get("bounds")
         tap_point = output.get("tap_point")
         if bounds is not None:
@@ -565,3 +594,30 @@ class RuntimeManager:
         if session is None:
             raise RuntimeError("device has no macro runtime")
         return session
+
+
+def _snapshot_variables(variables: dict[str, object]) -> JsonObject:
+    return {name: _snapshot_variable_value(value) for name, value in variables.items()}
+
+
+def _snapshot_variable_value(value: object) -> JsonValue:
+    if isinstance(value, GraphElement):
+        return {
+            "runtime_type": "element",
+            "id": value.id,
+            "text": value.text,
+            "bounds": {
+                "left": value.bounds.left,
+                "top": value.bounds.top,
+                "right": value.bounds.right,
+                "bottom": value.bounds.bottom,
+            },
+            "metadata": json.loads(json.dumps(value.metadata)),
+        }
+    if value is None or isinstance(value, bool | int | float | str):
+        return value
+    if isinstance(value, dict):
+        return {str(key): _snapshot_variable_value(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_snapshot_variable_value(item) for item in value]
+    return f"<runtime:{type(value).__name__}>"

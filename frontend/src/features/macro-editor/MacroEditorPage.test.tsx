@@ -63,38 +63,61 @@ describe('MacroEditorPage', () => {
   it('adds, connects, edits, and deletes nodes while tracking dirty state', () => {
     render(<MacroEditorPage />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add Wait' }))
-    expect(screen.getByTestId('node-count').textContent).toBe('4')
-    expect(screen.getByText('Unsaved')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Duration (ms)'), { target: { value: '900' } })
-    expect(screen.getByLabelText<HTMLInputElement>('Duration (ms)').value).toBe('900')
+    fireEvent.click(screen.getByRole('button', { name: '대기 추가' }))
+    expect(screen.getByTestId('node-count').textContent).toBe('7')
+    expect(screen.getByText('저장되지 않음')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('지속 시간(ms)'), { target: { value: '900' } })
+    expect(screen.getByLabelText<HTMLInputElement>('지속 시간(ms)').value).toBe('900')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add Click Point' }))
+    fireEvent.click(screen.getByRole('button', { name: '위치 클릭 추가' }))
     fireEvent.click(screen.getByRole('button', { name: 'Connect first two' }))
     expect(screen.getByTestId('edge-count').textContent).toBe('1')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete node' }))
-    expect(screen.getByTestId('node-count').textContent).toBe('4')
+    fireEvent.click(screen.getByRole('button', { name: '노드 삭제' }))
+    expect(screen.getByTestId('node-count').textContent).toBe('7')
     expect(screen.getByTestId('edge-count').textContent).toBe('0')
+  })
+
+  it('shows only text, tree path, and sampling mode for Click Element', () => {
+    render(<MacroEditorPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: '엘리먼트 클릭 추가' }))
+    fireEvent.change(screen.getByLabelText('텍스트'), { target: { value: 'Confirm' } })
+    fireEvent.change(screen.getByLabelText('UI 트리 경로'), {
+      target: { value: 'n0.0.1' },
+    })
+    fireEvent.change(screen.getByLabelText('클릭 샘플링 방식'), {
+      target: { value: 'normal' },
+    })
+
+    expect(screen.getByLabelText<HTMLInputElement>('텍스트').value).toBe('Confirm')
+    expect(screen.getByLabelText<HTMLInputElement>('UI 트리 경로').value).toBe('n0.0.1')
+    expect(screen.getByLabelText<HTMLSelectElement>('클릭 샘플링 방식').value).toBe('normal')
+    expect(screen.queryByLabelText('텍스트 정규식')).toBeNull()
+    expect(screen.queryByLabelText('콘텐츠 설명')).toBeNull()
+    expect(screen.queryByLabelText('뷰 ID')).toBeNull()
+    expect(screen.queryByLabelText('클래스 이름')).toBeNull()
+    expect(screen.queryByLabelText('Resolve strategy')).toBeNull()
+    expect(screen.queryByLabelText('지속 시간(ms)')).toBeNull()
   })
 
   it('serializes to local storage and reloads the saved draft', async () => {
     const first = render(<MacroEditorPage />)
-    fireEvent.change(screen.getByLabelText('Screen'), { target: { value: 'reservation_detail' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add Click Point' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    fireEvent.click(screen.getByRole('button', { name: '위치 클릭 추가' }))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     await waitFor(() => expect(macroEditorApi.save).toHaveBeenCalledTimes(1))
     const saved = JSON.parse(window.localStorage.getItem(MACRO_DRAFT_STORAGE_KEY) ?? '{}') as {
       nodes?: unknown[]
     }
-    expect(saved.nodes).toHaveLength(4)
-    expect(saved).toHaveProperty('event_entry_node_ids.enter', 'event-enter')
-    expect(saved).toHaveProperty('screen.id', 'reservation_detail')
+    expect(saved.nodes).toHaveLength(7)
+    expect(saved).toHaveProperty('screen_event_entry_node_ids.reservation_home.enter', 'event-home-enter')
+    expect(saved).toHaveProperty('screen_event_entry_node_ids.reservation_detail.enter', 'event-detail-enter')
+    expect(saved).not.toHaveProperty('event_entry_node_ids')
 
     first.unmount()
     render(<MacroEditorPage />)
-    expect(screen.getByTestId('node-count').textContent).toBe('4')
+    expect(screen.getByTestId('node-count').textContent).toBe('7')
   })
 
   it('maps backend validation errors onto the selected node', async () => {
@@ -103,17 +126,17 @@ describe('MacroEditorPage', () => {
       errors: [{ node_id: 'click_point-1', message: 'Backend rejected this node.' }],
     })
     render(<MacroEditorPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add Click Point' }))
+    fireEvent.click(screen.getByRole('button', { name: '위치 클릭 추가' }))
 
-    fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
+    fireEvent.click(screen.getByRole('button', { name: '검증' }))
 
     await waitFor(() => expect(screen.getByText('Backend rejected this node.')).toBeTruthy())
-    expect(screen.getByText('Backend validation found graph errors.')).toBeTruthy()
+    expect(screen.getByText('백엔드 검증에서 그래프 오류를 발견했습니다.')).toBeTruthy()
   })
 
   it('supports the Ctrl+S keyboard shortcut', async () => {
     render(<MacroEditorPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add Click Point' }))
+    fireEvent.click(screen.getByRole('button', { name: '위치 클릭 추가' }))
 
     fireEvent.keyDown(window, { key: 's', ctrlKey: true })
 

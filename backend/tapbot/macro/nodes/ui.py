@@ -43,6 +43,65 @@ class FindElementNode:
         )
 
 
+class FindScreenElementNode:
+    output_handles = frozenset({"exec_out"})
+
+    def validate(self, config: JsonObject) -> tuple[str, ...]:
+        from tapbot.ui_resolution.screens import validate_screen_element_reference
+
+        params = config.get("params", {})
+        if not isinstance(params, dict):
+            return ("params must be an object",)
+        return tuple(
+            error for error in validate_screen_element_reference(
+                config.get("screen_id"),
+                config.get("element_id"),
+                params,
+            )
+            if not error.startswith("params.index")
+        )
+
+    def execute(
+        self,
+        context: GraphExecutionContext,
+        config: JsonObject,
+    ) -> NodeResult:
+        ui = _require_ui(context)
+        resolver = getattr(ui, "resolve_screen_element", None)
+        if not callable(resolver):
+            raise RuntimeError("UI port does not support semantic screen elements")
+        screen_id = config.get("screen_id")
+        element_id = config.get("element_id")
+        assert isinstance(screen_id, str) and isinstance(element_id, str)
+        params_value = config.get("params", {})
+        assert isinstance(params_value, dict)
+        params = dict(params_value)
+        if "index" in context.input_values:
+            index = context.input_values["index"]
+            if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+                raise RuntimeError("screen element index data input must be a non-negative int")
+            params["index"] = index
+        try:
+            element = resolver(screen_id, element_id, params)
+        except RuntimeError as error:
+            context.last_resolved_element = None
+            return NodeResult.success(
+                {"found": False, "reason": str(error)},
+                next_handle="exec_out",
+                data_outputs={"found": False},
+            )
+        context.last_resolved_element = element
+        return NodeResult.success(
+            {
+                **_element_output(element),
+                "screen_id": screen_id,
+                "semantic_element_id": element_id,
+            },
+            next_handle="exec_out",
+            data_outputs={"found": True, "element": element},
+        )
+
+
 class RequireElementNode:
     output_handles = frozenset({"found", "missing"})
 

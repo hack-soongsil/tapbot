@@ -10,6 +10,7 @@ from tapbot.macro.graph_models import JsonObject
 
 class PortType(StrEnum):
     EXEC = "exec"
+    ANY = "any"
     BOOL = "bool"
     INT = "int"
     FLOAT = "float"
@@ -26,6 +27,10 @@ class NodePorts:
 
 
 _TYPED: dict[str, NodePorts] = {
+    "debug_print": NodePorts(
+        {"exec_in": PortType.EXEC, "value": PortType.ANY},
+        {"exec_out": PortType.EXEC},
+    ),
     "element_exists": NodePorts(
         {"exec_in": PortType.EXEC},
         {
@@ -53,6 +58,14 @@ _TYPED: dict[str, NodePorts] = {
             "element": PortType.ELEMENT,
         },
     ),
+    "find_screen_element": NodePorts(
+        {"exec_in": PortType.EXEC, "index": PortType.INT},
+        {
+            "exec_out": PortType.EXEC,
+            "found": PortType.BOOL,
+            "element": PortType.ELEMENT,
+        },
+    ),
     "click_element": NodePorts(
         {"exec_in": PortType.EXEC, "element": PortType.ELEMENT},
         {"exec_out": PortType.EXEC},
@@ -69,10 +82,6 @@ _TYPED: dict[str, NodePorts] = {
             "sampled_end": PortType.POSITION,
         },
     ),
-    "click_screen_element": NodePorts(
-        {"exec_in": PortType.EXEC, "index": PortType.INT},
-        {"exec_out": PortType.EXEC},
-    ),
 }
 
 
@@ -82,6 +91,25 @@ def ports_for(
     *,
     legacy_output_handles: frozenset[str] = frozenset(),
 ) -> NodePorts:
+    if node_type in {"set_variable", "get_variable"}:
+        variable_type = _variable_port_type(config)
+        if node_type == "get_variable":
+            return NodePorts({}, {"value": variable_type})
+        return NodePorts(
+            {"exec_in": PortType.EXEC, "value": variable_type},
+            {"exec_out": PortType.EXEC, "value": variable_type},
+        )
+    if node_type in {"function_entry", "function_return", "call_function"}:
+        function_inputs = _function_ports(config, "inputs")
+        function_outputs = _function_ports(config, "outputs")
+        if node_type == "function_entry":
+            return NodePorts({}, {"exec_out": PortType.EXEC, **function_inputs})
+        if node_type == "function_return":
+            return NodePorts({"exec_in": PortType.EXEC, **function_outputs}, {})
+        return NodePorts(
+            {"exec_in": PortType.EXEC, **function_inputs},
+            {"exec_out": PortType.EXEC, **function_outputs},
+        )
     typed = _TYPED.get(node_type)
     if typed is not None:
         return typed
@@ -92,3 +120,33 @@ def ports_for(
         if isinstance(count, int) and not isinstance(count, bool):
             outputs = {f"then_{index}": PortType.EXEC for index in range(max(0, count))}
     return NodePorts(inputs, outputs)
+
+
+def _function_ports(config: JsonObject, key: str) -> dict[str, PortType]:
+    raw = config.get(key, [])
+    if not isinstance(raw, list):
+        return {}
+    result: dict[str, PortType] = {}
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        port_id = item.get("id")
+        port_type = item.get("type")
+        if not isinstance(port_id, str) or not port_id or not isinstance(port_type, str):
+            continue
+        try:
+            parsed = PortType(port_type)
+        except ValueError:
+            continue
+        if parsed is not PortType.EXEC:
+            result[port_id] = parsed
+    return result
+
+
+def _variable_port_type(config: JsonObject) -> PortType:
+    value = config.get("type")
+    try:
+        parsed = PortType(value) if isinstance(value, str) else PortType.ANY
+    except ValueError:
+        return PortType.ANY
+    return parsed if parsed not in {PortType.EXEC, PortType.ANY} else PortType.ANY

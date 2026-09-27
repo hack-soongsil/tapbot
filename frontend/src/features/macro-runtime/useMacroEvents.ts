@@ -28,6 +28,7 @@ export function useMacroEvents(
       'macro.node.skipped',
       'macro.edge.traversed',
       'macro.variable.changed',
+      'macro.user_debug',
       'android.element.resolved',
       'android.tap.planned',
       'android.tap.completed',

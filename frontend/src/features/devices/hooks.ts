@@ -15,14 +15,14 @@ function caughtMessage(value: unknown): string {
 
 export function discoveryMessage(status: AndroidDiscoveryStatus): string | null {
   if (!status.enabled || (!status.tailscale_available && status.last_error !== null)) {
-    return 'Automatic device discovery is unavailable.'
+    return '자동 기기 검색을 사용할 수 없습니다.'
   }
   if (status.last_refresh === null) return null
   if (status.last_error?.toLowerCase().includes('token')) {
     return 'Automatic discovery could not authenticate with TapBot Agent.'
   }
-  if (status.last_error) return 'Automatic device discovery could not be refreshed.'
-  if (status.discovered_agent_count === 0) return 'No TapBot devices found.'
+  if (status.last_error) return '자동 기기 검색을 새로고침하지 못했습니다.'
+  if (status.discovered_agent_count === 0) return 'TapBot 기기를 찾지 못했습니다.'
   return null
 }
 
@@ -32,7 +32,7 @@ export function chooseInitialDevice(
   rememberedDeviceId: string | null,
 ): string | null {
   if (routeDeviceId) {
-    return devices.some((device) => device.id === routeDeviceId) ? routeDeviceId : null
+    if (devices.some((device) => device.id === routeDeviceId)) return routeDeviceId
   }
   if (
     rememberedDeviceId &&
@@ -41,7 +41,7 @@ export function chooseInitialDevice(
     return rememberedDeviceId
   }
   const online = devices.filter((device) => device.connected)
-  return online.length === 1 ? (online[0]?.id ?? null) : null
+  return online[0]?.id ?? null
 }
 
 export function useDevices() {
@@ -66,7 +66,7 @@ export function useDevices() {
       setDetail(discoveryResponse.last_error)
     } catch (caught) {
       if (signal?.aborted) return
-      setError('Could not load Android devices.')
+      setError('안드로이드 기기 목록을 불러오지 못했습니다.')
       setDetail(caughtMessage(caught))
     } finally {
       if (!signal?.aborted) setLoading(false)
@@ -84,7 +84,7 @@ export function useDevices() {
       setError(discoveryMessage(response.discovery))
       setDetail(response.discovery.last_error)
     } catch (caught) {
-      setError('Could not refresh devices. Existing devices are still available.')
+      setError('기기를 새로고침하지 못했습니다. 기존 기기 목록은 계속 사용할 수 있습니다.')
       setDetail(caughtMessage(caught))
     } finally {
       setDiscovering(false)

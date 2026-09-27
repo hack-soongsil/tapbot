@@ -24,6 +24,7 @@ class UiSelector:
     visible_to_user: bool | None = True
     index: int | None = None
     bounds_region: str | None = None
+    ui_tree_path: str | None = None
 
     def __post_init__(self) -> None:
         if not any(

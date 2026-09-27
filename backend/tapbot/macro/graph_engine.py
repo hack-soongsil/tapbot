@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 import time
@@ -11,6 +12,7 @@ from uuid import uuid4
 
 from tapbot.macro.graph_models import (
     GraphExecutionContext,
+    GraphElement,
     GraphNodeTrace,
     GraphRunResult,
     GraphRuntime,
@@ -35,6 +37,7 @@ class GraphRunLimits:
     execution_timeout_sec: float = 300.0
     retry_limit: int = 3
     repeat_limit: int = 100
+    max_call_depth: int = 16
 
     def __post_init__(self) -> None:
         if self.max_steps < 1:
@@ -45,6 +48,8 @@ class GraphRunLimits:
             raise ValueError("retry_limit must not be negative")
         if self.repeat_limit < 0:
             raise ValueError("repeat_limit must not be negative")
+        if self.max_call_depth < 1:
+            raise ValueError("max_call_depth must be positive")
 
 
 class GraphEngine:
@@ -76,6 +81,7 @@ class GraphEngine:
         on_node_start: Callable[[MacroNode, GraphRuntime], None] | None = None,
         on_trace: Callable[[GraphNodeTrace, GraphRuntime], None] | None = None,
         on_edge: Callable[[MacroEdge, GraphRuntime], None] | None = None,
+        _call_stack: tuple[str, ...] = (),
     ) -> GraphRunResult:
         self.validator.validate_or_raise(definition)
         snapshot = definition.snapshot()
@@ -89,8 +95,16 @@ class GraphEngine:
         data_incoming = _data_incoming(snapshot.edges)
         started_monotonic = self.monotonic()
         execution_context = context or GraphExecutionContext()
-        assert_json_value(execution_context.variables, name="initial variables")
+        _assert_runtime_variables(execution_context.variables)
         execution_context.variables = dict(execution_context.variables)
+        for variable in snapshot.variables:
+            if variable.name not in execution_context.variables and variable.default is not None:
+                default = deepcopy(variable.default)
+                execution_context.variables[variable.name] = (
+                    float(default)
+                    if variable.type == "float" and isinstance(default, int)
+                    else default
+                )
         execution_context.control_state = {}
         execution_context.input_values = {}
         execution_context.node_outputs = {}
@@ -101,6 +115,15 @@ class GraphEngine:
         execution_context.monotonic = self.monotonic
         execution_context.started_monotonic = started_monotonic
         execution_context.sleep = execution_context.sleep or self.sleep
+        execution_context.call_stack = _call_stack
+        execution_context.function_invoker = lambda function_id, arguments: self._invoke_function(
+            snapshot,
+            function_id,
+            arguments,
+            parent=execution_context,
+            cancelled=cancelled,
+            call_stack=_call_stack,
+        )
 
         runtime = GraphRuntime(
             definition_id=snapshot.id,
@@ -149,6 +172,13 @@ class GraphEngine:
             if on_node_start is not None:
                 on_node_start(node, runtime)
             try:
+                _refresh_variable_sources(
+                    node.id,
+                    data_incoming,
+                    node_by_id,
+                    execution_context,
+                    self.registry,
+                )
                 execution_context.input_values = _resolve_data_inputs(
                     node.id,
                     data_incoming,
@@ -301,6 +331,72 @@ class GraphEngine:
 
     execute = run
 
+    def _invoke_function(
+        self,
+        definition: MacroDefinition,
+        function_id: str,
+        arguments: dict[str, object],
+        *,
+        parent: GraphExecutionContext,
+        cancelled: Callable[[], bool] | None,
+        call_stack: tuple[str, ...],
+    ) -> dict[str, object]:
+        function = next(
+            (candidate for candidate in definition.functions if candidate.id == function_id),
+            None,
+        )
+        if function is None:
+            raise RuntimeError(f"function {function_id!r} does not exist")
+        if function_id in call_stack:
+            chain = " -> ".join((*call_stack, function_id))
+            raise RuntimeError(f"recursive function call is not allowed: {chain}")
+        if len(call_stack) >= self.limits.max_call_depth:
+            raise RuntimeError(
+                f"maximum function call depth {self.limits.max_call_depth} exceeded"
+            )
+        child_definition = MacroDefinition(
+            id=f"{definition.id}::function::{function.id}",
+            name=function.name,
+            version=definition.version,
+            nodes=function.nodes,
+            edges=function.edges,
+            entry_node_id=function.entry_node_id,
+            functions=definition.functions,
+            variables=definition.variables,
+        )
+        child = GraphExecutionContext(
+            device_id=parent.device_id,
+            variables={},
+            last_observation=parent.last_observation,
+            last_resolved_element=parent.last_resolved_element,
+            last_action_result=parent.last_action_result,
+            trace_id=parent.trace_id,
+            actions=parent.actions,
+            ui=parent.ui,
+            function_inputs=dict(arguments),
+            sleep=parent.sleep,
+        )
+        result = self.run(
+            child_definition,
+            entry_node_id=function.entry_node_id,
+            context=child,
+            cancelled=cancelled,
+            _call_stack=(*call_stack, function_id),
+        )
+        if result.runtime.state is not GraphRuntimeStatus.COMPLETED:
+            raise RuntimeError(
+                result.runtime.error
+                or f"function {function_id!r} did not complete successfully"
+            )
+        returned = child.node_outputs.get(function.return_node_id)
+        if returned is None:
+            raise RuntimeError(f"function {function_id!r} did not reach its return node")
+        return {
+            port.id: returned[port.id]
+            for port in function.outputs
+            if port.id in returned
+        }
+
     @staticmethod
     def _store_output(
         context: GraphExecutionContext,
@@ -308,7 +404,7 @@ class GraphEngine:
         node: MacroNode,
         result: NodeResult,
     ) -> None:
-        if not result.output:
+        if not result.output or node.type in {"debug_print", "set_variable", "get_variable"}:
             return
         destination = node.config.get("save_as", node.id)
         if not isinstance(destination, str) or not destination:
@@ -391,6 +487,30 @@ def _resolve_data_inputs(
     return resolved
 
 
+def _refresh_variable_sources(
+    node_id: str,
+    incoming: dict[str, tuple[MacroEdge, ...]],
+    nodes: dict[str, MacroNode],
+    context: GraphExecutionContext,
+    registry: NodeRegistry,
+) -> None:
+    """Evaluate pure Get Variable nodes at the moment their value is consumed."""
+
+    for edge in incoming.get(node_id, ()):
+        source = nodes.get(edge.source)
+        if source is None or source.type != "get_variable":
+            continue
+        previous_inputs = context.input_values
+        try:
+            context.input_values = {}
+            result = registry.get(source.type).execute(context, source.config)
+        finally:
+            context.input_values = previous_inputs
+        if result.status is not NodeStatus.SUCCESS:
+            raise RuntimeError(result.error or f"variable source {source.id!r} failed")
+        context.node_outputs[source.id] = dict(result.data_outputs)
+
+
 def _trace(
     node: MacroNode,
     started_at: datetime,
@@ -461,3 +581,10 @@ def _summarize_value(value: object, *, depth: int) -> JsonValue:
     if value is None or isinstance(value, bool | int | float):
         return value
     return f"<{type(value).__name__}>"
+
+
+def _assert_runtime_variables(variables: dict[str, object]) -> None:
+    for name, value in variables.items():
+        if isinstance(value, GraphElement):
+            continue
+        assert_json_value(value, name=f"initial variable {name!r}")

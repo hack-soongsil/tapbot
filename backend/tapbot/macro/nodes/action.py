@@ -253,8 +253,21 @@ class RandomDragAreaNode:
 class ClickElementNode:
     output_handles = frozenset({"exec_out"})
 
+    def __init__(self, sampler: AreaPointSampler) -> None:
+        self.sampler = sampler
+
     def validate(self, config: JsonObject) -> tuple[str, ...]:
         errors = list(selector_errors(config)) if config.get("selector") else []
+        selector = config.get("selector")
+        if isinstance(selector, dict) and not any(
+            isinstance(selector.get(key), str) and bool(selector[key].strip())
+            for key in (
+                "text", "text_contains", "text_regex", "content_description",
+                "content_description_regex", "view_id", "class_name",
+                "semantic_id", "semantic_family",
+            )
+        ):
+            errors.append("click element selector requires text or another stable field")
         resolve = config.get("resolve", {})
         if not isinstance(resolve, dict) or resolve.get("strategy", "best_match") not in {"first", "best_match", "unique"}:
             errors.append("resolve.strategy must be first, best_match, or unique")
@@ -263,6 +276,9 @@ class ClickElementNode:
             errors.append("click must be an object")
         else:
             errors.extend(optional_positive_int(click, "duration_ms", default=70))
+            sampling_mode = config.get("sampling_mode", click.get("mode", "center"))
+            if sampling_mode not in {"center", "uniform", "normal"}:
+                errors.append("sampling_mode must be center, uniform, or normal")
         return tuple(errors)
 
     def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
@@ -277,79 +293,51 @@ class ClickElementNode:
                 raise RuntimeError("click element requires element input or selector fallback")
             resolve = _object(config, "resolve", {})
             finder = ui.find_element
+            selector = dict(_selector(config))
+            selector.setdefault("clickable", True)
+            selector.setdefault("enabled", True)
+            selector.setdefault("visible_to_user", True)
             try:
                 element = finder(
-                    _selector(config),
+                    selector,
                     strategy=_text(resolve, "strategy", "best_match"),
                     require_enabled=resolve.get("require_enabled", True) is True,
                     require_visible=resolve.get("require_visible", True) is True,
                 )
             except TypeError:
                 # Compatibility with older/test GraphUiPort implementations.
-                element = finder(_selector(config))
+                element = finder(selector)
         if element is None:
             raise RuntimeError("click element target was not found or was ambiguous")
         context.last_resolved_element = element
-        point = element.bounds.center
         click = _object(config, "click", {})
-        result = _action_result(_require_actions(context).tap_screen(
-            point.x, point.y, duration_ms=_integer(click, "duration_ms", 70)
-        ))
-        context.last_action_result = result
-        return NodeResult.success(
-            {"element_id": element.id, "bounds": element.bounds.to_list(), "tap_point": [point.x, point.y], "action_result": result},
-            next_handle="exec_out",
+        mode_value = config.get("sampling_mode", click.get("mode", "center"))
+        mode = mode_value if isinstance(mode_value, str) else "center"
+        point = (
+            element.bounds.center
+            if mode == "center"
+            else self.sampler.sample(
+                SamplingArea(
+                    element.bounds.left,
+                    element.bounds.top,
+                    element.bounds.right,
+                    element.bounds.bottom,
+                ),
+                {"type": mode},
+            )
         )
-
-
-class ClickScreenElementNode:
-    output_handles = frozenset({"exec_out"})
-
-    def validate(self, config: JsonObject) -> tuple[str, ...]:
-        from tapbot.ui_resolution.screens import validate_screen_element_reference
-
-        errors: list[str] = []
-        for key in ("screen_id", "element_id"):
-            value = config.get(key)
-            if not isinstance(value, str) or not value:
-                errors.append(f"{key} must be a non-empty string")
-        params = config.get("params", {})
-        if not isinstance(params, dict):
-            errors.append("params must be an object")
-        else:
-            errors.extend(error for error in validate_screen_element_reference(
-                config.get("screen_id"), config.get("element_id"), params
-            ) if not error.startswith("params.index"))
-        click = config.get("click", {})
-        if not isinstance(click, dict):
-            errors.append("click must be an object")
-        else:
-            errors.extend(optional_positive_int(click, "duration_ms", default=70))
-        return tuple(errors)
-
-    def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
-        ui = _require_ui(context)
-        resolver = getattr(ui, "resolve_screen_element", None)
-        if not callable(resolver):
-            raise RuntimeError("UI port does not support semantic screen elements")
-        screen_id = _text(config, "screen_id", "")
-        element_id = _text(config, "element_id", "")
-        params = dict(_object(config, "params", {}))
-        if "index" in context.input_values:
-            index = context.input_values["index"]
-            if isinstance(index, bool) or not isinstance(index, int) or index < 0:
-                raise RuntimeError("screen element index data input must be a non-negative int")
-            params["index"] = index
-        element = resolver(screen_id, element_id, params)
-        context.last_resolved_element = element
-        point = element.bounds.center
-        click = _object(config, "click", {})
         result = _action_result(_require_actions(context).tap_screen(
             point.x, point.y, duration_ms=_integer(click, "duration_ms", 70)
         ))
         context.last_action_result = result
         return NodeResult.success(
-            {"screen_id": screen_id, "element_id": element.id, "bounds": element.bounds.to_list(), "tap_point": [point.x, point.y], "action_result": result},
+            {
+                "element_id": element.id,
+                "bounds": element.bounds.to_list(),
+                "tap_point": [point.x, point.y],
+                "sampling": mode,
+                "action_result": result,
+            },
             next_handle="exec_out",
         )
 

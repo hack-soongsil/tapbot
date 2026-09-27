@@ -104,6 +104,89 @@ def test_legacy_entry_is_exposed_as_screen_enter_compatibility_entry() -> None:
     assert definition.entry_for("update") is None
 
 
+def test_global_screen_events_migrate_to_screen_scoped_entries_on_save() -> None:
+    definition = MacroDefinition.from_dict({
+        "id": "legacy-screen",
+        "name": "Legacy screen",
+        "version": 1,
+        "screen": {"id": "reservation_home", "match": {}},
+        "event_entry_node_ids": {
+            "enter": "enter", "update": "update", "exit": "exit",
+        },
+        "nodes": [
+            {"id": "enter", "type": "screen_enter", "config": {}},
+            {"id": "update", "type": "screen_update", "config": {
+                "interval_ms": 1000, "skip_if_running": True,
+            }},
+            {"id": "exit", "type": "screen_exit", "config": {}},
+        ],
+        "edges": [],
+    })
+
+    assert definition.entry_for("enter", screen_id="reservation_home") == "enter"
+    assert definition.nodes[0].config == {
+        "screen_id": "reservation_home", "event": "enter",
+    }
+    saved = definition.to_dict()
+    assert saved["screen_event_entry_node_ids"] == {
+        "reservation_home": {
+            "enter": "enter", "update": "update", "exit": "exit",
+        }
+    }
+    assert "event_entry_node_ids" not in saved
+    assert "screen" not in saved
+
+
+def test_legacy_click_screen_element_migrates_to_find_and_click_pair() -> None:
+    definition = MacroDefinition.from_dict({
+        "id": "legacy-semantic",
+        "name": "Legacy semantic click",
+        "version": 1,
+        "entry_node_id": "semantic",
+        "nodes": [
+            {
+                "id": "semantic",
+                "type": "click_screen_element",
+                "config": {
+                    "screen_id": "reservation_detail",
+                    "element_id": "time_slot",
+                    "params": {"index": 2},
+                    "click": {"mode": "normal", "duration_ms": 90},
+                },
+                "position": {"x": 100, "y": 200},
+            },
+            {"id": "done", "type": "stop", "config": {}},
+        ],
+        "edges": [{
+            "id": "next", "source": "semantic", "target": "done",
+            "source_handle": "exec_out", "target_handle": "exec_in", "kind": "exec",
+        }],
+    })
+
+    assert [(node.id, node.type) for node in definition.nodes] == [
+        ("semantic", "find_screen_element"),
+        ("semantic-click", "click_element"),
+        ("done", "stop"),
+    ]
+    assert definition.nodes[0].config == {
+        "screen_id": "reservation_detail",
+        "element_id": "time_slot",
+        "params": {"index": 2},
+    }
+    assert definition.nodes[1].config == {
+        "sampling_mode": "normal",
+        "click": {"duration_ms": 90},
+    }
+    assert next(edge for edge in definition.edges if edge.id == "next").source == "semantic-click"
+    assert any(
+        edge.source == "semantic" and edge.target == "semantic-click"
+        and edge.source_handle == "element" and edge.target_handle == "element"
+        and edge.kind == "data"
+        for edge in definition.edges
+    )
+    assert all(node.type != "click_screen_element" for node in definition.nodes)
+
+
 def test_file_store_uses_injected_root_and_rejects_path_traversal(tmp_path) -> None:
     definition = MacroDefinition(
         "saved-macro",

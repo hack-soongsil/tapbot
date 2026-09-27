@@ -10,6 +10,7 @@ export type JsonValue =
 
 export type PortType =
   | 'exec'
+  | 'any'
   | 'bool'
   | 'int'
   | 'float'
@@ -29,11 +30,18 @@ export type MacroNodeType =
   | 'screen_enter'
   | 'screen_update'
   | 'screen_exit'
+  | 'function_entry'
+  | 'function_return'
+  | 'call_function'
+  | 'set_variable'
+  | 'get_variable'
+  | 'debug_print'
   | 'click_point'
   | 'drag_point'
   | 'random_click_area'
   | 'random_drag_area'
   | 'click_element'
+  | 'find_screen_element'
   | 'click_screen_element'
   | 'for_loop'
   | 'sequence'
@@ -65,6 +73,7 @@ export type MacroNodeCategory =
   | 'condition'
   | 'control'
   | 'validation'
+  | 'utility'
 
 export interface MacroPosition {
   x: number
@@ -89,6 +98,28 @@ export interface MacroEdgeDefinition {
   condition?: 'success' | 'failure' | 'retry' | 'stopped'
 }
 
+export interface MacroFunctionPort extends Record<string, JsonValue> {
+  id: string
+  type: Exclude<PortType, 'exec'>
+}
+
+export interface MacroFunctionDefinition {
+  id: string
+  name: string
+  inputs: MacroFunctionPort[]
+  outputs: MacroFunctionPort[]
+  nodes: MacroNodeDefinition[]
+  edges: MacroEdgeDefinition[]
+  entry_node_id: string
+  return_node_id: string
+}
+
+export interface MacroVariableDefinition {
+  name: string
+  type: Exclude<PortType, 'exec' | 'any'>
+  default?: JsonValue
+}
+
 export interface MacroDefinition {
   id: string
   name: string
@@ -105,7 +136,14 @@ export interface MacroDefinition {
     update?: string
     exit?: string
   }
+  screen_event_entry_node_ids?: Record<string, {
+    enter: string
+    update: string
+    exit: string
+  }>
   metadata: Record<string, JsonValue>
+  functions?: MacroFunctionDefinition[]
+  variables?: MacroVariableDefinition[]
 }
 
 export interface MacroFlowNodeData extends Record<string, unknown> {
@@ -117,6 +155,7 @@ export interface MacroFlowNodeData extends Record<string, unknown> {
   isEntry: boolean
   isEvent?: boolean
   eventKind?: 'enter' | 'update' | 'exit'
+  eventScreenId?: string
   errors: string[]
   runtimeState?: 'pending' | 'running' | 'success' | 'failure' | 'skipped'
 }

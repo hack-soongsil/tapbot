@@ -6,6 +6,7 @@ type Filter = 'all' | 'node' | 'android' | 'error'
 export function MacroEventLog({ events }: { events: MacroRuntimeEvent[] }) {
   const [filter, setFilter] = useState<Filter>('all')
   const shown = useMemo(() => events.filter((event) => {
+    if (event.type === 'macro.user_debug') return false
     if (filter === 'node') return event.type.startsWith('macro.node')
     if (filter === 'android') return event.type.startsWith('android.')
     if (filter === 'error') return event.type.includes('failed') || Boolean(event.payload.error)

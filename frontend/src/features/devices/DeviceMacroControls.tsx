@@ -6,6 +6,7 @@ import type {
   MacroDefinition,
   MacroRuntime,
 } from '../macro-editor/types'
+import { ko, runtimeStateLabels } from '../../i18n/ko'
 
 export function DeviceMacroControls({ deviceId }: { deviceId: string }) {
   const [macros, setMacros] = useState<MacroDefinition[]>([])
@@ -88,41 +89,41 @@ export function DeviceMacroControls({ deviceId }: { deviceId: string }) {
   }
 
   return (
-    <section className="device-macro-controls" aria-label="Device macro">
+    <section className="device-macro-controls" aria-label="기기 매크로">
       <label>
-        <span>Macro</span>
+        <span>매크로</span>
         <select
-          aria-label="Device macro"
+          aria-label="기기 매크로"
           value={binding?.macro_definition_id ?? ''}
           disabled={busy}
           onChange={(event) => void choose(event.target.value)}
         >
-          <option value="">No macro</option>
+          <option value="">매크로 없음</option>
           {macros.map((macro) => (
             <option key={macro.id} value={macro.id}>{macro.name} v{macro.version}</option>
           ))}
         </select>
       </label>
-      {sharedCount > 1 && <Tag minimal intent="primary">Shared by {sharedCount} devices</Tag>}
-      {runtime && <Tag minimal>{runtime.state}</Tag>}
+      {sharedCount > 1 && <Tag minimal intent="primary">{sharedCount}개 기기에서 공유</Tag>}
+      {runtime && <Tag minimal>{runtimeStateLabels[runtime.state] ?? runtime.state}</Tag>}
       <ButtonGroup minimal>
         <Button
           disabled={!selected}
           onClick={() => {
             if (!selected) return
-            window.location.assign(`/macros?device_id=${encodeURIComponent(deviceId)}&macro_id=${encodeURIComponent(selected.id)}`)
+            window.location.assign(`/debug/android/${encodeURIComponent(deviceId)}`)
           }}
-        >Edit</Button>
-        <Button disabled={!selected || busy} onClick={() => void duplicate()}>Duplicate</Button>
-        <Button disabled={!binding || busy || active} intent="success" onClick={() => void command('start')}>Run</Button>
-        <Button disabled={!binding || busy || (runtimeState !== 'idle' && runtimeState !== 'paused')} onClick={() => void command('step')}>Step</Button>
+        >편집</Button>
+        <Button disabled={!selected || busy} onClick={() => void duplicate()}>{ko.actions.duplicate}</Button>
+        <Button disabled={!binding || busy || active} intent="success" onClick={() => void command('start')}>{ko.actions.run}</Button>
+        <Button disabled={!binding || busy || (runtimeState !== 'idle' && runtimeState !== 'paused')} onClick={() => void command('step')}>{ko.actions.step}</Button>
         {runtime?.state === 'paused' ? (
-          <Button disabled={busy} onClick={() => void command('resume')}>Resume</Button>
+          <Button disabled={busy} onClick={() => void command('resume')}>{ko.actions.resume}</Button>
         ) : (
-          <Button disabled={runtime?.state !== 'running' || busy} onClick={() => void command('pause')}>Pause</Button>
+          <Button disabled={runtime?.state !== 'running' || busy} onClick={() => void command('pause')}>{ko.actions.pause}</Button>
         )}
-        <Button disabled={busy || !active} intent="danger" onClick={() => void command('stop')}>Stop</Button>
-        <Button disabled={busy || !['error', 'stopped', 'completed'].includes(runtimeState)} onClick={() => void command('reset')}>Reset</Button>
+        <Button disabled={busy || !active} intent="danger" onClick={() => void command('stop')}>{ko.actions.stop}</Button>
+        <Button disabled={busy || !['error', 'stopped', 'completed'].includes(runtimeState)} onClick={() => void command('reset')}>{ko.actions.reset}</Button>
       </ButtonGroup>
       {error && <Callout compact intent="danger">{error}</Callout>}
     </section>

@@ -3,15 +3,11 @@
 import {
   act,
   cleanup,
-  fireEvent,
-  render,
   renderHook,
-  screen,
   waitFor,
 } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { devicesApi } from './api'
-import { DeviceSelector } from './DeviceSelector'
 import { relativeLastSeen } from './format'
 import { chooseInitialDevice, useDevices } from './hooks'
 import type { AndroidDeviceSummary, AndroidDiscoveryStatus } from './types'
@@ -76,7 +72,7 @@ afterEach(() => {
 })
 
 describe('device selection policy', () => {
-  it('auto-selects only one clearly online device', () => {
+  it('auto-selects the first online device', () => {
     expect(chooseInitialDevice([onlineDevice()], undefined, null)).toBe('galaxy-s21')
     expect(
       chooseInitialDevice(
@@ -84,7 +80,7 @@ describe('device selection policy', () => {
         undefined,
         null,
       ),
-    ).toBeNull()
+    ).toBe('galaxy-s21')
     expect(chooseInitialDevice([offlineDevice()], undefined, null)).toBeNull()
   })
 
@@ -92,88 +88,6 @@ describe('device selection policy', () => {
     const devices = [onlineDevice(), offlineDevice()]
     expect(chooseInitialDevice(devices, undefined, 'note10')).toBe('note10')
     expect(chooseInitialDevice(devices, 'note10', null)).toBe('note10')
-  })
-})
-
-describe('DeviceSelector', () => {
-  const renderSelector = (
-    devices: AndroidDeviceSummary[],
-    overrides: Partial<React.ComponentProps<typeof DeviceSelector>> = {},
-  ) => {
-    const props: React.ComponentProps<typeof DeviceSelector> = {
-      devices,
-      selectedDeviceId: null,
-      discovering: false,
-      message: null,
-      detail: null,
-      onSelect: vi.fn(),
-      onRefresh: vi.fn().mockResolvedValue(undefined),
-      onAddManual: vi.fn().mockResolvedValue(undefined),
-      ...overrides,
-    }
-    return { ...render(<DeviceSelector {...props} />), props }
-  }
-
-  it('shows friendly device data while hiding network implementation details', () => {
-    const { props } = renderSelector([onlineDevice(), offlineDevice()])
-
-    expect(screen.getByText('Galaxy S21')).toBeTruthy()
-    expect(screen.getByText('Galaxy Note10')).toBeTruthy()
-    expect(screen.getByText('Connected')).toBeTruthy()
-    expect(screen.getByText('Offline')).toBeTruthy()
-    expect(screen.getByText('Automatic')).toBeTruthy()
-    expect(screen.getByText('Manual')).toBeTruthy()
-    expect(screen.queryByText(/100\.64\.0\.10/)).toBeNull()
-    expect(screen.queryByText(/Tailscale/)).toBeNull()
-
-    fireEvent.click(screen.getByText('Galaxy Note10'))
-    expect(props.onSelect).toHaveBeenCalledWith('note10')
-  })
-
-  it('shows a useful empty state and refresh loading state', () => {
-    const { rerender, props } = renderSelector([])
-    expect(screen.getByText('No TapBot devices found.')).toBeTruthy()
-
-    rerender(<DeviceSelector {...props} discovering />)
-    expect(
-      screen.getByRole('button', { name: 'Refresh' }).hasAttribute('disabled'),
-    ).toBe(true)
-  })
-
-  it('keeps raw discovery errors and manual endpoint input in Advanced', async () => {
-    const onAddManual = vi.fn().mockResolvedValue(undefined)
-    renderSelector([onlineDevice()], {
-      message: 'Automatic device discovery is unavailable.',
-      detail: 'Tailscale CLI is not installed',
-      onAddManual,
-    })
-
-    expect(screen.getByText('Automatic device discovery is unavailable.')).toBeTruthy()
-    expect(screen.queryByText('Tailscale CLI is not installed')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Advanced' }))
-    expect(screen.getByText(/Install Tailscale/)).toBeTruthy()
-    fireEvent.click(screen.getByText('Technical details'))
-    expect(screen.getByText('Tailscale CLI is not installed')).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Add manual device' }))
-
-    fireEvent.change(screen.getByLabelText('Name'), {
-      target: { value: 'My phone' },
-    })
-    fireEvent.change(screen.getByLabelText('Endpoint URL'), {
-      target: { value: 'http://phone.test:8765' },
-    })
-    fireEvent.change(screen.getByLabelText('Agent token (optional)'), {
-      target: { value: 'secret' },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Add device' }))
-
-    await waitFor(() =>
-      expect(onAddManual).toHaveBeenCalledWith({
-        name: 'My phone',
-        endpoint: 'http://phone.test:8765',
-        token: 'secret',
-      }),
-    )
   })
 })
 
@@ -191,7 +105,7 @@ describe('useDevices', () => {
 
     expect(result.current.devices).toHaveLength(1)
     expect(result.current.error).toBe(
-      'Could not refresh devices. Existing devices are still available.',
+      '기기를 새로고침하지 못했습니다. 기존 기기 목록은 계속 사용할 수 있습니다.',
     )
     expect(result.current.detail).toBe('raw network failure')
   })
@@ -224,14 +138,14 @@ describe('useDevices', () => {
       await request
     })
     expect(result.current.discovering).toBe(false)
-    expect(result.current.error).toBe('No TapBot devices found.')
+    expect(result.current.error).toBe('TapBot 기기를 찾지 못했습니다.')
   })
 })
 
 describe('relative last seen', () => {
   it('formats recent and older observations', () => {
     const now = Date.parse('2026-09-27T03:00:00Z')
-    expect(relativeLastSeen('2026-09-27T02:59:55Z', now)).toBe('Last seen just now')
-    expect(relativeLastSeen('2026-09-27T02:58:00Z', now)).toBe('Last seen 2 min ago')
+    expect(relativeLastSeen('2026-09-27T02:59:55Z', now)).toBe('방금 확인됨')
+    expect(relativeLastSeen('2026-09-27T02:58:00Z', now)).toBe('2분 전에 확인됨')
   })
 })

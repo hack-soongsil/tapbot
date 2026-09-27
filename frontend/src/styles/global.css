@@ -1,11 +1,7 @@
 :root {
-  font-family:
-    Inter,
-    ui-sans-serif,
-    -apple-system,
-    BlinkMacSystemFont,
-    'Segoe UI',
-    sans-serif;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.48;
   color: #e8ede9;
   background: #090c0b;
   font-synthesis: none;
@@ -25,7 +21,8 @@
   --amber-soft: rgb(255 197 91 / 10%);
   --danger: #ff6862;
   --danger-soft: rgb(255 104 98 / 10%);
-  --mono: 'Cascadia Code', 'SFMono-Regular', Consolas, monospace;
+  --font-ui: 'Nanum Gothic', 'Noto Sans KR', Arial, sans-serif;
+  --mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
 }
 
 * {
@@ -42,6 +39,10 @@ body,
 
 body {
   min-height: 100vh;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.48;
   background:
     radial-gradient(circle at 28% -20%, rgb(183 246 55 / 6%), transparent 32%),
     var(--bg);
@@ -49,9 +50,33 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   color: inherit;
   font: inherit;
+}
+
+.app-shell,
+.bp6-portal,
+.bp6-button,
+.bp6-input,
+.bp6-menu,
+.bp6-html-select select,
+.react-flow {
+  font-family: var(--font-ui);
+}
+
+code,
+pre,
+kbd,
+samp,
+.code-text,
+.node-id,
+.ui-tree-path,
+.class-name,
+.view-id,
+.package-name {
+  font-family: var(--mono);
 }
 
 button,
@@ -96,10 +121,10 @@ select:focus-visible {
 .eyebrow {
   margin: 0 0 7px;
   color: #657169;
-  font-family: var(--mono);
-  font-size: 8px;
+  font-family: var(--font-ui);
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.15em;
+  letter-spacing: normal;
   text-transform: uppercase;
 }
 
@@ -157,7 +182,7 @@ select:focus-visible {
   border-radius: 3px;
   color: #6c7770;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 11px;
   text-align: center;
 }
 
@@ -171,8 +196,8 @@ select:focus-visible {
   align-items: center;
   gap: 5px;
   color: var(--danger);
-  font-family: var(--mono);
-  font-size: 8px;
+  font-family: var(--font-ui);
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -234,10 +259,10 @@ select:focus-visible {
 
 .camera-source-select > span {
   color: #657169;
-  font-family: var(--mono);
-  font-size: 7px;
+  font-family: var(--font-ui);
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.09em;
+  letter-spacing: normal;
   text-transform: uppercase;
 }
 
@@ -250,7 +275,7 @@ select:focus-visible {
   color: #a4aea7;
   background-color: #101612;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .camera-source-details {
@@ -265,7 +290,7 @@ select:focus-visible {
 .camera-source-details > span {
   color: #6f7a73;
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: 11px;
 }
 
 .camera-source-details strong {
@@ -314,8 +339,8 @@ select:focus-visible {
   border-radius: 3px;
   color: #89958d;
   background: #151b17;
-  font-family: var(--mono);
-  font-size: 7px;
+  font-family: var(--font-ui);
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -334,8 +359,8 @@ select:focus-visible {
   grid-column: 1 / -1;
   margin: -1px 0 0;
   color: var(--danger);
-  font-family: var(--mono);
-  font-size: 7px;
+  font-family: var(--font-ui);
+  font-size: 11px;
 }
 
 .view-switch {
@@ -354,7 +379,7 @@ select:focus-visible {
   color: #616c65;
   background: transparent;
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
 }
@@ -375,7 +400,7 @@ select:focus-visible {
   align-items: center;
   gap: 6px;
   color: #6f7a73;
-  font-size: 8px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -395,7 +420,7 @@ select:focus-visible {
   border-radius: 3px;
   color: #939e97;
   background: #151b17;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .screenshot-button:hover:not(:disabled) {
@@ -452,7 +477,7 @@ select:focus-visible {
   border-radius: 4px;
   color: #ffaaa6;
   background: rgb(42 17 16 / 88%);
-  font-size: 8px;
+  font-size: 11px;
   backdrop-filter: blur(8px);
 }
 
@@ -462,7 +487,7 @@ select:focus-visible {
   border-radius: 3px;
   color: #ffd0ce;
   background: transparent;
-  font-size: 7px;
+  font-size: 11px;
 }
 
 .camera-footer {
@@ -474,7 +499,7 @@ select:focus-visible {
   color: #566159;
   background: #0d120f;
   font-family: var(--mono);
-  font-size: 7px;
+  font-size: 11px;
 }
 
 .camera-footer strong {
@@ -551,7 +576,7 @@ select:focus-visible {
 .empty-state p {
   margin: 7px 0 0;
   color: #606b64;
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.5;
 }
 
@@ -630,7 +655,7 @@ select:focus-visible {
 .settings-number {
   color: var(--accent);
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .settings-card h2 {
@@ -659,7 +684,7 @@ select:focus-visible {
 .settings-values dt {
   margin-bottom: 8px;
   color: #657069;
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -667,7 +692,7 @@ select:focus-visible {
   margin: 0;
   color: #bdc5c0;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   overflow-wrap: anywhere;
 }
 
@@ -779,6 +804,33 @@ select:focus-visible {
   gap: 8px;
 }
 
+.vision-navbar__device-selector {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+  margin-right: 8px;
+}
+
+.vision-navbar__device-selector label {
+  flex: 0 0 auto;
+  color: #8f99a8;
+  font-size: 11px;
+}
+
+.vision-navbar__device-selector select {
+  width: clamp(180px, 20vw, 300px);
+  min-width: 0;
+  height: 28px;
+  overflow: hidden;
+  border: 1px solid #414956;
+  border-radius: 3px;
+  color: #d9dee6;
+  background: #11171d;
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+
 .vision-navbar__status > span:not(.bp6-tag) {
   margin-left: 10px;
   color: #8f99a8;
@@ -799,7 +851,7 @@ select:focus-visible {
   min-height: 0;
   width: 100%;
   max-width: none;
-  grid-template-rows: auto minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   gap: 10px;
   padding: 10px 12px 12px;
   margin: 0;
@@ -937,8 +989,8 @@ select:focus-visible {
 .android-debug-heading span,
 .android-card-heading span {
   color: #8f99a8;
-  font-size: 10px;
-  letter-spacing: 0.07em;
+  font-size: 11px;
+  letter-spacing: normal;
   text-transform: uppercase;
 }
 
@@ -957,134 +1009,6 @@ select:focus-visible {
   gap: 7px;
 }
 
-.device-selector-card.bp6-card {
-  display: grid;
-  min-width: 0;
-  grid-template-columns: minmax(190px, 0.45fr) minmax(0, 1fr);
-  align-items: center;
-  gap: 10px 14px;
-  padding: 10px 12px;
-}
-
-.android-device-toolbar {
-  min-width: 0;
-  min-height: 0;
-  max-height: min(28vh, 240px);
-  overflow: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-.android-device-toolbar > .bp6-callout {
-  margin-top: 8px;
-}
-
-.device-selector-card > .device-discovery-message,
-.device-selector-card > .bp6-collapse,
-.device-selector-card > .device-advanced {
-  grid-column: 1 / -1;
-}
-
-.device-selector-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-}
-
-.device-selector-heading span {
-  color: #8f99a8;
-  font-size: 10px;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-}
-
-.device-selector-heading h2 {
-  margin: 2px 0 0;
-  font-size: 17px;
-}
-
-.device-selector-actions,
-.device-status {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-
-.device-discovering {
-  color: #fbb360;
-  font-size: 12px;
-}
-
-.device-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 8px;
-}
-
-.device-list-item {
-  display: grid;
-  min-width: 0;
-  gap: 5px;
-  padding: 8px 10px;
-  border: 1px solid #394b59;
-  border-radius: 4px;
-  color: inherit;
-  background: #202b33;
-  text-align: left;
-  cursor: pointer;
-}
-
-.device-list-item:hover,
-.device-list-item.is-selected {
-  border-color: #4c90f0;
-  background: #25384c;
-}
-
-.device-list-item:focus-visible {
-  outline: 2px solid #4c90f0;
-  outline-offset: 2px;
-}
-
-.device-status {
-  color: #a7b1bd;
-  font-size: 12px;
-}
-
-.device-empty,
-.device-dialog-copy {
-  margin: 0;
-  color: #a7b1bd;
-}
-
-.device-discovery-message.bp6-callout {
-  margin: 0;
-}
-
-.device-advanced {
-  display: grid;
-  gap: 10px;
-  padding: 14px;
-  border-top: 1px solid #394b59;
-  color: #a7b1bd;
-}
-
-.device-advanced ol {
-  margin: 0;
-  padding-left: 20px;
-}
-
-.device-advanced code {
-  display: block;
-  margin-top: 8px;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-
-.device-dialog-error {
-  color: #fa999c;
-}
 
 .android-debug-grid {
   display: grid;
@@ -1119,15 +1043,15 @@ select:focus-visible {
 }
 
 .integrated-macro-toolbar {
-  display: flex;
+  display: grid;
   min-width: 0;
   min-height: 58px;
-  flex-wrap: wrap;
+  grid-template-columns: minmax(0, 1fr);
   align-items: center;
-  justify-content: space-between;
   gap: 6px;
   padding: 7px 9px;
   border-bottom: 1px solid #383e47;
+  grid-row: 1;
 }
 
 .integrated-macro-toolbar > div {
@@ -1135,6 +1059,31 @@ select:focus-visible {
   min-width: 0;
   align-items: center;
   gap: 6px;
+}
+
+.integrated-macro-toolbar__selectors,
+.integrated-macro-toolbar__actions {
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+.integrated-macro-toolbar__actions {
+  justify-content: flex-start;
+}
+
+.integrated-macro-tabs {
+  border-bottom: 1px solid #303740;
+}
+
+.integrated-macro-tabs .bp6-button {
+  min-width: 76px;
+  border-radius: 0;
+}
+
+.integrated-macro-tabs .bp6-button.bp6-active {
+  box-shadow: inset 0 -2px #6ea8f7;
+  color: #e4f1ff;
+  background: #252d36;
 }
 
 .integrated-macro-toolbar select {
@@ -1146,11 +1095,236 @@ select:focus-visible {
   background: #11171d;
 }
 
-.integrated-macro-panel > .macro-canvas {
+.integrated-macro-message.bp6-callout {
+  min-height: 0;
+  padding: 5px 9px;
+  border-radius: 0;
+  grid-row: 2;
+}
+
+.integrated-macro-content {
+  position: relative;
   width: 100%;
   height: 100%;
   min-width: 0;
   min-height: 0;
+  overflow: hidden;
+  grid-row: 3;
+}
+
+.integrated-macro-editor {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: 190px minmax(0, 1fr) 280px;
+  overflow: hidden;
+}
+
+.integrated-macro-editor.is-tab-hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.integrated-macro-editor > * {
+  min-width: 0;
+  min-height: 0;
+}
+
+.integrated-macro-empty {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 6px;
+  padding: 24px;
+  overflow: hidden;
+  color: #8f99a8;
+  text-align: center;
+  background: #10151a;
+}
+
+.integrated-macro-empty strong {
+  color: #d9dee6;
+}
+
+.integrated-macro-running-notice.bp6-callout {
+  position: absolute;
+  z-index: 8;
+  top: 8px;
+  left: 50%;
+  max-width: calc(100% - 24px);
+  padding: 6px 10px;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.integrated-macro-runtime {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  overflow: hidden;
+  background: #151a20;
+}
+
+.integrated-macro-runtime__heading,
+.integrated-macro-runtime__details > section > header {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #343b45;
+}
+
+.integrated-macro-runtime__heading {
+  min-height: 48px;
+  padding: 8px 12px;
+  background: #20262d;
+}
+
+.integrated-macro-runtime__heading > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.integrated-macro-runtime__heading small {
+  overflow: hidden;
+  color: #8995a3;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.integrated-macro-runtime__summary {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 0;
+  border-bottom: 1px solid #343b45;
+}
+
+.integrated-macro-runtime__summary > div {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(100px, 0.45fr) minmax(0, 1fr);
+  border-right: 1px solid #303740;
+  border-bottom: 1px solid #303740;
+}
+
+.integrated-macro-runtime__summary > div.is-error {
+  grid-column: 1 / -1;
+}
+
+.integrated-macro-runtime__summary dt,
+.integrated-macro-runtime__summary dd {
+  min-width: 0;
+  margin: 0;
+  padding: 7px 9px;
+  overflow-wrap: anywhere;
+}
+
+.integrated-macro-runtime__summary dt {
+  color: #8995a3;
+  background: #1d232a;
+  font-size: 11px;
+}
+
+.integrated-macro-runtime__summary dd {
+  color: #dbe1e8;
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.integrated-macro-runtime__summary .has-error dd {
+  color: #ff999c;
+}
+
+.integrated-macro-runtime__details {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  overflow: hidden;
+}
+
+.integrated-macro-runtime__details > section {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  border-right: 1px solid #343b45;
+}
+
+.integrated-macro-runtime__details > section:last-child {
+  border-right: 0;
+}
+
+.integrated-macro-runtime__details > section > header {
+  min-height: 36px;
+  padding: 6px 9px;
+  background: #1d232a;
+}
+
+.integrated-macro-runtime__list {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+}
+
+.integrated-macro-runtime__variable,
+.integrated-macro-runtime__trace {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+  padding: 7px 9px;
+  border-bottom: 1px solid #292f37;
+}
+
+.integrated-macro-runtime__variable {
+  grid-template-columns: minmax(70px, 0.4fr) minmax(0, 1fr);
+}
+
+.integrated-macro-runtime__trace {
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+
+.integrated-macro-runtime__variable > strong,
+.integrated-macro-runtime__trace > span {
+  overflow: hidden;
+  color: #9eabb9;
+  font-family: var(--mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+}
+
+.integrated-macro-runtime code {
+  min-width: 0;
+  overflow: auto;
+  color: #c8d9ec;
+  font-family: var(--mono);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.integrated-macro-runtime__empty {
+  padding: 18px 10px;
+  color: #7f8995;
+  font-size: 11px;
+  text-align: center;
 }
 
 .android-hierarchy-pane.bp6-card {
@@ -1330,6 +1504,13 @@ select:focus-visible {
 .android-live-stage.is-tap-mode {
   cursor: crosshair;
   box-shadow: inset 0 0 0 2px #d99e0b;
+  touch-action: none;
+  user-select: none;
+}
+
+.android-live-stage.is-inspect-mode {
+  cursor: cell;
+  box-shadow: inset 0 0 0 2px #a26cff;
   touch-action: none;
   user-select: none;
 }
@@ -1612,7 +1793,7 @@ select:focus-visible {
   overflow: hidden;
   color: #8995a3;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1633,8 +1814,8 @@ select:focus-visible {
   overflow: hidden;
   border-bottom: 1px solid #2d333b;
   color: #8995a3;
-  font-family: var(--mono);
-  font-size: 9px;
+  font-family: var(--font-ui);
+  font-size: 11px;
   white-space: nowrap;
 }
 
@@ -1648,7 +1829,7 @@ select:focus-visible {
   outline: none;
   color: #e1e5ea;
   background: #101419;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .android-tree-search:focus {
@@ -1665,7 +1846,7 @@ select:focus-visible {
   padding: 2px 9px 5px;
   border-bottom: 1px solid #2d333b;
   color: #aeb6c0;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .android-tree-filters label {
@@ -1724,7 +1905,7 @@ select:focus-visible {
 .android-tree-chain-separator {
   padding: 0 3px;
   color: #596473;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .android-tree-segment {
@@ -1741,7 +1922,7 @@ select:focus-visible {
   color: #cbd1d8;
   background: transparent;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 11px;
   cursor: pointer;
 }
 
@@ -1792,7 +1973,7 @@ select:focus-visible {
   color: #91a0af;
   background: #29313a;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 11px;
   text-align: center;
 }
 
@@ -1848,14 +2029,14 @@ select:focus-visible {
 
 .android-tree-node-icon {
   color: #879bb1;
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .android-tree-node-class {
   flex: 0 1 auto;
   overflow: hidden;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 11px;
   text-overflow: ellipsis;
 }
 
@@ -1863,7 +2044,7 @@ select:focus-visible {
   flex: 1;
   overflow: hidden;
   color: #aeb7c2;
-  font-size: 9px;
+  font-size: 11px;
   text-overflow: ellipsis;
 }
 
@@ -1874,11 +2055,13 @@ select:focus-visible {
   color: #bce1ff;
   background: #294763;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .android-node-inspector-scroll {
+  max-width: 100%;
   padding: 8px;
+  overflow-x: hidden;
 }
 
 .android-node-fields {
@@ -1904,7 +2087,7 @@ select:focus-visible {
   min-width: 0;
   margin: 0;
   padding: 5px 7px;
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .android-node-fields dt {
@@ -1918,7 +2101,7 @@ select:focus-visible {
 .android-node-fields dd {
   overflow-wrap: anywhere;
   color: #d4d9df;
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   white-space: normal;
 }
 
@@ -1935,7 +2118,7 @@ select:focus-visible {
   border-radius: 2px;
   color: #6f7a87;
   font-family: var(--mono);
-  font-size: 8px;
+  font-size: 11px;
 }
 
 .android-node-state-flags span.is-active {
@@ -1949,7 +2132,7 @@ select:focus-visible {
   gap: 4px;
   margin-top: 9px;
   color: #8f99a8;
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -1964,21 +2147,38 @@ select:focus-visible {
   color: #c5d8ef;
   background: #101419;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.4;
 }
 
 .android-node-actions {
   display: flex;
+  width: 100%;
+  min-width: 0;
   min-height: 38px;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 8px;
 }
 
-.android-node-actions small {
+.android-node-actions > .bp6-button {
+  min-width: 0;
+  max-width: 100%;
+  flex: 1 1 140px;
+}
+
+.android-node-actions > .bp6-button .bp6-button-text {
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.android-node-action-message {
+  flex: 1 0 100%;
+  min-width: 0;
   color: #d4a72c;
-  font-size: 9px;
+  font-size: 11px;
+  overflow-wrap: anywhere;
 }
 
 .android-tab-inspector > .android-detection-list {
@@ -2024,6 +2224,80 @@ select:focus-visible {
 .android-console-content .android-state-list {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
+
+.user-debug-console {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.user-debug-console__toolbar {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  padding: 5px 10px;
+  overflow-x: auto;
+  border-bottom: 1px solid #383e47;
+  background: #181d23;
+}
+
+.user-debug-console__toolbar select {
+  height: 26px;
+  color: #d9dee6;
+  border: 1px solid #414956;
+  background: #11171d;
+}
+
+.user-debug-console__toolbar label {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  color: #aab2bd;
+  font-size: 11px;
+}
+
+.user-debug-console__body {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  font-family: var(--font-ui);
+}
+
+.user-debug-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 92px 72px minmax(0, 1fr) 140px;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid #282e36;
+  font-size: 11px;
+}
+
+.user-debug-row time,
+.user-debug-row small {
+  overflow: hidden;
+  color: #7f8996;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.user-debug-row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.user-debug-row.is-warning > span { color: #f0b45a; }
+.user-debug-row.is-error > span { color: #ff8d91; }
+.user-debug-row.is-debug > span { color: #929ca9; }
 
 .android-debug-message-slot {
   display: grid;
@@ -2074,7 +2348,7 @@ select:focus-visible {
 .android-state-list dt,
 .android-decision-debug dt {
   color: #8f99a8;
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -2083,7 +2357,7 @@ select:focus-visible {
   overflow: hidden;
   color: #d3d8de;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -2118,7 +2392,7 @@ select:focus-visible {
   overflow-wrap: anywhere;
   color: #c5cbd3;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -2165,7 +2439,7 @@ select:focus-visible {
 
 .android-ui-tree-search span {
   color: #fa999c;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .android-ui-tree-search .is-placeholder-message {
@@ -2213,7 +2487,7 @@ select:focus-visible {
 .android-ui-node-list small {
   color: #8f99a8;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .android-ui-node-detail {
@@ -2229,7 +2503,7 @@ select:focus-visible {
 
 .android-ui-node-detail dt {
   color: #8f99a8;
-  font-size: 9px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -2238,7 +2512,7 @@ select:focus-visible {
   overflow-wrap: anywhere;
   color: #d3d8de;
   font-family: var(--mono);
-  font-size: 9px;
+  font-size: 11px;
 }
 
 .android-detection-list .bp6-button {
@@ -2264,7 +2538,7 @@ select:focus-visible {
 .android-selected-detection {
   color: #8f99a8;
   font-family: var(--mono);
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .android-selected-detection {
@@ -2285,7 +2559,7 @@ select:focus-visible {
   gap: 8px;
   padding: 5px 7px;
   border-bottom: 1px solid #2f343c;
-  font-size: 10px;
+  font-size: 11px;
 }
 
 .android-event-row time,
@@ -2331,7 +2605,7 @@ select:focus-visible {
 
 .device-macro-controls label > span {
   color: #8994a2;
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
 }
 
@@ -2397,18 +2671,6 @@ select:focus-visible {
     padding-block: 4px;
   }
 
-  .android-device-toolbar {
-    max-height: min(30vh, 220px);
-  }
-
-  .device-selector-card.bp6-card {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .device-selector-card > * {
-    grid-column: 1;
-  }
-
   .android-debug-grid {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows:
@@ -2464,6 +2726,19 @@ select:focus-visible {
 }
 
 @media (max-width: 600px) {
+  .vision-navbar__device-selector {
+    margin-right: 0;
+  }
+
+  .vision-navbar__device-selector label,
+  .vision-navbar__status > .bp6-tag {
+    display: none;
+  }
+
+  .vision-navbar__device-selector select {
+    width: clamp(140px, 43vw, 220px);
+  }
+
   .vision-workspace-page.android-editor-page {
     padding-inline: 8px;
   }

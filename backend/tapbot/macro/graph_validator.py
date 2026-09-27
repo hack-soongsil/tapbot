@@ -6,9 +6,16 @@ from collections import Counter, defaultdict, deque
 from dataclasses import dataclass
 import math
 
-from tapbot.macro.graph_models import MacroDefinition, MacroEdge, NodeStatus, assert_json_value
+from tapbot.macro.graph_models import (
+    MacroDefinition,
+    MacroEdge,
+    MacroFunctionDefinition,
+    NodeStatus,
+    assert_json_value,
+)
 from tapbot.macro.node_registry import NodeRegistry
 from tapbot.macro.ports import PortType, ports_for
+from tapbot.macro.nodes.variable import default_matches_type
 
 
 _EVENT_NODE_TYPES = {
@@ -79,7 +86,52 @@ class GraphValidator:
                     else f"entry node {entry_id!r} does not exist"
                 )
 
-        if definition.screen is not None:
+        if definition.screen_event_entry_node_ids is not None:
+            referenced_event_nodes: set[str] = set()
+            for screen_id, entries in definition.screen_event_entry_node_ids.items():
+                if not screen_id:
+                    errors.append("screen id must not be empty")
+                    continue
+                for kind, node_type in _EVENT_NODE_TYPES.items():
+                    matching = [
+                        node
+                        for node in definition.nodes
+                        if node.type == node_type
+                        and node.config.get("screen_id") == screen_id
+                        and node.config.get("event") == kind
+                    ]
+                    if len(matching) != 1:
+                        errors.append(
+                            f"screen {screen_id!r} must contain exactly one "
+                            f"{node_type} node"
+                        )
+                    entry_id = entries.get(kind)
+                    if entry_id is None:
+                        errors.append(
+                            f"screen {screen_id!r} is missing {kind} event entry"
+                        )
+                    elif entry_id in node_by_id:
+                        referenced_event_nodes.add(entry_id)
+                        entry_node = node_by_id[entry_id]
+                        if entry_node.type != node_type:
+                            errors.append(
+                                f"screen {screen_id!r} {kind} event entry must "
+                                f"reference a {node_type} node"
+                            )
+                        if (
+                            entry_node.config.get("screen_id") != screen_id
+                            or entry_node.config.get("event") != kind
+                        ):
+                            errors.append(
+                                f"event node {entry_id!r} must identify {screen_id}.{kind}"
+                            )
+            for node in definition.nodes:
+                if node.type in _EVENT_NODE_TYPES.values() and node.id not in referenced_event_nodes:
+                    errors.append(
+                        f"event node {node.id!r} is not a registered "
+                        "screen event entry"
+                    )
+        elif definition.screen is not None:
             if not definition.screen.id:
                 errors.append("screen id must not be empty")
             entries = definition.event_entry_node_ids
@@ -202,7 +254,13 @@ class GraphValidator:
                     )
                 if source_type is PortType.EXEC or target_type is PortType.EXEC:
                     errors.append(f"data edge {edge.id!r} cannot connect exec ports")
-                elif source_type is not None and target_type is not None and source_type != target_type:
+                elif (
+                    source_type is not None
+                    and target_type is not None
+                    and source_type != target_type
+                    and source_type is not PortType.ANY
+                    and target_type is not PortType.ANY
+                ):
                     errors.append(
                         f"data edge {edge.id!r} type mismatch: "
                         f"{source_type.value} -> {target_type.value}"
@@ -258,7 +316,7 @@ class GraphValidator:
                     errors.append(
                         f"node {node.id!r}: click_element requires element input or selector fallback"
                     )
-            if node.type == "click_screen_element" and "index" not in inputs:
+            if node.type == "find_screen_element" and "index" not in inputs:
                 from tapbot.ui_resolution.screens import validate_screen_element_reference
 
                 params = node.config.get("params", {})
@@ -288,6 +346,10 @@ class GraphValidator:
         disconnected = sorted(set(node_by_id) - connected)
         if disconnected:
             warnings.append(f"nodes without exec connections: {', '.join(disconnected)}")
+        function_errors, function_warnings = self._validate_functions(definition)
+        errors.extend(function_errors)
+        warnings.extend(function_warnings)
+        errors.extend(self._validate_variables(definition))
         return GraphValidationReport(tuple(errors), tuple(warnings))
 
     def validate_or_raise(self, definition: MacroDefinition) -> None:
@@ -310,3 +372,168 @@ class GraphValidator:
             visited.add(node_id)
             queue.extend(outgoing[node_id])
         return visited
+
+    def _validate_functions(
+        self,
+        definition: MacroDefinition,
+    ) -> tuple[list[str], list[str]]:
+        errors: list[str] = []
+        warnings: list[str] = []
+        counts = Counter(function.id for function in definition.functions)
+        for function_id, count in counts.items():
+            if count > 1:
+                errors.append(f"duplicate function id: {function_id}")
+        functions = {function.id: function for function in definition.functions}
+        for function in definition.functions:
+            errors.extend(self._function_signature_errors(function))
+            nodes = {node.id: node for node in function.nodes}
+            if nodes.get(function.entry_node_id) is None:
+                errors.append(
+                    f"function {function.id!r}: entry node does not exist"
+                )
+            elif nodes[function.entry_node_id].type != "function_entry":
+                errors.append(
+                    f"function {function.id!r}: entry_node_id must reference function_entry"
+                )
+            if nodes.get(function.return_node_id) is None:
+                errors.append(
+                    f"function {function.id!r}: return node does not exist"
+                )
+            elif nodes[function.return_node_id].type != "function_return":
+                errors.append(
+                    f"function {function.id!r}: return_node_id must reference function_return"
+                )
+            if sum(node.type == "function_entry" for node in function.nodes) != 1:
+                errors.append(
+                    f"function {function.id!r}: must contain exactly one function_entry"
+                )
+            if sum(node.type == "function_return" for node in function.nodes) != 1:
+                errors.append(
+                    f"function {function.id!r}: must contain exactly one function_return"
+                )
+            if function.entry_node_id in {
+                edge.target for edge in function.edges
+            }:
+                errors.append(
+                    f"function {function.id!r}: function_entry cannot have incoming edges"
+                )
+            subgraph = MacroDefinition(
+                id=f"{definition.id}::function::{function.id}",
+                name=function.name,
+                version=definition.version,
+                nodes=function.nodes,
+                edges=function.edges,
+                entry_node_id=function.entry_node_id,
+                variables=definition.variables,
+            )
+            report = GraphValidator(self.registry).validate(subgraph)
+            errors.extend(
+                f"function {function.id!r}: {message}"
+                for message in report.errors
+                if "referenced function" not in message
+            )
+            warnings.extend(
+                f"function {function.id!r}: {message}" for message in report.warnings
+            )
+
+        owners: dict[str, tuple] = {"<main>": definition.nodes}
+        owners.update({function.id: function.nodes for function in definition.functions})
+        graph: dict[str, set[str]] = {function.id: set() for function in definition.functions}
+        for owner, nodes in owners.items():
+            for node in nodes:
+                if node.type != "call_function":
+                    continue
+                target = node.config.get("function_id")
+                if not isinstance(target, str) or target not in functions:
+                    errors.append(
+                        f"{('macro' if owner == '<main>' else f'function {owner!r}')} "
+                        f"node {node.id!r}: referenced function {target!r} does not exist"
+                    )
+                elif owner != "<main>":
+                    graph[owner].add(target)
+        cycle = _function_cycle(graph)
+        if cycle:
+            errors.append(
+                "recursive function calls are not allowed: " + " -> ".join(cycle)
+            )
+        return errors, warnings
+
+    @staticmethod
+    def _validate_variables(definition: MacroDefinition) -> list[str]:
+        errors: list[str] = []
+        counts = Counter(variable.name for variable in definition.variables)
+        duplicates = sorted(name for name, count in counts.items() if count > 1)
+        if duplicates:
+            errors.append("duplicate variable names: " + ", ".join(duplicates))
+        variables = {variable.name: variable for variable in definition.variables}
+        for variable in definition.variables:
+            if variable.default is None:
+                if variable.type != "element":
+                    errors.append(
+                        f"variable {variable.name!r}: default is required for {variable.type}"
+                    )
+            elif not default_matches_type(variable.default, variable.type):
+                errors.append(
+                    f"variable {variable.name!r}: default must match type {variable.type}"
+                )
+        for node in definition.nodes:
+            if node.type not in {"set_variable", "get_variable"}:
+                continue
+            name = node.config.get("name")
+            variable = variables.get(name) if isinstance(name, str) else None
+            if variable is None:
+                errors.append(
+                    f"node {node.id!r}: referenced variable {name!r} does not exist"
+                )
+                continue
+            if node.config.get("type") != variable.type:
+                errors.append(
+                    f"node {node.id!r}: variable port type must be {variable.type}"
+                )
+        return errors
+
+    @staticmethod
+    def _function_signature_errors(function: MacroFunctionDefinition) -> list[str]:
+        errors: list[str] = []
+        if not function.id:
+            errors.append("function id must not be empty")
+        if not function.name:
+            errors.append(f"function {function.id!r}: name must not be empty")
+        for kind, ports in (("input", function.inputs), ("output", function.outputs)):
+            counts = Counter(port.id for port in ports)
+            duplicates = sorted(port_id for port_id, count in counts.items() if count > 1)
+            if duplicates:
+                errors.append(
+                    f"function {function.id!r}: duplicate {kind} ports: "
+                    + ", ".join(duplicates)
+                )
+        return errors
+
+
+def _function_cycle(graph: dict[str, set[str]]) -> tuple[str, ...]:
+    visiting: set[str] = set()
+    visited: set[str] = set()
+    path: list[str] = []
+
+    def visit(node: str) -> tuple[str, ...]:
+        if node in visiting:
+            start = path.index(node)
+            return tuple((*path[start:], node))
+        if node in visited:
+            return ()
+        visiting.add(node)
+        path.append(node)
+        for target in sorted(graph.get(node, ())):
+            cycle = visit(target)
+            if cycle:
+                return cycle
+        path.pop()
+        visiting.remove(node)
+        visited.add(node)
+        return ()
+
+    for node in sorted(graph):
+        cycle = visit(node)
+        if cycle:
+            return cycle
+    return ()

@@ -102,7 +102,7 @@ def test_element_exists_result_drives_branch_condition() -> None:
     assert context.node_outputs["start"]["result"] is True
 
 
-def test_for_index_drives_click_screen_element_collection_index() -> None:
+def test_for_index_drives_find_screen_element_collection_index() -> None:
     ui = Ui()
     actions = Actions()
     graph = definition(
@@ -111,17 +111,16 @@ def test_for_index_drives_click_screen_element_collection_index() -> None:
                 "start": 0, "end": 3, "step": 1,
                 "inclusive_end": False, "index_variable": "i",
             }),
-            MacroNode("click", "click_screen_element", {
+            MacroNode("find", "find_screen_element", {
                 "screen_id": "reservation_home",
                 "element_id": "quick_date",
                 "params": {},
-                "click": {"duration_ms": 70},
             }),
             MacroNode("done", "stop"),
         ),
         (
-            exec_edge("loop", "start", "click", "loop"),
-            data_edge("index", "start", "index", "click", "index"),
+            exec_edge("loop", "start", "find", "loop"),
+            data_edge("index", "start", "index", "find", "index"),
             exec_edge("completed", "start", "done", "completed"),
         ),
     )
@@ -133,7 +132,7 @@ def test_for_index_drives_click_screen_element_collection_index() -> None:
 
     assert result.runtime.state is GraphRuntimeStatus.STOPPED
     assert ui.screen_indexes == [0, 1, 2]
-    assert len(actions.taps) == 3
+    assert len(actions.taps) == 0
 
 
 def test_find_element_reference_drives_click_element_without_selector() -> None:
@@ -160,6 +159,62 @@ def test_find_element_reference_drives_click_element_without_selector() -> None:
     )
 
     assert actions.taps == [(200.0, 300.0, 80)]
+
+
+def test_find_screen_element_reference_drives_click_element() -> None:
+    ui = Ui()
+    actions = Actions()
+    graph = definition(
+        (
+            MacroNode("start", "find_screen_element", {
+                "screen_id": "reservation_home",
+                "element_id": "quick_date",
+                "params": {"index": 2},
+            }),
+            MacroNode("click", "click_element", {"sampling_mode": "center"}),
+        ),
+        (
+            exec_edge("next", "start", "click"),
+            data_edge("element", "start", "element", "click", "element"),
+        ),
+    )
+
+    GraphEngine(create_default_node_registry()).run(
+        graph,
+        context=GraphExecutionContext(ui=ui, actions=actions),
+    )
+
+    assert ui.screen_indexes == [2]
+    assert actions.taps == [(20.0, 30.0, 70)]
+
+
+def test_find_screen_element_found_output_drives_branch() -> None:
+    ui = Ui()
+    graph = definition(
+        (
+            MacroNode("start", "find_screen_element", {
+                "screen_id": "reservation_home",
+                "element_id": "quick_date",
+                "params": {"index": 1},
+            }),
+            MacroNode("branch", "branch", {}),
+            MacroNode("yes", "stop"),
+            MacroNode("no", "stop"),
+        ),
+        (
+            exec_edge("next", "start", "branch"),
+            data_edge("found", "start", "found", "branch", "condition"),
+            exec_edge("yes-edge", "branch", "yes", "true"),
+            exec_edge("no-edge", "branch", "no", "false"),
+        ),
+    )
+
+    result = GraphEngine(create_default_node_registry()).run(
+        graph,
+        context=GraphExecutionContext(ui=ui),
+    )
+
+    assert [trace.node_id for trace in result.traces] == ["start", "branch", "yes"]
 
 
 def test_validator_rejects_data_type_mismatch() -> None:

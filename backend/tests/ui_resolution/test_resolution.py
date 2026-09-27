@@ -172,6 +172,34 @@ def test_duplicate_candidates_are_ambiguous_and_hidden_disabled_are_filtered() -
     assert resolver.find(snapshot, text="비활성", clickable=True) is None
 
 
+def test_ui_tree_path_disambiguates_exact_text_but_remains_only_a_hint() -> None:
+    root = node("n0", bounds=AndroidUiBounds(0, 0, 1080, 2400))
+    first = node("n0.0", parent_id="n0", text="확인", clickable=True)
+    second = node(
+        "n0.1",
+        parent_id="n0",
+        text="확인",
+        clickable=True,
+        bounds=AndroidUiBounds(200, 10, 300, 60),
+    )
+    snapshot = tree(root, first, second)
+    resolver = AccessibilityUiResolver()
+
+    resolved = resolver.resolve(
+        snapshot,
+        UiSelector(text="확인", clickable=True, ui_tree_path="n0.1"),
+    )
+    stale_hint = resolver.resolve(
+        snapshot,
+        UiSelector(text="확인", clickable=True, ui_tree_path="old.path"),
+    )
+
+    assert resolved.status == "resolved"
+    assert resolved.element is not None
+    assert resolved.element.metadata["matched_node_id"] == "n0.1"
+    assert stale_hint.status == "ambiguous"
+
+
 def test_hybrid_resolver_prefers_accessibility_then_falls_back_to_vision() -> None:
     root = node("n0", bounds=AndroidUiBounds(0, 0, 1080, 2400))
     button = node(

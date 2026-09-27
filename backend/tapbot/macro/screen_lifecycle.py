@@ -8,7 +8,11 @@ from threading import Lock
 import time
 
 from tapbot.macro.graph_models import MacroDefinition
-from tapbot.ui_resolution.screens import ScreenRecognition, ScreenRecognizer
+from tapbot.ui_resolution.screens import (
+    DEFAULT_SSUTODAY_SCREENS,
+    ScreenRecognition,
+    ScreenRecognizer,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,21 +36,28 @@ class ScreenLifecycleDispatcher:
         *,
         monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
-        screen_definitions = tuple(
-            definition for definition in definitions if definition.screen is not None
-        )
-        self._definitions = {
-            definition.screen.id: definition
-            for definition in screen_definitions
-            if definition.screen is not None
-        }
-        if len(self._definitions) != len(screen_definitions):
-            raise ValueError("screen ids must be unique within a lifecycle runtime")
-        self._recognizer = ScreenRecognizer(
-            definition.screen
-            for definition in screen_definitions
-            if definition.screen is not None
-        )
+        screen_definitions = tuple(definitions)
+        self._definitions: dict[str, MacroDefinition] = {}
+        custom_rules = {}
+        for definition in screen_definitions:
+            if definition.screen_event_entry_node_ids:
+                for screen_id in definition.screen_event_entry_node_ids:
+                    if screen_id in self._definitions:
+                        raise ValueError("screen ids must be unique within a lifecycle runtime")
+                    self._definitions[screen_id] = definition
+            elif definition.screen is not None:
+                if definition.screen.id in self._definitions:
+                    raise ValueError("screen ids must be unique within a lifecycle runtime")
+                self._definitions[definition.screen.id] = definition
+                custom_rules[definition.screen.id] = definition.screen
+        default_rules = {rule.id: rule for rule in DEFAULT_SSUTODAY_SCREENS}
+        rules = []
+        for screen_id in self._definitions:
+            rule = custom_rules.get(screen_id) or default_rules.get(screen_id)
+            if rule is None:
+                raise ValueError(f"screen {screen_id!r} has no recognition rule")
+            rules.append(rule)
+        self._recognizer = ScreenRecognizer(rules)
         self._execute = execute
         self._monotonic = monotonic
         self._tick_lock = Lock()
@@ -79,7 +90,10 @@ class ScreenLifecycleDispatcher:
                 if previous is None:
                     return ()
                 now = self._monotonic()
-                interval = self._update_interval(self._definitions[previous]) / 1_000
+                interval = (
+                    self._update_interval(self._definitions[previous], previous)
+                    / 1_000
+                )
                 if now - self._last_update_at.get(previous, float("-inf")) < interval:
                     return ()
                 self._last_update_at[previous] = now
@@ -112,7 +126,7 @@ class ScreenLifecycleDispatcher:
         recognition: ScreenRecognition | None,
     ) -> ScreenLifecycleEvent | None:
         definition = self._definitions[screen_id]
-        entry = definition.entry_for(kind)
+        entry = definition.entry_for(kind, screen_id=screen_id)
         return None if entry is None else ScreenLifecycleEvent(
             screen_id,
             kind,
@@ -124,8 +138,8 @@ class ScreenLifecycleDispatcher:
         self._execute(self._definitions[event.screen_id], event, ui_tree)
 
     @staticmethod
-    def _update_interval(definition: MacroDefinition) -> int:
-        entry = definition.entry_for("update")
+    def _update_interval(definition: MacroDefinition, screen_id: str) -> int:
+        entry = definition.entry_for("update", screen_id=screen_id)
         node = next((node for node in definition.nodes if node.id == entry), None)
         value = 1_000 if node is None else node.config.get("interval_ms", 1_000)
         return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else 1_000

@@ -7,7 +7,9 @@ import {
   useState,
   type KeyboardEvent,
 } from 'react'
+import { ko, macroCategoryLabels } from '../../i18n/ko'
 import type { BlockDefinition } from './blocks'
+import { blockSupportsPortContext, type SourcePortContext } from './port-compatibility'
 import type { MacroNodeCategory, MacroNodeType } from './types'
 
 export const QUICK_BLOCK_RECENT_KEY = 'tapbot.macro.quickBlockRecent'
@@ -15,7 +17,7 @@ export const QUICK_BLOCK_RECENT_KEY = 'tapbot.macro.quickBlockRecent'
 const MAX_RECENT = 8
 const VIEWPORT_MARGIN = 8
 const EXPECTED_WIDTH = 360
-const EXPECTED_HEIGHT = 480
+const EXPECTED_HEIGHT = 600
 
 const categoryOrder: readonly MacroNodeCategory[] = [
   'event',
@@ -24,36 +26,36 @@ const categoryOrder: readonly MacroNodeCategory[] = [
   'condition',
   'control',
   'validation',
+  'utility',
 ]
-
-const categoryLabels: Record<MacroNodeCategory, string> = {
-  event: 'EVENT',
-  ui: 'UI',
-  action: 'ACTION',
-  condition: 'CONDITION',
-  control: 'FLOW',
-  validation: 'VALIDATION',
-}
 
 export interface QuickBlockSearchProps {
   open: boolean
   screenPosition: { x: number; y: number }
   flowPosition: { x: number; y: number }
   blocks: readonly BlockDefinition[]
+  sourcePortContext?: SourcePortContext | null
   onSelect: (type: MacroNodeType, position: { x: number; y: number }) => void
   onClose: () => void
 }
 
-interface SearchSection {
+interface CategoryItem {
   id: string
-  label: string
-  blocks: readonly BlockDefinition[]
+  kind: 'category'
+  category: MacroNodeCategory
+  count: number
 }
 
-export function QuickBlockSearch({
-  open,
-  ...props
-}: QuickBlockSearchProps) {
+interface BlockItem {
+  id: string
+  kind: 'block'
+  block: BlockDefinition
+  location: 'recent' | 'category' | 'search'
+}
+
+type NavigationItem = CategoryItem | BlockItem
+
+export function QuickBlockSearch({ open, ...props }: QuickBlockSearchProps) {
   return open ? <OpenQuickBlockSearch open {...props} /> : null
 }
 
@@ -61,12 +63,15 @@ function OpenQuickBlockSearch({
   screenPosition,
   flowPosition,
   blocks,
+  sourcePortContext = null,
   onSelect,
   onClose,
 }: QuickBlockSearchProps) {
   const popupRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([])
   const [query, setQuery] = useState('')
+  const [activeCategory, setActiveCategory] = useState<MacroNodeCategory | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
   const [recent, setRecent] = useState<MacroNodeType[]>(readRecent)
   const [popupPosition, setPopupPosition] = useState(() => clampPosition(
@@ -76,8 +81,11 @@ function OpenQuickBlockSearch({
   ))
 
   const searchable = useMemo(
-    () => blocks.filter((block) => block.quickSearch ?? block.palette),
-    [blocks],
+    () => blocks.filter((block) => (
+      (block.quickSearch ?? block.palette) &&
+      (!sourcePortContext || blockSupportsPortContext(block, sourcePortContext))
+    )),
+    [blocks, sourcePortContext],
   )
   const blockByType = useMemo(
     () => new Map(searchable.map((block) => [block.type, block])),
@@ -87,6 +95,70 @@ function OpenQuickBlockSearch({
     () => recent.filter((type) => blockByType.has(type)),
     [blockByType, recent],
   )
+  const blocksByCategory = useMemo(() => new Map(categoryOrder.map((category) => [
+    category,
+    searchable
+      .filter((block) => block.category === category)
+      .sort((a, b) => a.label.localeCompare(b.label)),
+  ])), [searchable])
+  const availableCategories = useMemo(
+    () => categoryOrder.filter((category) => (blocksByCategory.get(category)?.length ?? 0) > 0),
+    [blocksByCategory],
+  )
+  const recentBlocks = useMemo(() => validRecent.flatMap((type) => {
+    const block = blockByType.get(type)
+    return block ? [block] : []
+  }), [blockByType, validRecent])
+
+  const normalizedQuery = normalize(query)
+  const ranked = useMemo(
+    () => normalizedQuery
+      ? searchable
+          .map((block) => ({ block, score: scoreBlock(block, normalizedQuery) }))
+          .filter((item) => item.score > 0)
+          .sort((a, b) => (
+            b.score - a.score ||
+            recentRank(a.block.type, validRecent) - recentRank(b.block.type, validRecent) ||
+            a.block.label.localeCompare(b.block.label)
+          ))
+          .map((item) => item.block)
+      : [],
+    [normalizedQuery, searchable, validRecent],
+  )
+
+  const navigationItems = useMemo<NavigationItem[]>(() => {
+    if (normalizedQuery) {
+      return ranked.map((block) => ({
+        id: `search-${block.type}`,
+        kind: 'block',
+        block,
+        location: 'search',
+      }))
+    }
+    if (activeCategory) {
+      return (blocksByCategory.get(activeCategory) ?? []).map((block) => ({
+        id: `category-${activeCategory}-${block.type}`,
+        kind: 'block',
+        block,
+        location: 'category',
+      }))
+    }
+    return [
+      ...recentBlocks.map((block): BlockItem => ({
+        id: `recent-${block.type}`,
+        kind: 'block',
+        block,
+        location: 'recent',
+      })),
+      ...availableCategories.map((category): CategoryItem => ({
+        id: `folder-${category}`,
+        kind: 'category',
+        category,
+        count: blocksByCategory.get(category)?.length ?? 0,
+      })),
+    ]
+  }, [activeCategory, availableCategories, blocksByCategory, normalizedQuery, ranked, recentBlocks])
+  const visibleActiveIndex = Math.min(activeIndex, Math.max(0, navigationItems.length - 1))
 
   useEffect(() => {
     const focus = window.setTimeout(() => inputRef.current?.focus(), 0)
@@ -111,85 +183,138 @@ function OpenQuickBlockSearch({
     return () => document.removeEventListener('pointerdown', closeOutside, true)
   }, [onClose])
 
-  const normalizedQuery = normalize(query)
-  const ranked = useMemo(
-    () => normalizedQuery
-      ? searchable
-          .map((block) => ({ block, score: scoreBlock(block, normalizedQuery) }))
-          .filter((item) => item.score > 0)
-          .sort((a, b) => (
-            b.score - a.score ||
-            recentRank(a.block.type, validRecent) - recentRank(b.block.type, validRecent) ||
-            a.block.label.localeCompare(b.block.label)
-          ))
-          .map((item) => item.block)
-      : [],
-    [normalizedQuery, searchable, validRecent],
-  )
-  const sections = useMemo<SearchSection[]>(() => {
-    if (normalizedQuery) {
-      return ranked.length ? [{ id: 'results', label: 'RESULTS', blocks: ranked }] : []
+  useEffect(() => {
+    if (!sourcePortContext) return
+    const cancelConnectionSearch = (event: MouseEvent) => {
+      event.preventDefault()
+      onClose()
     }
-    const next: SearchSection[] = []
-    const recentBlocks = validRecent.flatMap((type) => {
-      const block = blockByType.get(type)
-      return block ? [block] : []
-    })
-    if (recentBlocks.length) next.push({ id: 'recent', label: 'RECENT', blocks: recentBlocks })
-    for (const category of categoryOrder) {
-      const categoryBlocks = searchable
-        .filter((block) => block.category === category)
-        .sort((a, b) => a.label.localeCompare(b.label))
-      if (categoryBlocks.length) {
-        next.push({ id: category, label: categoryLabels[category], blocks: categoryBlocks })
-      }
-    }
-    return next
-  }, [blockByType, normalizedQuery, ranked, searchable, validRecent])
-  const visibleBlocks = useMemo(() => sections.flatMap((section) => section.blocks), [sections])
+    document.addEventListener('contextmenu', cancelConnectionSearch)
+    return () => document.removeEventListener('contextmenu', cancelConnectionSearch)
+  }, [onClose, sourcePortContext])
 
-  const select = (block: BlockDefinition) => {
+  useEffect(() => {
+    optionRefs.current[visibleActiveIndex]?.scrollIntoView?.({ block: 'nearest' })
+  }, [navigationItems, visibleActiveIndex])
+
+  const selectBlock = (block: BlockDefinition) => {
     const nextRecent = [block.type, ...validRecent.filter((type) => type !== block.type)].slice(0, MAX_RECENT)
     setRecent(nextRecent)
     writeRecent(nextRecent)
     onSelect(block.type, flowPosition)
     onClose()
   }
+
+  const openCategory = (category: MacroNodeCategory) => {
+    setActiveCategory(category)
+    setActiveIndex(0)
+  }
+
+  const goBack = () => {
+    setActiveCategory(null)
+    setActiveIndex(0)
+    inputRef.current?.focus()
+  }
+
+  const activate = (item: NavigationItem | undefined) => {
+    if (!item) return
+    if (item.kind === 'category') openCategory(item.category)
+    else selectBlock(item.block)
+  }
+
   const keyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault()
       onClose()
       return
     }
-    if (!visibleBlocks.length) return
+    if (event.key === 'Backspace' && !query && activeCategory) {
+      event.preventDefault()
+      goBack()
+      return
+    }
+    if (!navigationItems.length) return
     if (event.key === 'ArrowDown') {
       event.preventDefault()
-      setActiveIndex((index) => (index + 1) % visibleBlocks.length)
+      setActiveIndex((visibleActiveIndex + 1) % navigationItems.length)
     } else if (event.key === 'ArrowUp') {
       event.preventDefault()
-      setActiveIndex((index) => (index - 1 + visibleBlocks.length) % visibleBlocks.length)
+      setActiveIndex((visibleActiveIndex - 1 + navigationItems.length) % navigationItems.length)
     } else if (event.key === 'Enter') {
       event.preventDefault()
-      select(visibleBlocks[Math.min(activeIndex, visibleBlocks.length - 1)]!)
+      activate(navigationItems[visibleActiveIndex])
     }
   }
 
-  let optionIndex = -1
+  const renderItem = (item: NavigationItem) => {
+    const index = navigationItems.findIndex((candidate) => candidate.id === item.id)
+    const active = index === visibleActiveIndex
+    if (item.kind === 'category') {
+      return (
+        <button
+          type="button"
+          role="option"
+          aria-selected={active}
+          aria-label={`${macroCategoryLabels[item.category]} 폴더`}
+          className={`quick-block-search__item quick-block-search__folder${active ? ' quick-block-search__item--active' : ''}`}
+          key={item.id}
+          ref={(element) => { optionRefs.current[index] = element }}
+          onMouseEnter={() => setActiveIndex(index)}
+          onClick={() => openCategory(item.category)}
+        >
+          <span className="quick-block-search__folder-icon" aria-hidden="true">›</span>
+          <span className="quick-block-search__label">{macroCategoryLabels[item.category]}</span>
+          <span className="quick-block-search__count">{item.count}</span>
+        </button>
+      )
+    }
+    const path = `${macroCategoryLabels[item.block.category]} / ${item.block.label}`
+    return (
+      <button
+        type="button"
+        role="option"
+        aria-selected={active}
+        className={`quick-block-search__item${active ? ' quick-block-search__item--active' : ''}`}
+        key={item.id}
+        ref={(element) => { optionRefs.current[index] = element }}
+        onMouseEnter={() => setActiveIndex(index)}
+        onClick={() => selectBlock(item.block)}
+      >
+        <span className="quick-block-search__label">{item.block.label}</span>
+        <span className="quick-block-search__description">
+          {item.location === 'search' ? path : item.block.description ?? item.block.type}
+        </span>
+      </button>
+    )
+  }
+
   return createPortal(
     <div
       ref={popupRef}
       className="quick-block-search"
       role="dialog"
-      aria-label="Quick block search"
+      aria-label={ko.quickSearch.label}
       style={{ left: popupPosition.x, top: popupPosition.y }}
       onContextMenu={(event) => event.preventDefault()}
       onWheel={(event) => event.stopPropagation()}
     >
+      <header className="quick-block-search__header">
+        {!normalizedQuery && activeCategory ? (
+          <>
+            <button type="button" className="quick-block-search__back" onClick={goBack}>
+              <span aria-hidden="true">‹</span> 뒤로
+            </button>
+            <strong>{macroCategoryLabels[activeCategory]}</strong>
+          </>
+        ) : (
+          <strong>{normalizedQuery ? ko.quickSearch.results : ko.quickSearch.label}</strong>
+        )}
+      </header>
       <input
         ref={inputRef}
         className="quick-block-search__input"
-        aria-label="Search macro blocks"
-        placeholder="Search blocks..."
+        aria-label={ko.quickSearch.inputLabel}
+        placeholder={ko.quickSearch.placeholder}
         value={query}
         onChange={(event) => {
           setQuery(event.target.value)
@@ -198,37 +323,26 @@ function OpenQuickBlockSearch({
         onKeyDown={keyDown}
         autoComplete="off"
       />
-      <div className="quick-block-search__list" role="listbox" aria-label="Macro blocks">
-        {sections.map((section) => (
-          <section className="quick-block-search__section" key={section.id}>
-            <h2 className="quick-block-search__section-title">{section.label}</h2>
-            {section.blocks.map((block) => {
-              optionIndex += 1
-              const index = optionIndex
-              const active = index === activeIndex
-              return (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={active}
-                  className={`quick-block-search__item${active ? ' quick-block-search__item--active' : ''}`}
-                  key={`${section.id}-${block.type}`}
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onClick={() => select(block)}
-                >
-                  <span className="quick-block-search__label">{block.label}</span>
-                  <span className="quick-block-search__description">
-                    <b>{categoryLabels[block.category]}</b>
-                    {block.description ? ` · ${block.description}` : ` · ${block.type}`}
-                  </span>
-                </button>
-              )
-            })}
-          </section>
-        ))}
-        {!visibleBlocks.length && (
+      <div className="quick-block-search__list" role="listbox" aria-label="매크로 블록">
+        {!normalizedQuery && !activeCategory ? (
+          <>
+            {recentBlocks.length > 0 && (
+              <section className="quick-block-search__section">
+                <h2 className="quick-block-search__section-title">{ko.quickSearch.recent}</h2>
+                {navigationItems
+                  .filter((item) => item.kind === 'block' && item.location === 'recent')
+                  .map(renderItem)}
+              </section>
+            )}
+            <section className="quick-block-search__section">
+              <h2 className="quick-block-search__section-title">카테고리</h2>
+              {navigationItems.filter((item) => item.kind === 'category').map(renderItem)}
+            </section>
+          </>
+        ) : navigationItems.map(renderItem)}
+        {!navigationItems.length && (
           <div className="quick-block-search__empty">
-            No blocks found{query.trim() ? ` for “${query.trim()}”` : ''}
+            {ko.quickSearch.empty}{query.trim() ? `: “${query.trim()}”` : ''}
           </div>
         )}
       </div>
@@ -254,6 +368,11 @@ function scoreBlock(block: BlockDefinition, query: string) {
   if (keywords.some((keyword) => keyword === query)) return 40
   if (keywords.some((keyword) => keyword.includes(query))) return 30
   if (description.includes(query)) return 10
+  const searchableText = [label, type, block.category, ...keywords, description].join(' ')
+  const queryTokens = query.split(' ').filter(Boolean)
+  if (queryTokens.length > 1 && queryTokens.every((token) => searchableText.includes(token))) {
+    return 20
+  }
   return 0
 }
 

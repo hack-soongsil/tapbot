@@ -29,11 +29,72 @@ export function validateMacroDefinition(
   }
   const nodeIds = new Set(definition.nodes.map((node) => node.id))
   const nodeById = new Map(definition.nodes.map((node) => [node.id, node]))
+  const variableCounts = new Map<string, number>()
+  for (const variable of definition.variables ?? []) {
+    variableCounts.set(variable.name, (variableCounts.get(variable.name) ?? 0) + 1)
+    if (variable.default === undefined) {
+      if (variable.type !== 'element') {
+        issues.push(issue(`Variable ${variable.name} requires a default value.`))
+      }
+    } else if (!matchesVariableType(variable.default, variable.type)) {
+      issues.push(issue(`Variable ${variable.name} default must match ${variable.type}.`))
+    }
+  }
+  for (const [name, count] of variableCounts) {
+    if (count > 1) issues.push(issue(`Duplicate variable name: ${name}`))
+  }
+  const variables = new Map((definition.variables ?? []).map((item) => [item.name, item]))
+  for (const node of [
+    ...definition.nodes,
+    ...(definition.functions ?? []).flatMap((item) => item.nodes),
+  ]) {
+    if (node.type !== 'set_variable' && node.type !== 'get_variable') continue
+    const name = typeof node.config.name === 'string' ? node.config.name : ''
+    const variable = variables.get(name)
+    if (!variable) {
+      issues.push(issue(`Choose a defined variable.`, { nodeId: node.id }))
+    } else if (node.config.type !== variable.type) {
+      issues.push(issue(`Variable port type must be ${variable.type}.`, { nodeId: node.id }))
+    }
+  }
   const eventEntries = definition.event_entry_node_ids
-  if (!eventEntries && (!definition.entry_node_id || !nodeIds.has(definition.entry_node_id))) {
+  const screenEventEntries = definition.screen_event_entry_node_ids
+  if (!screenEventEntries && !eventEntries && (!definition.entry_node_id || !nodeIds.has(definition.entry_node_id))) {
     issues.push(issue('Choose an entry node before saving.'))
   }
-  if (definition.screen) {
+  if (screenEventEntries) {
+    const referenced = new Set<string>()
+    for (const [screenId, entries] of Object.entries(screenEventEntries)) {
+      const expected = [
+        ['enter', 'screen_enter'],
+        ['update', 'screen_update'],
+        ['exit', 'screen_exit'],
+      ] as const
+      for (const [kind, type] of expected) {
+        const matching = definition.nodes.filter((node) => (
+          node.type === type && node.config.screen_id === screenId && node.config.event === kind
+        ))
+        if (matching.length !== 1) {
+          issues.push(issue(`${screenId} must contain exactly one ${type} node.`))
+        }
+        const entryId = entries[kind]
+        if (!entryId || !nodeIds.has(entryId)) {
+          issues.push(issue(`${screenId} ${kind} entry is missing.`))
+        } else {
+          referenced.add(entryId)
+          const node = nodeById.get(entryId)
+          if (node?.type !== type || node.config.screen_id !== screenId || node.config.event !== kind) {
+            issues.push(issue(`${screenId} ${kind} entry must reference its ${type} node.`, { nodeId: entryId }))
+          }
+        }
+      }
+    }
+    for (const node of definition.nodes) {
+      if (node.type.startsWith('screen_') && !referenced.has(node.id)) {
+        issues.push(issue('Event node is not registered to a screen lifecycle.', { nodeId: node.id }))
+      }
+    }
+  } else if (definition.screen) {
     const expected = [
       ['enter', 'screen_enter'],
       ['update', 'screen_update'],
@@ -156,6 +217,18 @@ export function validateMacroDefinition(
         issues.push(issue('Screen Update must skip while already running.', { nodeId: node.id }))
       }
     }
+    if (node.type === 'debug_print') {
+      if (typeof node.config.message !== 'string') {
+        issues.push(issue('Debug message must be a string.', { nodeId: node.id }))
+      }
+      const configuredLevel = node.config.level
+      if (
+        typeof configuredLevel !== 'string'
+        || !['debug', 'info', 'warning', 'error'].includes(configuredLevel)
+      ) {
+        issues.push(issue('Select a valid debug level.', { nodeId: node.id }))
+      }
+    }
     if (node.type === 'click_point') {
       validatePoint(node.config, issues, node.id)
     }
@@ -187,7 +260,7 @@ export function validateMacroDefinition(
     if (node.type === 'sequence' && validOutputCount(node.config.outputs) < 2) {
       issues.push(issue('Sequence requires at least two outputs.', { nodeId: node.id }))
     }
-    if (node.type === 'click_screen_element') {
+    if (node.type === 'find_screen_element') {
       const screenId = typeof node.config.screen_id === 'string' ? node.config.screen_id : ''
       const elementId = typeof node.config.element_id === 'string' ? node.config.element_id : ''
       const template = SCREEN_ELEMENTS[screenId]?.find((item) => item.id === elementId)
@@ -202,6 +275,19 @@ export function validateMacroDefinition(
     }
   }
   return issues
+}
+
+function matchesVariableType(value: JsonValue, type: string) {
+  if (type === 'bool') return typeof value === 'boolean'
+  if (type === 'int') return typeof value === 'number' && Number.isInteger(value)
+  if (type === 'float') return typeof value === 'number' && Number.isFinite(value)
+  if (type === 'string') return typeof value === 'string'
+  if (type === 'element') return value === null
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const keys = type === 'position'
+    ? ['x', 'y']
+    : type === 'rect' ? ['left', 'top', 'right', 'bottom'] : []
+  return keys.length > 0 && keys.every((key) => typeof value[key] === 'number')
 }
 
 function object(value: JsonValue | undefined): Record<string, JsonValue> {
@@ -297,7 +383,9 @@ export function mapBackendValidationErrors(
 
 function hasSelector(value: JsonValue | undefined) {
   if (!value || Array.isArray(value) || typeof value !== 'object') return false
-  return Object.values(value).some((item) => typeof item === 'string' && item.trim())
+  return Object.entries(value).some(([key, item]) => (
+    key !== 'ui_tree_path' && typeof item === 'string' && item.trim()
+  ))
 }
 
 function text(value: JsonValue | undefined) {

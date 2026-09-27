@@ -69,6 +69,9 @@ from tapbot.macro.graph_models import (
     NodeResult,
     NodeStatus,
     EventEntryNodeIds,
+    FunctionPortDefinition,
+    MacroFunctionDefinition,
+    MacroVariableDefinition,
     ScreenDefinition,
 )
 from tapbot.macro.screen_lifecycle import (
@@ -120,6 +123,9 @@ __all__ = [
     "MacroLifecycleError",
     "MacroDefinition",
     "EventEntryNodeIds",
+    "FunctionPortDefinition",
+    "MacroFunctionDefinition",
+    "MacroVariableDefinition",
     "ScreenDefinition",
     "ScreenLifecycleDispatcher",
     "ScreenLifecycleEvent",

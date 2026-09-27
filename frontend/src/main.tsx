@@ -2,6 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { App } from './app/App'
+import '@fontsource/nanum-gothic/korean-400.css'
+import '@fontsource/nanum-gothic/korean-700.css'
 import '@blueprintjs/core/lib/css/blueprint.css'
 import './styles/global.css'
 

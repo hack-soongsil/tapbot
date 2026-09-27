@@ -10,6 +10,7 @@ import type {
 import type { TimelineEvent } from '../../types/timeline'
 import { timelineApi } from '../timeline/timeline-api'
 import { androidApi } from './android-api'
+import { restoreUiNodeSelection } from './ui-tree-focus'
 
 const STATUS_INTERVAL_MS = 2_000
 const DEBUG_INTERVAL_MS = 1_000
@@ -19,16 +20,6 @@ const UI_TREE_INTERVAL_MS = 1_000
 function message(error: unknown): string {
   if (error instanceof ApiError || error instanceof Error) return error.message
   return 'Android debug request failed.'
-}
-
-function uiNodeFingerprint(node: AndroidUiNode): string {
-  return JSON.stringify([
-    node.view_id_resource_name,
-    node.content_description,
-    node.text,
-    node.class_name,
-    node.depth,
-  ])
 }
 
 export function useAndroidDebug(deviceId: string | null) {
@@ -51,7 +42,7 @@ export function useAndroidDebug(deviceId: string | null) {
   const visionInFlight = useRef(false)
   const uiTreeInFlight = useRef(false)
   const uiTreeRef = useRef<AndroidUiTree | null>(null)
-  const selectedUiNodeFingerprint = useRef<string | null>(null)
+  const selectedUiNodeSnapshot = useRef<AndroidUiNode | null>(null)
   const deviceGeneration = useRef(0)
   const activeStatus = status?.device_id === deviceId ? status : null
   const activeDebug = debug?.device_id === deviceId ? debug : null
@@ -70,7 +61,7 @@ export function useAndroidDebug(deviceId: string | null) {
       setSelectedUiNodeId(null)
       uiTreeInFlight.current = false
       uiTreeRef.current = null
-      selectedUiNodeFingerprint.current = null
+      selectedUiNodeSnapshot.current = null
       setError(null)
       setNotice(null)
       setBusy(null)
@@ -179,13 +170,11 @@ export function useAndroidDebug(deviceId: string | null) {
         const next = await androidApi.uiTree(deviceId, signal)
         if (signal?.aborted) return
         uiTreeRef.current = next
-        const fingerprint = selectedUiNodeFingerprint.current
-        if (fingerprint) {
-          const restored = next.nodes.find(
-            (node) => uiNodeFingerprint(node) === fingerprint,
-          )
+        const selectedSnapshot = selectedUiNodeSnapshot.current
+        if (selectedSnapshot) {
+          const restored = restoreUiNodeSelection(selectedSnapshot, next.nodes)
           setSelectedUiNodeId(restored?.node_id ?? null)
-          if (!restored) selectedUiNodeFingerprint.current = null
+          selectedUiNodeSnapshot.current = restored
         }
         setUiTree(next)
         setUiTreeError(null)
@@ -254,7 +243,7 @@ export function useAndroidDebug(deviceId: string | null) {
   const selectUiNode = useCallback((nodeId: string | null) => {
     setSelectedUiNodeId(nodeId)
     const selected = uiTreeRef.current?.nodes.find((node) => node.node_id === nodeId)
-    selectedUiNodeFingerprint.current = selected ? uiNodeFingerprint(selected) : null
+    selectedUiNodeSnapshot.current = selected ?? null
   }, [])
 
   const tap = useCallback(

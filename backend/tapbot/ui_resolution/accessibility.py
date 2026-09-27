@@ -85,6 +85,16 @@ class AccessibilityUiResolver:
                 candidate for candidate in candidates
                 if _in_named_region(candidate.bbox, tree, selector.bounds_region)
             )
+        if selector.ui_tree_path is not None and len(candidates) > 1:
+            path_matches = tuple(
+                candidate for candidate in candidates
+                if selector.ui_tree_path in {
+                    candidate.metadata.get("node_id"),
+                    candidate.metadata.get("matched_node_id"),
+                }
+            )
+            if path_matches:
+                candidates = path_matches
         if selector.index is not None:
             ordered = sorted(
                 candidates,

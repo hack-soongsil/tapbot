@@ -230,7 +230,7 @@ describe('multi-device Android debug UI', () => {
     let stage = view.container.querySelector('.android-live-stage') as HTMLDivElement
     expect(view.queryByRole('button', { name: /Manual Control/ })).toBeNull()
     expect(stage.classList.contains('is-tap-mode')).toBe(true)
-    expect(view.getByText('CONTROL READY')).toBeTruthy()
+    expect(view.getByText('제어 준비됨')).toBeTruthy()
     vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue({
       left: 0,
       top: 0,
