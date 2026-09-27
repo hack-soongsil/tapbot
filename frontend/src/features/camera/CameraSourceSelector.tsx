@@ -19,7 +19,6 @@ const SOURCE_GROUPS: ReadonlyArray<{
   label: string
 }> = [
   { type: 'physical', label: 'Physical' },
-  { type: 'mock_graph', label: 'Simulation' },
   { type: 'image', label: 'Image' },
   { type: 'video', label: 'Video' },
 ]
@@ -55,7 +54,6 @@ export function CameraSourceSelector({ camera }: CameraSourceSelectorProps) {
   const width = displayNumber(metadata?.width)
   const height = displayNumber(metadata?.height)
   const sourceFps = displayNumber(metadata?.fps)
-  const mockGraph = camera.sourceStatus?.mock_graph
   const effectiveType = camera.sourceStatus?.type ?? selectedSource?.type
   const statusLabel = camera.sourceActivity
     ? ACTIVITY_LABELS[camera.sourceActivity]
@@ -112,11 +110,6 @@ export function CameraSourceSelector({ camera }: CameraSourceSelectorProps) {
         <Tag minimal>{sourceTypeLabel(effectiveType)}</Tag>
         <span>{width && height ? `${width} × ${height}` : '— × —'}</span>
         <span>{sourceFps ? `${sourceFps.toFixed(1)} FPS` : '— FPS'}</span>
-        {mockGraph && (
-          <Tag icon="diagram-tree" minimal>
-            {mockGraph.current_state} · {mockGraph.available_hotspots.length} hotspots
-          </Tag>
-        )}
       </div>
 
       <ButtonGroup className="focused-source-actions">

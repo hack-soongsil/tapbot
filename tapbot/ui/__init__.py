@@ -1,1 +1,0 @@
-"""TapBot web control UI."""

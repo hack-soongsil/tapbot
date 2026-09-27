@@ -5,7 +5,6 @@ import {
   Card,
   Divider,
   Elevation,
-  HTMLSelect,
   Spinner,
   Tag,
 } from '@blueprintjs/core'
@@ -13,7 +12,6 @@ import type { PointerEvent as ReactPointerEvent } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AndroidDebugState,
-  AndroidDeviceSummary,
   AndroidPointerPoint,
   AndroidUiBounds,
   AndroidUiNode,
@@ -32,8 +30,10 @@ import type { AndroidDebugController } from './useAndroidDebug'
 
 interface AndroidDebugWorkspaceProps {
   controller: AndroidDebugController
-  devices: AndroidDeviceSummary[]
-  onDeviceChange: (deviceId: string) => void
+  /** @deprecated Device selection now belongs to features/devices. */
+  devices?: readonly unknown[]
+  /** @deprecated Device selection now belongs to features/devices. */
+  onDeviceChange?: (deviceId: string) => void
 }
 
 interface AndroidOverlayProps {
@@ -201,8 +201,6 @@ function macroIntent(status: string | undefined) {
 
 export function AndroidDebugWorkspace({
   controller,
-  devices,
-  onDeviceChange,
 }: AndroidDebugWorkspaceProps) {
   const { status, debug } = controller
   const currentGeometry = useMemo(
@@ -423,23 +421,6 @@ export function AndroidDebugWorkspace({
           <span>PC-controlled canonical screen</span>
           <h1 id="android-debug-title">Android Remote Debug</h1>
         </div>
-        <label className="android-device-select">
-          <span>Android Device</span>
-          <HTMLSelect
-            aria-label="Android Device"
-            value={controller.deviceId ?? ''}
-            disabled={devices.length === 0}
-            onChange={(event) => onDeviceChange(event.currentTarget.value)}
-          >
-            {devices.length === 0 && <option value="">No devices configured</option>}
-            {devices.map((device) => (
-              <option key={device.id} value={device.id}>
-                {device.name} · {device.connected ? 'ONLINE' : 'OFFLINE'} ·{' '}
-                {device.stream_running ? 'LIVE' : 'OFF'} · {device.macro_status}
-              </option>
-            ))}
-          </HTMLSelect>
-        </label>
         <div className="android-debug-heading__tags">
           <Tag intent={status?.connected ? 'success' : 'danger'} minimal>
             Android {status?.connected ? 'ONLINE' : 'OFFLINE'}

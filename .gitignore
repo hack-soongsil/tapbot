@@ -14,6 +14,14 @@ frontend/.env.*.local
 /replay-trace.json
 /tapbot-captures/
 /config/android-devices.json
+/artifacts/
+/infra/deploy/.env
+/infra/deploy/.env.*
+!/infra/deploy/.env.example
+/infra/credentials/
+/infra/secrets/
+/infra/**/credentials.json
+/infra/**/token.json
 *.pt
 android-agent/.gradle/
 android-agent/local.properties

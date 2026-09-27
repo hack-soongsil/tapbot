@@ -174,21 +174,3 @@ export interface AndroidUiTree {
   root: AndroidUiNode
   nodes: AndroidUiNode[]
 }
-
-export interface AndroidDeviceSummary {
-  id: string
-  name: string
-  connected: boolean
-  last_seen_at: string | null
-  capture_ready: boolean
-  stream_running: boolean
-  accessibility_enabled: boolean
-  remote_control_enabled: boolean
-  macro_status: MacroStatus
-  last_error: string | null
-}
-
-export interface AndroidDevicesResponse {
-  devices: AndroidDeviceSummary[]
-  default_device_id: string | null
-}

@@ -12,25 +12,30 @@ dependencies = [
     "numpy>=1.26",
     "opencv-python>=4.9",
     "pyserial>=3.5",
-    "ultralytics>=8.3,<9",
     "uvicorn>=0.30",
 ]
 
 [project.scripts]
-tapbot-camera-preview = "tapbot.vision.camera:main"
 tapbot-grbl-check = "tapbot.robot.hardware_check:main"
-tapbot-sim = "tapbot.simulation.cli:main"
-tapbot-ui = "tapbot.ui.app:main"
+tapbot-api = "tapbot.app:main"
 
 [project.optional-dependencies]
 test = [
     "httpx>=0.27",
     "pytest>=8.0",
 ]
+publish = [
+    "google-api-python-client>=2.149",
+    "google-auth>=2.35",
+]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = "-ra"
+testpaths = ["backend/tests", "infra/tests"]
+pythonpath = ["backend", "."]
+addopts = "-ra -m 'not hardware'"
+markers = [
+    "hardware: requires a connected physical Android device, camera, or robot",
+]
 
-[tool.hatch.build.targets.wheel.force-include]
-"fixtures" = "tapbot/fixtures"
+[tool.hatch.build.targets.wheel]
+packages = ["backend/tapbot"]

@@ -1,0 +1,12 @@
+.git
+.github
+.pytest_cache
+.venv
+android-agent
+backend
+config
+scripts
+**/__pycache__
+**/node_modules
+**/build
+**/dist

@@ -9,7 +9,6 @@ import {
   fetchCameraSources,
   fetchCameraStatus,
   reconnectCameraSource,
-  resetMockCameraGraph,
   selectCameraSource,
 } from './camera-api'
 
@@ -18,7 +17,7 @@ const FRAME_TIMEOUT_MS = 5_000
 const SOURCE_STATUS_INTERVAL_MS = 1_000
 
 export type CameraSourceActivity =
-  'switching' | 'refreshing' | 'reconnecting' | 'resetting'
+  'switching' | 'refreshing' | 'reconnecting'
 
 function cameraErrorMessage(error: unknown): string {
   if (error instanceof Error) return error.message
@@ -260,29 +259,6 @@ export function useCameraStream() {
     }
   }, [refreshSourceState])
 
-  const resetGraph = useCallback(async () => {
-    setSourceActivity('resetting')
-    setSourceError(null)
-    resetFrame()
-    try {
-      const status = await resetMockCameraGraph()
-      setSourceStatus(status)
-      setError(null)
-      await refreshSourceState()
-    } catch (sourceRequestError) {
-      const message = cameraErrorMessage(sourceRequestError)
-      setSourceError(message)
-      setError(message)
-      try {
-        setSourceStatus(await fetchCameraStatus())
-      } catch {
-        // Preserve the reset error as the actionable message.
-      }
-    } finally {
-      setSourceActivity(null)
-    }
-  }, [refreshSourceState, resetFrame])
-
   return {
     frame,
     error,
@@ -296,7 +272,6 @@ export function useCameraStream() {
     chooseSource,
     refreshSources,
     reconnect,
-    resetGraph,
     invalidateFrame: resetFrame,
     retry: () => void reconnect(),
     saveScreenshot,

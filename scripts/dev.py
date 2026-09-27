@@ -21,7 +21,6 @@ BACKEND_IMPORTS = (
     "numpy",
     "cv2",
     "serial",
-    "ultralytics",
     "uvicorn",
 )
 
@@ -53,11 +52,15 @@ def load_local_environment() -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--robot", choices=("mock", "grbl"), default="mock")
     parser.add_argument("--dry-run", action="store_true")
-    parser.add_argument("--camera-source", default="mock:reservation-flow")
+    parser.add_argument("--camera-source", default="0")
+    parser.add_argument(
+        "--serial-port",
+        default=os.getenv("TAPBOT_GRBL_SERIAL_PORT"),
+        help="GRBL serial port (or set TAPBOT_GRBL_SERIAL_PORT)",
+    )
     parser.add_argument("--backend-port", type=int, default=8000)
-    parser.add_argument("--frontend-port", type=int, default=5173)
+    parser.add_argument("--frontend-port", type=int, default=5175)
     return parser.parse_args()
 
 
@@ -140,6 +143,13 @@ def main() -> int:
     try:
         load_local_environment()
         args = parse_args()
+        if not args.dry_run and not args.serial_port:
+            print(
+                "[dev] TAPBOT_GRBL_SERIAL_PORT is not set; starting in safe "
+                "dry-run mode.",
+                flush=True,
+            )
+            args.dry_run = True
         npm = npm_command()
         bootstrap(npm)
         backend_port = available_port(args.backend_port)
@@ -147,7 +157,7 @@ def main() -> int:
             raise RuntimeError(
                 f"Backend port {args.backend_port} is already in use. "
                 "Stop the existing TapBot server before starting another one; "
-                "multiple processes cannot safely share a webcam."
+                "multiple processes cannot safely share a camera device."
             )
         frontend_port = available_port(args.frontend_port)
     except (RuntimeError, subprocess.CalledProcessError) as error:
@@ -157,9 +167,7 @@ def main() -> int:
     backend_command = [
         sys.executable,
         "-m",
-        "tapbot.ui.app",
-        "--robot",
-        args.robot,
+        "tapbot.app",
         "--camera-source",
         args.camera_source,
         "--port",
@@ -167,6 +175,9 @@ def main() -> int:
     ]
     if args.dry_run:
         backend_command.append("--dry-run")
+    else:
+        assert args.serial_port is not None
+        backend_command.extend(("--serial-port", args.serial_port))
 
     frontend_url = f"http://localhost:{frontend_port}"
     backend_url = f"http://localhost:{backend_port}"

@@ -132,7 +132,3 @@ export function selectCameraSource(sourceId: string) {
 export function reconnectCameraSource() {
   return apiClient.post<CameraSourceStatus>('camera/reconnect')
 }
-
-export function resetMockCameraGraph() {
-  return apiClient.post<CameraSourceStatus>('camera/reset-graph')
-}

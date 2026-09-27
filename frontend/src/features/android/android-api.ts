@@ -2,7 +2,6 @@ import { apiClient } from '../../lib/api-client'
 import { apiUrl } from '../../lib/config'
 import type {
   AndroidDebugState,
-  AndroidDevicesResponse,
   AndroidPrimitiveResult,
   AndroidPointerPoint,
   AndroidProxyStatus,
@@ -11,8 +10,6 @@ import type {
 } from '../../types/android-debug'
 
 export const androidApi = {
-  devices: (signal?: AbortSignal) =>
-    apiClient.get<AndroidDevicesResponse>('android/devices', { signal }),
   status: (deviceId: string, signal?: AbortSignal) =>
     apiClient.get<AndroidProxyStatus>(
       `android/${encodeURIComponent(deviceId)}/status`,

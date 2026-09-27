@@ -1,0 +1,30 @@
+services:
+  backend:
+    build:
+      context: ../..
+      dockerfile: infra/docker/backend.Dockerfile
+    environment:
+      TAPBOT_BACKEND_HOST: 0.0.0.0
+      TAPBOT_BACKEND_PORT: 8000
+      TAPBOT_DRY_RUN: "true"
+      TAPBOT_ANDROID_CAPTURE_DIR: /data/captures/android
+      TAPBOT_MACRO_TRACE_DIR: /data/captures/android
+      TAPBOT_CALIBRATION_FILE: /data/tapbot-calibrations.json
+    volumes:
+      - tapbot-data:/data
+    expose:
+      - "8000"
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../..
+      dockerfile: infra/docker/frontend.Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  tapbot-data:

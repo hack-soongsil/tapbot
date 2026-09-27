@@ -1,0 +1,1 @@
+"""UI resolution domain tests."""

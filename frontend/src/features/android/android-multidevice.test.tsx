@@ -1,11 +1,9 @@
 // @vitest-environment jsdom
 
-import { act, fireEvent, render, renderHook, screen } from '@testing-library/react'
+import { act, fireEvent, render, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import type {
-  AndroidDeviceSummary,
-  AndroidProxyStatus,
-} from '../../types/android-debug'
+import type { AndroidProxyStatus } from '../../types/android-debug'
+import type { AndroidDeviceSummary } from '../devices/types'
 import { AndroidDebugWorkspace } from './AndroidDebugWorkspace'
 import { androidApi } from './android-api'
 import { useAndroidDebug } from './useAndroidDebug'
@@ -50,7 +48,10 @@ const devices: AndroidDeviceSummary[] = [
   {
     id: 'device-a',
     name: 'Note10',
+    endpoint: 'http://device-a.test:8765',
+    source: 'manual',
     connected: true,
+    connection_state: 'online',
     last_seen_at: null,
     capture_ready: true,
     stream_running: true,
@@ -62,7 +63,10 @@ const devices: AndroidDeviceSummary[] = [
   {
     id: 'device-b',
     name: 'S20',
+    endpoint: 'http://device-b.test:8765',
+    source: 'tailscale',
     connected: false,
+    connection_state: 'offline',
     last_seen_at: null,
     capture_ready: false,
     stream_running: false,
@@ -116,53 +120,6 @@ afterEach(() => {
 })
 
 describe('multi-device Android debug UI', () => {
-  it('shows device summaries and changes the selected device', () => {
-    const onDeviceChange = vi.fn()
-    const controller = {
-      deviceId: 'device-a',
-      status: offlineStatus('device-a'),
-      debug: null,
-      events: [],
-      error: null,
-      notice: null,
-      busy: null,
-      manualTapEnabled: false,
-      selectedDetectionId: null,
-      highlightedDetectionId: null,
-      streamNonce: 1,
-      streamFailed: false,
-      setManualTapEnabled: vi.fn(),
-      setSelectedDetectionId: vi.fn(),
-      setHighlightedDetectionId: vi.fn(),
-      setStreamFailed: vi.fn(),
-      reconnectStream: vi.fn(),
-      tap: vi.fn(),
-      gesture: vi.fn(),
-      saveScreenshot: vi.fn(),
-      back: vi.fn(),
-      home: vi.fn(),
-      macroStart: vi.fn(),
-      macroPause: vi.fn(),
-      macroStop: vi.fn(),
-      macroReset: vi.fn(),
-      macroStep: vi.fn(),
-    } as unknown as ReturnType<typeof useAndroidDebug>
-
-    render(
-      <AndroidDebugWorkspace
-        controller={controller}
-        devices={devices}
-        onDeviceChange={onDeviceChange}
-      />,
-    )
-
-    const selector = screen.getByLabelText('Android Device')
-    expect(screen.getByText(/Note10 · ONLINE · LIVE · RUNNING/)).toBeTruthy()
-    expect(screen.getByText(/S20 · OFFLINE · OFF · IDLE/)).toBeTruthy()
-    fireEvent.change(selector, { target: { value: 'device-b' } })
-    expect(onDeviceChange).toHaveBeenCalledWith('device-b')
-  })
-
   it('cancels old polling and clears stale overlay selection on device change', async () => {
     vi.useFakeTimers()
     const signals: AbortSignal[] = []

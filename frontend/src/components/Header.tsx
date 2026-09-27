@@ -9,8 +9,8 @@ import {
 import { useEffect, useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import { useSystemStatus } from '../app/system-status'
-import { androidApi } from '../features/android/android-api'
-import type { AndroidDeviceSummary } from '../types/android-debug'
+import { devicesApi } from '../features/devices/api'
+import type { AndroidDeviceSummary } from '../features/devices/types'
 
 export function Header() {
   const system = useSystemStatus()
@@ -21,17 +21,13 @@ export function Header() {
     const controller = new AbortController()
     const refresh = async () => {
       try {
-        const response = await androidApi.devices(controller.signal)
+        const response = await devicesApi.list(controller.signal)
         const routeId = location.pathname.startsWith('/debug/android/')
           ? decodeURIComponent(location.pathname.slice('/debug/android/'.length))
           : null
         setAndroid(
           response.devices.find((device) => device.id === routeId) ??
-            response.devices.find(
-              (device) => device.id === response.default_device_id,
-            ) ??
-            response.devices.find((device) => device.connected) ??
-            response.devices[0] ??
+            (response.devices.length === 1 ? response.devices[0] : null) ??
             null,
         )
       } catch {
@@ -46,11 +42,9 @@ export function Header() {
     }
   }, [location.pathname])
 
-  const workspace = location.pathname.startsWith('/tools/webcam')
-    ? 'Legacy Webcam'
-    : location.pathname.startsWith('/tools/simulation')
-      ? 'Simulation'
-      : 'Android Debug'
+  const workspace = location.pathname.startsWith('/tools/camera')
+    ? 'Robot Camera'
+    : 'Android Debug'
 
   return (
     <Navbar className="vision-navbar" fixedToTop>
@@ -60,8 +54,7 @@ export function Header() {
         <span className="vision-navbar__workspace">{workspace}</span>
         <nav className="vision-navbar__links" aria-label="Debug tools">
           <NavLink to="/debug">Android</NavLink>
-          <NavLink to="/tools/webcam">Webcam</NavLink>
-          <NavLink to="/tools/simulation">Simulation</NavLink>
+          <NavLink to="/tools/camera">Robot Camera</NavLink>
         </nav>
       </NavbarGroup>
       <NavbarGroup align={Alignment.RIGHT} className="vision-navbar__status">
