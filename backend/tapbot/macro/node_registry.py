@@ -11,6 +11,7 @@ from tapbot.macro.graph_models import (
     NodeResult,
 )
 from tapbot.macro.tap_point import TapPointSampler
+from tapbot.macro.area_sampling import AreaPointSampler
 
 
 class NodeHandler(Protocol):
@@ -55,6 +56,7 @@ class NodeRegistry:
 def create_default_node_registry(
     *,
     tap_point_sampler: TapPointSampler | None = None,
+    area_point_sampler: AreaPointSampler | None = None,
 ) -> NodeRegistry:
     from tapbot.macro.nodes.action import (
         BackNode,
@@ -63,6 +65,12 @@ def create_default_node_registry(
         TapElementNode,
         TapPointNode,
         WaitNode,
+        ClickPointNode,
+        DragPointNode,
+        RandomClickAreaNode,
+        RandomDragAreaNode,
+        ClickElementNode,
+        ClickScreenElementNode,
     )
     from tapbot.macro.nodes.condition import (
         ElementExistsNode,
@@ -75,6 +83,8 @@ def create_default_node_registry(
         RetryNode,
         StopNode,
         TimeoutNode,
+        ForLoopNode,
+        SequenceNode,
     )
     from tapbot.macro.nodes.ui import (
         FindElementNode,
@@ -86,14 +96,25 @@ def create_default_node_registry(
         WaitForElementNode,
         WaitForStateNode,
     )
+    from tapbot.macro.nodes.event import ScreenEventNode
 
     sampler = (
         tap_point_sampler
         if tap_point_sampler is not None
         else TapPointSampler()
     )
+    area_sampler = area_point_sampler or AreaPointSampler()
     return NodeRegistry(
         {
+            "screen_enter": ScreenEventNode("enter"),
+            "screen_update": ScreenEventNode("update"),
+            "screen_exit": ScreenEventNode("exit"),
+            "click_point": ClickPointNode(),
+            "drag_point": DragPointNode(),
+            "random_click_area": RandomClickAreaNode(area_sampler),
+            "random_drag_area": RandomDragAreaNode(area_sampler),
+            "click_element": ClickElementNode(),
+            "click_screen_element": ClickScreenElementNode(),
             "tap_element": TapElementNode(sampler),
             "tap_point": TapPointNode(),
             "swipe": SwipeNode(),
@@ -107,6 +128,8 @@ def create_default_node_registry(
             "element_text_equals": ElementTextEqualsNode(),
             "state_equals": StateEqualsNode(),
             "branch": BranchNode(),
+            "for_loop": ForLoopNode(),
+            "sequence": SequenceNode(),
             "retry": RetryNode(),
             "repeat": RepeatNode(),
             "timeout": TimeoutNode(),

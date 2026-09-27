@@ -21,6 +21,7 @@ import { MacroEventLog } from '../macro-runtime/MacroEventLog'
 import { useMacroRuntime } from '../macro-runtime/useMacroRuntime'
 import type {
   BackendValidationResponse,
+  JsonValue,
   MacroDefinition,
   MacroFlowEdge,
   MacroFlowNode,
@@ -36,12 +37,44 @@ import './macro-editor.css'
 
 export const MACRO_DRAFT_STORAGE_KEY = 'tapbot.macro-editor.draft.v1'
 
+const screenMatch = (screenId: string): Record<string, JsonValue> => (
+  screenId === 'reservation_detail'
+    ? {
+        all: [
+          { text: '한 칸은 30분입니다. 예약된 시간은 선택할 수 없어요' },
+          { text: '초기화' },
+          { text_regex: '^[0-9]{4}년 [0-9]{1,2}월 [0-9]{1,2}일\\([월화수목금토일]\\)$' },
+        ],
+      }
+    : {
+        all: [
+          { content_description: '예약 내역' },
+          { content_description: '공지' },
+          { content_description: '예약' },
+          { content_description: '마이' },
+          { text_regex: '^(월|화|수|목|금|토|일) [0-9]{1,2}$', min_count: 1 },
+        ],
+      }
+)
+
 const emptyDefinition = (): MacroDefinition => ({
   id: 'untitled-macro',
   name: 'Untitled Macro',
   version: 1,
-  entry_node_id: '',
-  nodes: [],
+  screen: {
+    id: 'reservation_home',
+    match: screenMatch('reservation_home'),
+  },
+  event_entry_node_ids: {
+    enter: 'event-enter',
+    update: 'event-update',
+    exit: 'event-exit',
+  },
+  nodes: [
+    { id: 'event-enter', type: 'screen_enter', config: {}, position: { x: 80, y: 60 } },
+    { id: 'event-update', type: 'screen_update', config: { interval_ms: 1_000, skip_if_running: true }, position: { x: 340, y: 60 } },
+    { id: 'event-exit', type: 'screen_exit', config: {}, position: { x: 600, y: 60 } },
+  ],
   edges: [],
   metadata: {},
 })
@@ -74,6 +107,8 @@ export function MacroEditorPage() {
     name: initial.name,
     version: initial.version,
     entry_node_id: initial.entry_node_id,
+    screen: initial.screen,
+    event_entry_node_ids: initial.event_entry_node_ids,
     metadata: initial.metadata,
   }))
   const [nodes, setNodes] = useState<MacroFlowNode[]>(initialFlow.nodes)
@@ -99,6 +134,8 @@ export function MacroEditorPage() {
         name: next.name,
         version: next.version,
         entry_node_id: next.entry_node_id,
+        screen: next.screen,
+        event_entry_node_ids: next.event_entry_node_ids,
         metadata: next.metadata,
       })
       setNodes(flow.nodes)
@@ -122,7 +159,7 @@ export function MacroEditorPage() {
       ...node,
       data: {
         ...node.data,
-        isEntry: node.id === meta.entry_node_id,
+        isEntry: Boolean(meta.entry_node_id) && node.id === meta.entry_node_id,
         errors: issues.filter((issue) => issue.nodeId === node.id).map((issue) => issue.message),
         runtimeState: liveRuntime.nodeState[node.id] ?? 'pending',
       },
@@ -137,7 +174,10 @@ export function MacroEditorPage() {
         ...edge.data,
         errors: issues.filter((issue) => issue.edgeId === edge.id).map((issue) => issue.message),
       },
-      className: edge.id === liveRuntime.currentEdgeId ? 'runtime-current-edge' : undefined,
+      className: [
+        edge.data?.kind === 'data' ? 'macro-edge--data' : '',
+        edge.id === liveRuntime.currentEdgeId ? 'runtime-current-edge' : '',
+      ].filter(Boolean).join(' ') || undefined,
       animated: edge.id === liveRuntime.currentEdgeId || issues.some((issue) => issue.edgeId === edge.id),
       style: issues.some((issue) => issue.edgeId === edge.id)
         ? { stroke: 'var(--danger)' }
@@ -208,10 +248,6 @@ export function MacroEditorPage() {
           errors: [],
         },
       }
-      setMeta((currentMeta) => ({
-        ...currentMeta,
-        entry_node_id: currentMeta.entry_node_id || id,
-      }))
       setSelectedNodeId(id)
       return [...current, node]
     })
@@ -234,11 +270,11 @@ export function MacroEditorPage() {
     if (changes.some((change) => change.type !== 'select')) markChanged()
   }
 
-  const connect = (connection: Connection) => {
+  const connect = (connection: Connection, kind: 'exec' | 'data' = 'exec') => {
     setEdges((current) => addEdge({
       ...connection,
       id: nextEdgeId(connection.source, connection.target, current),
-      data: { errors: [] },
+      data: { errors: [], kind },
     }, current))
     markChanged()
   }
@@ -414,6 +450,8 @@ export function MacroEditorPage() {
       name: next.name,
       version: next.version,
       entry_node_id: next.entry_node_id,
+      screen: next.screen,
+      event_entry_node_ids: next.event_entry_node_ids,
       metadata: next.metadata,
     })
     setNodes(flow.nodes)
@@ -437,8 +475,16 @@ export function MacroEditorPage() {
         busy={busy}
         runStatus={liveRuntime.runtime?.state ?? runStatus}
         runtimeVersion={liveRuntime.runtime?.definition_version}
+        screenId={meta.screen?.id}
         onNameChange={(name) => {
           setMeta((current) => ({ ...current, name }))
+          markChanged()
+        }}
+        onScreenChange={(screenId) => {
+          setMeta((current) => ({
+            ...current,
+            screen: { id: screenId, match: screenMatch(screenId) },
+          }))
           markChanged()
         }}
         onNew={reset}
@@ -535,7 +581,10 @@ function isMacroDefinition(value: unknown): value is MacroDefinition {
     typeof candidate.id === 'string' &&
     typeof candidate.name === 'string' &&
     typeof candidate.version === 'number' &&
-    typeof candidate.entry_node_id === 'string' &&
+    (typeof candidate.entry_node_id === 'string' || (
+      typeof candidate.event_entry_node_ids === 'object' &&
+      candidate.event_entry_node_ids !== null
+    )) &&
     Array.isArray(candidate.nodes) &&
     Array.isArray(candidate.edges) &&
     typeof candidate.metadata === 'object' &&

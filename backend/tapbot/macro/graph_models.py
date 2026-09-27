@@ -77,6 +77,8 @@ class MacroEdge:
     target: str
     source_handle: str | None = None
     condition: str | None = None
+    target_handle: str | None = None
+    kind: str | None = None
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> MacroEdge:
@@ -89,6 +91,11 @@ class MacroEdge:
                 "edge source_handle",
             ),
             condition=_optional_text(value.get("condition"), "edge condition"),
+            target_handle=_optional_text(
+                value.get("target_handle"),
+                "edge target_handle",
+            ),
+            kind=_edge_kind(value.get("kind")),
         )
 
     def to_dict(self) -> JsonObject:
@@ -101,7 +108,65 @@ class MacroEdge:
             result["source_handle"] = self.source_handle
         if self.condition is not None:
             result["condition"] = self.condition
+        if self.target_handle is not None:
+            result["target_handle"] = self.target_handle
+        if self.kind is not None:
+            result["kind"] = self.kind
         return result
+
+    @property
+    def effective_kind(self) -> str:
+        return self.kind or "exec"
+
+
+@dataclass(frozen=True, slots=True)
+class ScreenDefinition:
+    id: str
+    match: JsonObject = field(default_factory=dict)
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> ScreenDefinition:
+        return cls(
+            id=_text(value.get("id", ""), "screen id"),
+            match=_json_object(value.get("match", {}), name="screen match"),
+        )
+
+    def to_dict(self) -> JsonObject:
+        return {"id": self.id, "match": _json_copy(self.match)}
+
+
+@dataclass(frozen=True, slots=True)
+class EventEntryNodeIds:
+    enter: str | None = None
+    update: str | None = None
+    exit: str | None = None
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> EventEntryNodeIds:
+        return cls(
+            enter=_optional_text(value.get("enter"), "enter event entry"),
+            update=_optional_text(value.get("update"), "update event entry"),
+            exit=_optional_text(value.get("exit"), "exit event entry"),
+        )
+
+    def to_dict(self) -> JsonObject:
+        result: JsonObject = {}
+        if self.enter is not None:
+            result["enter"] = self.enter
+        if self.update is not None:
+            result["update"] = self.update
+        if self.exit is not None:
+            result["exit"] = self.exit
+        return result
+
+    def get(self, kind: str) -> str | None:
+        if kind not in {"enter", "update", "exit"}:
+            raise ValueError(f"unknown screen event kind: {kind}")
+        return getattr(self, kind)
+
+    @property
+    def values(self) -> tuple[str, ...]:
+        return tuple(value for value in (self.enter, self.update, self.exit) if value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,8 +176,18 @@ class MacroDefinition:
     version: int
     nodes: tuple[MacroNode, ...]
     edges: tuple[MacroEdge, ...]
-    entry_node_id: str
+    entry_node_id: str | None
     metadata: JsonObject = field(default_factory=dict)
+    screen: ScreenDefinition | None = None
+    event_entry_node_ids: EventEntryNodeIds | None = None
+
+    def __post_init__(self) -> None:
+        if self.event_entry_node_ids is None and self.entry_node_id:
+            object.__setattr__(
+                self,
+                "event_entry_node_ids",
+                EventEntryNodeIds(enter=self.entry_node_id),
+            )
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> MacroDefinition:
@@ -123,6 +198,19 @@ class MacroDefinition:
         version = value.get("version", 1)
         if isinstance(version, bool) or not isinstance(version, int):
             raise ValueError("macro version must be an integer")
+        raw_entry = value.get("entry_node_id")
+        entry_node_id = _optional_text(raw_entry, "entry_node_id")
+        raw_event_entries = value.get("event_entry_node_ids")
+        event_entries = (
+            EventEntryNodeIds(enter=entry_node_id)
+            if raw_event_entries is None and entry_node_id
+            else None
+            if raw_event_entries is None
+            else EventEntryNodeIds.from_dict(
+                _mapping(raw_event_entries, "event_entry_node_ids")
+            )
+        )
+        raw_screen = value.get("screen")
         return cls(
             id=_text(value.get("id", ""), "macro id"),
             name=_text(value.get("name", ""), "macro name"),
@@ -135,11 +223,14 @@ class MacroDefinition:
                 MacroEdge.from_dict(_mapping(item, "macro edge"))
                 for item in raw_edges
             ),
-            entry_node_id=_text(
-                value.get("entry_node_id", ""),
-                "entry_node_id",
-            ),
+            entry_node_id=entry_node_id,
             metadata=_json_object(value.get("metadata", {}), name="metadata"),
+            screen=(
+                None
+                if raw_screen is None
+                else ScreenDefinition.from_dict(_mapping(raw_screen, "screen"))
+            ),
+            event_entry_node_ids=event_entries,
         )
 
     @classmethod
@@ -148,15 +239,21 @@ class MacroDefinition:
         return cls.from_dict(_mapping(parsed, "macro definition"))
 
     def to_dict(self) -> JsonObject:
-        return {
+        result: JsonObject = {
             "id": self.id,
             "name": self.name,
             "version": self.version,
             "nodes": [node.to_dict() for node in self.nodes],
             "edges": [edge.to_dict() for edge in self.edges],
-            "entry_node_id": self.entry_node_id,
             "metadata": _json_copy(self.metadata),
         }
+        if self.entry_node_id is not None:
+            result["entry_node_id"] = self.entry_node_id
+        if self.screen is not None:
+            result["screen"] = self.screen.to_dict()
+        if self.event_entry_node_ids is not None:
+            result["event_entry_node_ids"] = self.event_entry_node_ids.to_dict()
+        return result
 
     def to_json(self, *, indent: int | None = 2) -> str:
         return json.dumps(
@@ -170,6 +267,21 @@ class MacroDefinition:
         """Detach a running definition from caller-owned mutable config data."""
 
         return MacroDefinition.from_dict(self.to_dict())
+
+    def entry_for(self, event_kind: str = "enter") -> str | None:
+        if self.event_entry_node_ids is not None:
+            selected = self.event_entry_node_ids.get(event_kind)
+            if selected is not None:
+                return selected
+        return self.entry_node_id if event_kind == "enter" else None
+
+    @property
+    def entry_node_ids(self) -> tuple[str, ...]:
+        if self.event_entry_node_ids is not None:
+            values = self.event_entry_node_ids.values
+            if values:
+                return values
+        return () if self.entry_node_id is None else (self.entry_node_id,)
 
 
 class NodeStatus(StrEnum):
@@ -185,6 +297,8 @@ class NodeResult:
     output: JsonObject = field(default_factory=dict)
     next_handle: str | None = None
     error: str | None = None
+    data_outputs: dict[str, object] = field(default_factory=dict)
+    fallback_handles: tuple[str, ...] = ()
 
     @classmethod
     def success(
@@ -192,8 +306,17 @@ class NodeResult:
         output: JsonObject | None = None,
         *,
         next_handle: str | None = None,
+        data_outputs: dict[str, object] | None = None,
+        fallback_handles: tuple[str, ...] = (),
     ) -> NodeResult:
-        return cls(NodeStatus.SUCCESS, output or {}, next_handle)
+        return cls(
+            NodeStatus.SUCCESS,
+            output or {},
+            next_handle,
+            None,
+            data_outputs or {},
+            fallback_handles,
+        )
 
     @classmethod
     def failure(cls, error: str, output: JsonObject | None = None) -> NodeResult:
@@ -262,9 +385,25 @@ class GraphUiPort(Protocol):
 
     def read_ui_tree(self) -> object: ...
 
-    def find_element(self, selector: JsonObject) -> GraphElement | None: ...
+    def find_element(
+        self,
+        selector: JsonObject,
+        *,
+        strategy: str = "unique",
+        require_enabled: bool = True,
+        require_visible: bool = True,
+    ) -> GraphElement | None: ...
 
     def current_state(self) -> str: ...
+
+    def screen_size(self) -> tuple[int, int]: ...
+
+    def resolve_screen_element(
+        self,
+        screen_id: str,
+        element_id: str,
+        params: dict[str, object],
+    ) -> GraphElement: ...
 
 
 @dataclass(slots=True)
@@ -280,6 +419,8 @@ class GraphExecutionContext:
     ui: GraphUiPort | None = None
     current_node_id: str | None = None
     control_state: dict[str, int] = field(default_factory=dict)
+    input_values: dict[str, object] = field(default_factory=dict)
+    node_outputs: dict[str, dict[str, object]] = field(default_factory=dict)
     sleep: Callable[[float], None] | None = field(default=None, repr=False)
     ensure_active: Callable[[], None] | None = field(default=None, repr=False)
     monotonic: Callable[[], float] | None = field(default=None, repr=False)
@@ -288,6 +429,9 @@ class GraphExecutionContext:
     def check_active(self) -> None:
         if self.ensure_active is not None:
             self.ensure_active()
+
+    def input(self, name: str, default: object = None) -> object:
+        return self.input_values.get(name, default)
 
 
 @dataclass(frozen=True, slots=True)
@@ -352,6 +496,13 @@ def _optional_text(value: object, name: str) -> str | None:
     if not isinstance(value, str):
         raise ValueError(f"{name} must be a string")
     return value
+
+
+def _edge_kind(value: object) -> str | None:
+    kind = _optional_text(value, "edge kind")
+    if kind is not None and kind not in {"exec", "data"}:
+        raise ValueError("edge kind must be exec or data")
+    return kind
 
 
 def _text(value: object, name: str) -> str:

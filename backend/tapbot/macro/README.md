@@ -108,3 +108,26 @@ events.
 supports the browser `Last-Event-ID` reconnect header. Clients first fetch the
 runtime snapshot, then subscribe; a missed or truncated event range therefore
 cannot permanently corrupt the visual state.
+
+## Screen lifecycle graphs
+
+Screen-aware definitions declare a rule-based `screen` signature and exactly
+one `screen_enter`, `screen_update`, and `screen_exit` entry node. The runtime
+refreshes the Android UI tree, dispatches transitions in `Exit(old) ->
+Enter(new)` order, and runs only Update while the recognized screen remains
+active. Update is single-flight and defaults to a 1000 ms interval. Stopping a
+runtime does not synthesize a screen exit.
+
+Legacy `entry_node_id` definitions remain readable. They are exposed as an
+Enter-compatible entry and the React editor migrates them to protected event
+nodes when opened and saved.
+
+## Typed data wires
+
+Graph edges distinguish control flow (`kind: "exec"`) from typed values
+(`kind: "data"`). Missing `kind` remains a legacy exec edge. Data edges require
+both source and target handles and exact matching types; implicit conversion is
+not performed. The graph engine stores runtime-only output values separately
+from JSON trace summaries and resolves them immediately before the target node
+runs. This lets element references remain in-process without leaking transport
+or snapshot-local identifiers into persisted definitions.

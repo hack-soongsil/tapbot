@@ -70,6 +70,7 @@ from tapbot.android.screen_source import AndroidRemoteScreenSource
 from tapbot.ui_resolution import (
     AndroidAccessibilityUiTreeProvider,
     HybridTargetResolver,
+    ScreenRecognizer,
 )
 from tapbot.vision.calibration import CalibrationStore
 from tapbot.vision.canonical import CanonicalVisionPipeline
@@ -353,18 +354,96 @@ class _AndroidGraphUi:
     def read_ui_tree(self):
         return self.context.ui_tree_provider.snapshot(max_age_ms=0).to_dict()
 
-    def find_element(self, selector: JsonObject) -> GraphElement | None:
-        allowed = {
-            "text", "text_contains", "content_description", "view_id", "class_name",
-            "clickable", "enabled", "visible_to_user",
-        }
-        query = UiSelector(**{key: value for key, value in selector.items() if key in allowed})
-        result = self.resolver.resolve(
-            self.context.ui_tree_provider.snapshot(max_age_ms=0), query
+    def screen_size(self) -> tuple[int, int]:
+        tree = self.context.ui_tree_provider.snapshot(max_age_ms=0)
+        return tree.screen_width, tree.screen_height
+
+    def resolve_screen_element(
+        self,
+        screen_id: str,
+        element_id: str,
+        params: dict[str, object],
+    ) -> GraphElement:
+        tree = self.context.ui_tree_provider.snapshot(max_age_ms=0)
+        recognition = ScreenRecognizer().recognize(tree)
+        if recognition is None or recognition.screen_id != screen_id:
+            actual = "unknown" if recognition is None else recognition.screen_id
+            raise RuntimeError(
+                f"screen mismatch: expected {screen_id!r}, recognized {actual!r}"
+            )
+        semantic_id = element_id
+        if element_id in {"quick_date", "time_slot"}:
+            index = params.get("index")
+            if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+                raise RuntimeError(f"{element_id} requires a non-negative index")
+            semantic_id = f"{element_id}[{index}]"
+        candidate = next(
+            (item for item in recognition.elements if item.semantic_id == semantic_id),
+            None,
         )
-        if result.status != "resolved" or result.element is None:
-            return None
+        if candidate is None:
+            raise RuntimeError(
+                f"screen element {screen_id}/{semantic_id} was not found"
+            )
+        if not candidate.visible:
+            raise RuntimeError(f"screen element {semantic_id!r} is not visible")
+        if not candidate.enabled:
+            raise RuntimeError(f"screen element {semantic_id!r} is disabled")
+        return _semantic_graph_element(candidate)
+
+    def find_element(
+        self,
+        selector: JsonObject,
+        *,
+        strategy: str = "unique",
+        require_enabled: bool = True,
+        require_visible: bool = True,
+    ) -> GraphElement | None:
+        tree = self.context.ui_tree_provider.snapshot(max_age_ms=0)
+        semantic_id = selector.get("semantic_id")
+        semantic_family = selector.get("semantic_family")
+        if isinstance(semantic_id, str) or isinstance(semantic_family, str):
+            recognition = ScreenRecognizer().recognize(tree)
+            if recognition is None:
+                return None
+            index = selector.get("index")
+            candidate = next((
+                element for element in recognition.elements
+                if (
+                    isinstance(semantic_id, str)
+                    and element.semantic_id == semantic_id
+                ) or (
+                    isinstance(semantic_family, str)
+                    and element.metadata.get("family") == semantic_family
+                    and (index is None or element.metadata.get("index") == index)
+                )
+            ), None)
+            if candidate is None or not candidate.tappable:
+                return None
+            return _semantic_graph_element(candidate)
+        allowed = {
+            "text", "text_contains", "text_regex", "content_description",
+            "content_description_regex", "view_id", "class_name", "bounds_region",
+            "clickable", "enabled", "visible_to_user", "index",
+        }
+        query_values = {key: value for key, value in selector.items() if key in allowed}
+        if require_enabled:
+            query_values["enabled"] = True
+        if require_visible:
+            query_values["visible_to_user"] = True
+        query = UiSelector(**query_values)
+        result = self.resolver.resolve(
+            tree, query
+        )
         element = result.element
+        if result.status == "ambiguous" and strategy != "unique" and result.candidates:
+            element = (
+                result.candidates[0]
+                if strategy == "first"
+                else max(result.candidates, key=lambda candidate: candidate.confidence)
+            )
+        if element is None:
+            return None
         return GraphElement(
             element.label,
             TapBounds.from_xywh(
@@ -389,6 +468,20 @@ def _graph_context(
         variables=dict(variables) if isinstance(variables, dict) else {},
         actions=_AndroidGraphActions(context),
         ui=_AndroidGraphUi(context),
+    )
+
+
+def _semantic_graph_element(candidate) -> GraphElement:
+    return GraphElement(
+        candidate.semantic_id,
+        TapBounds(
+            candidate.bounds.left,
+            candidate.bounds.top,
+            candidate.bounds.right,
+            candidate.bounds.bottom,
+        ),
+        candidate.text,
+        {"semantic_id": candidate.semantic_id, **candidate.metadata},
     )
 
 

@@ -1,11 +1,13 @@
 import pytest
 
 from tapbot.macro import (
+    EventEntryNodeIds,
     GraphValidationError,
     GraphValidator,
     MacroDefinition,
     MacroEdge,
     MacroNode,
+    ScreenDefinition,
     create_default_node_registry,
 )
 
@@ -88,4 +90,26 @@ def test_validator_warns_about_unreachable_nodes_without_rejecting_graph() -> No
     report = validator.validate(graph)
 
     assert report.valid is True
-    assert report.warnings == ("unreachable nodes: orphan",)
+    assert report.warnings == (
+        "unreachable nodes: orphan",
+        "nodes without exec connections: orphan",
+    )
+
+
+def test_validator_requires_exact_screen_event_entries_and_rejects_incoming_edges() -> None:
+    graph = MacroDefinition(
+        "screen", "Screen", 1,
+        (
+            MacroNode("enter", "screen_enter"),
+            MacroNode("update", "screen_update", {"interval_ms": 1_000, "skip_if_running": True}),
+            MacroNode("exit", "screen_exit"),
+        ),
+        (MacroEdge("bad", "exit", "enter"),),
+        None,
+        screen=ScreenDefinition("reservation_home", {"text": "예약"}),
+        event_entry_node_ids=EventEntryNodeIds("enter", "update", "exit"),
+    )
+
+    report = GraphValidator(create_default_node_registry()).validate(graph)
+
+    assert any("cannot have incoming edges" in error for error in report.errors)

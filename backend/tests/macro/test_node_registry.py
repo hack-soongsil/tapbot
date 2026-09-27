@@ -40,6 +40,9 @@ def test_default_registry_contains_initial_node_scope() -> None:
 
     assert registry.node_types == frozenset(
         {
+            "screen_enter", "screen_update", "screen_exit",
+            "click_point", "drag_point", "random_click_area", "random_drag_area",
+            "click_element", "click_screen_element", "for_loop", "sequence",
             "tap_element", "tap_point", "swipe", "back", "home", "wait",
             "find_element", "require_element", "read_ui_tree",
             "element_exists", "element_text_equals", "state_equals",

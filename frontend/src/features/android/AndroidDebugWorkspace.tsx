@@ -29,6 +29,12 @@ import {
 import type { CompressedHierarchyRow } from './ui-tree/hierarchy-compression'
 import type { AndroidDebugController } from './useAndroidDebug'
 import { useMacroRuntime } from '../macro-runtime/useMacroRuntime'
+import { MacroEventLog } from '../macro-runtime/MacroEventLog'
+import {
+  IntegratedMacroPanel,
+  type IntegratedMacroPanelHandle,
+} from '../macro-editor/IntegratedMacroPanel'
+import type { JsonValue } from '../macro-editor/types'
 
 interface AndroidDebugWorkspaceProps {
   controller: AndroidDebugController
@@ -206,6 +212,7 @@ export function AndroidDebugWorkspace({
 }: AndroidDebugWorkspaceProps) {
   const { status, debug } = controller
   const liveMacro = useMacroRuntime(controller.deviceId)
+  const macroPanelRef = useRef<IntegratedMacroPanelHandle>(null)
   const currentGeometry = useMemo(
     () =>
       validGeometry(status?.stream?.width, status?.stream?.height) ??
@@ -563,43 +570,17 @@ export function AndroidDebugWorkspace({
               disabled={!controller.streamFailed}
               onClick={controller.reconnectStream}
             />
-            <Divider />
-            <ButtonGroup>
-              <Button
-                icon="play"
-                text="Start"
-                onClick={() => void controller.macroStart()}
-                disabled={!status?.connected}
-              />
-              <Button
-                icon="step-forward"
-                text="Step"
-                intent="primary"
-                loading={controller.busy === 'Macro step'}
-                onClick={() => void controller.macroStep()}
-                disabled={!canControl}
-              />
-              <Button
-                icon="pause"
-                text="Pause"
-                onClick={() => void controller.macroPause()}
-                disabled={!status?.connected}
-              />
-              <Button
-                icon="stop"
-                text="Stop"
-                onClick={() => void controller.macroStop()}
-                disabled={!status?.connected}
-              />
-              <Button
-                icon="reset"
-                text="Reset"
-                onClick={() => void controller.macroReset()}
-                disabled={!status?.configured}
-              />
-            </ButtonGroup>
           </div>
         </Card>
+
+        {controller.deviceId && (
+          <IntegratedMacroPanel
+            key={controller.deviceId}
+            ref={macroPanelRef}
+            deviceId={controller.deviceId}
+            runtime={liveMacro}
+          />
+        )}
 
         <Card
           className="android-hierarchy-pane"
@@ -623,12 +604,24 @@ export function AndroidDebugWorkspace({
             node={selectedUiNode}
             frameWidth={frameWidth}
             frameHeight={frameHeight}
+            onUseInMacro={(kind) => {
+              if (!selectedUiNode) return
+              macroPanelRef.current?.addElement(
+                selectorForNode(selectedUiNode, controller.uiTree?.nodes ?? []),
+                nodeTitle(selectedUiNode),
+                kind,
+              )
+            }}
           />
           <InspectorMessages controller={controller} />
         </Card>
       </div>
 
-      <AndroidConsolePanel controller={controller} selectedDetection={selected} />
+      <AndroidConsolePanel
+        controller={controller}
+        selectedDetection={selected}
+        macroEvents={liveMacro.events}
+      />
     </section>
   )
 }
@@ -697,6 +690,40 @@ function preferredSelector(node: AndroidUiNode): string {
     return `text == ${JSON.stringify(node.text)}${node.clickable ? ' && clickable == true' : ''}`
   if (node.class_name) return `className == ${JSON.stringify(node.class_name)}`
   return `snapshotNode == ${JSON.stringify(node.node_id)}`
+}
+
+function selectorForNode(
+  node: AndroidUiNode,
+  nodes: AndroidUiNode[],
+): Record<string, JsonValue> {
+  if (
+    node.content_description &&
+    nodes.filter((candidate) => candidate.content_description === node.content_description).length === 1
+  ) {
+    return { content_description: node.content_description, visible_to_user: true }
+  }
+  if (
+    node.text &&
+    nodes.filter((candidate) => candidate.text === node.text).length === 1
+  ) {
+    return {
+      text: node.text,
+      ...(node.clickable ? { clickable: true } : {}),
+      visible_to_user: true,
+    }
+  }
+  if (
+    node.view_id_resource_name &&
+    nodes.filter((candidate) => candidate.view_id_resource_name === node.view_id_resource_name).length === 1
+  ) {
+    return { view_id: node.view_id_resource_name }
+  }
+  return {
+    class_name: node.class_name ?? 'android.view.View',
+    clickable: node.clickable,
+    enabled: node.enabled,
+    visible_to_user: node.visible_to_user,
+  }
 }
 
 function InspectorMessages({ controller }: { controller: AndroidDebugController }) {
@@ -1038,11 +1065,13 @@ function UiNodeInspector({
   node,
   frameWidth,
   frameHeight,
+  onUseInMacro,
 }: {
   controller: AndroidDebugController
   node: AndroidUiNode | null
   frameWidth: number
   frameHeight: number
+  onUseInMacro: (kind: 'find' | 'tap') => void
 }) {
   if (!node) {
     return (
@@ -1127,6 +1156,20 @@ function UiNodeInspector({
           <textarea readOnly rows={2} value={preferredSelector(node)} />
         </label>
         <div className="android-node-actions">
+          <ButtonGroup>
+            <Button
+              small
+              icon="add"
+              text="Add Find Element"
+              onClick={() => onUseInMacro('find')}
+            />
+            <Button
+              small
+              icon="selection"
+              text="Add Tap Element"
+              onClick={() => onUseInMacro('tap')}
+            />
+          </ButtonGroup>
           <Button
             small
             intent="primary"
@@ -1246,9 +1289,11 @@ function MacroInspector({ controller }: { controller: AndroidDebugController }) 
 function AndroidConsolePanel({
   controller,
   selectedDetection,
+  macroEvents,
 }: {
   controller: AndroidDebugController
   selectedDetection: VisionDetection | null
+  macroEvents: ReturnType<typeof useMacroRuntime>['events']
 }) {
   const [tab, setTab] = useState<ConsoleTab>('console')
   return (
@@ -1312,7 +1357,12 @@ function AndroidConsolePanel({
             selectedDetection={selectedDetection}
           />
         )}
-        {tab === 'macro' && <MacroInspector controller={controller} />}
+        {tab === 'macro' && (
+          <div className="android-macro-events-tab">
+            <MacroEventLog events={macroEvents} />
+            <MacroInspector controller={controller} />
+          </div>
+        )}
       </div>
     </Card>
   )

@@ -8,7 +8,35 @@ export type JsonValue =
   | JsonValue[]
   | { [key: string]: JsonValue }
 
+export type PortType =
+  | 'exec'
+  | 'bool'
+  | 'int'
+  | 'float'
+  | 'string'
+  | 'position'
+  | 'rect'
+  | 'element'
+
+export interface PortDefinition {
+  id: string
+  type: PortType
+  label?: string
+  optional?: boolean
+}
+
 export type MacroNodeType =
+  | 'screen_enter'
+  | 'screen_update'
+  | 'screen_exit'
+  | 'click_point'
+  | 'drag_point'
+  | 'random_click_area'
+  | 'random_drag_area'
+  | 'click_element'
+  | 'click_screen_element'
+  | 'for_loop'
+  | 'sequence'
   | 'tap_element'
   | 'tap_point'
   | 'swipe'
@@ -31,6 +59,7 @@ export type MacroNodeType =
   | 'assert_element'
 
 export type MacroNodeCategory =
+  | 'event'
   | 'ui'
   | 'action'
   | 'condition'
@@ -55,6 +84,8 @@ export interface MacroEdgeDefinition {
   source: string
   target: string
   source_handle?: string
+  target_handle?: string
+  kind?: 'exec' | 'data'
   condition?: 'success' | 'failure' | 'retry' | 'stopped'
 }
 
@@ -64,7 +95,16 @@ export interface MacroDefinition {
   version: number
   nodes: MacroNodeDefinition[]
   edges: MacroEdgeDefinition[]
-  entry_node_id: string
+  entry_node_id?: string
+  screen?: {
+    id: string
+    match: Record<string, JsonValue>
+  }
+  event_entry_node_ids?: {
+    enter: string
+    update?: string
+    exit?: string
+  }
   metadata: Record<string, JsonValue>
 }
 
@@ -75,12 +115,15 @@ export interface MacroFlowNodeData extends Record<string, unknown> {
   definitionLabel?: string
   config: Record<string, JsonValue>
   isEntry: boolean
+  isEvent?: boolean
+  eventKind?: 'enter' | 'update' | 'exit'
   errors: string[]
   runtimeState?: 'pending' | 'running' | 'success' | 'failure' | 'skipped'
 }
 
 export interface MacroFlowEdgeData extends Record<string, unknown> {
   condition?: MacroEdgeDefinition['condition']
+  kind?: 'exec' | 'data'
   errors: string[]
 }
 
@@ -130,6 +173,7 @@ export interface MacroRuntime {
   current_node_id: string | null
   current_edge_id: string | null
   state: 'idle' | 'running' | 'paused' | 'completed' | 'stopped' | 'error'
+  active_screen_id?: string | null
   step_count: number
   variables: Record<string, JsonValue>
   trace: Array<Record<string, JsonValue>>

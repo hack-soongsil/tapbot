@@ -68,6 +68,12 @@ from tapbot.macro.graph_models import (
     NodePosition,
     NodeResult,
     NodeStatus,
+    EventEntryNodeIds,
+    ScreenDefinition,
+)
+from tapbot.macro.screen_lifecycle import (
+    ScreenLifecycleDispatcher,
+    ScreenLifecycleEvent,
 )
 from tapbot.macro.graph_engine import GraphEngine, GraphRunLimits
 from tapbot.macro.graph_validator import (
@@ -81,6 +87,7 @@ from tapbot.macro.node_registry import (
     create_default_node_registry,
 )
 from tapbot.macro.graph_store import FileMacroDefinitionStore
+from tapbot.macro.ports import NodePorts, PortType, ports_for
 
 __all__ = [
     "BackAction",
@@ -112,6 +119,10 @@ __all__ = [
     "MacroExecutor",
     "MacroLifecycleError",
     "MacroDefinition",
+    "EventEntryNodeIds",
+    "ScreenDefinition",
+    "ScreenLifecycleDispatcher",
+    "ScreenLifecycleEvent",
     "MacroEdge",
     "MacroNode",
     "MacroRuntimeState",
@@ -133,10 +144,12 @@ __all__ = [
     "MacroTrace",
     "PrimitiveExecutor",
     "NodeHandler",
+    "NodePorts",
     "NodePosition",
     "NodeRegistry",
     "NodeResult",
     "NodeStatus",
+    "PortType",
     "RequestHumanAction",
     "ScreenshotAction",
     "StateClassification",
@@ -151,4 +164,5 @@ __all__ = [
     "WaitAction",
     "create_default_node_registry",
     "default_screen_geometry",
+    "ports_for",
 ]

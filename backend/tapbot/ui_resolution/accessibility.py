@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+import re
 from threading import RLock
 from time import monotonic
 
@@ -79,6 +80,26 @@ class AccessibilityUiResolver:
             resolved[target.node_id] = self._element(node, target, selector)
 
         candidates = tuple(resolved.values())
+        if selector.bounds_region is not None:
+            candidates = tuple(
+                candidate for candidate in candidates
+                if _in_named_region(candidate.bbox, tree, selector.bounds_region)
+            )
+        if selector.index is not None:
+            ordered = sorted(
+                candidates,
+                key=lambda candidate: (
+                    candidate.bbox.y,
+                    candidate.bbox.x,
+                    candidate.bbox.height,
+                    candidate.bbox.width,
+                ),
+            )
+            candidates = (
+                (ordered[selector.index],)
+                if selector.index < len(ordered)
+                else ()
+            )
         if expected_region is not None and len(candidates) > 1:
             regional = tuple(
                 candidate
@@ -147,8 +168,19 @@ class AccessibilityUiResolver:
                 or selector.text_contains in (node.text or "")
             )
             and (
+                selector.text_regex is None
+                or re.fullmatch(selector.text_regex, node.text or "") is not None
+            )
+            and (
                 selector.content_description is None
                 or node.content_description == selector.content_description
+            )
+            and (
+                selector.content_description_regex is None
+                or re.fullmatch(
+                    selector.content_description_regex,
+                    node.content_description or "",
+                ) is not None
             )
             and (
                 selector.view_id is None
@@ -213,6 +245,8 @@ class AccessibilityUiResolver:
                 selector.view_id,
                 selector.content_description,
                 selector.text,
+                selector.text_regex,
+                selector.content_description_regex,
             )
         )
         label = (
@@ -298,8 +332,24 @@ def _center_inside(candidate: BoundingBox, region: BoundingBox) -> bool:
 
 
 def _selector_evidence(selector: UiSelector) -> str:
-    for name in ("view_id", "content_description", "text", "text_contains", "class_name"):
+    for name in ("view_id", "content_description", "content_description_regex", "text", "text_regex", "text_contains", "class_name"):
         value = getattr(selector, name)
         if value is not None:
             return f"accessibility:{name}={value}"
     return "accessibility"
+
+
+def _in_named_region(
+    candidate: BoundingBox,
+    tree: AndroidUiTree,
+    region: str,
+) -> bool:
+    x, y = candidate.center.x, candidate.center.y
+    column = 0 if x < tree.screen_width / 3 else 2 if x > tree.screen_width * 2 / 3 else 1
+    row = 0 if y < tree.screen_height / 3 else 2 if y > tree.screen_height * 2 / 3 else 1
+    names = {
+        (0, 0): "top_left", (1, 0): "top", (2, 0): "top_right",
+        (0, 1): "left", (1, 1): "center", (2, 1): "right",
+        (0, 2): "bottom_left", (1, 2): "bottom", (2, 2): "bottom_right",
+    }
+    return names[(column, row)] == region

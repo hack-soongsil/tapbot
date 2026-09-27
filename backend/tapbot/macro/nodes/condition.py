@@ -17,12 +17,27 @@ class ElementExistsNode:
         context: GraphExecutionContext,
         config: JsonObject,
     ) -> NodeResult:
-        element = _find(context, config)
+        selector = config["selector"]
+        assert isinstance(selector, dict)
+        finder = _require_ui(context).find_element
+        try:
+            # Existence follows the selector exactly. A disabled element still exists
+            # unless the graph explicitly includes enabled=true.
+            element = finder(
+                selector,
+                strategy="first",
+                require_enabled=False,
+                require_visible=False,
+            )
+        except TypeError:
+            element = finder(selector)
         context.last_resolved_element = element
         exists = element is not None
         return NodeResult.success(
-            {"value": exists},
-            next_handle="true" if exists else "false",
+            {"value": exists, "result": exists},
+            next_handle="exec_out",
+            data_outputs={"result": exists},
+            fallback_handles=("true" if exists else "false",),
         )
 
 

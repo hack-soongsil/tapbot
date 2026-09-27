@@ -70,6 +70,7 @@ class GraphEngine:
         self,
         definition: MacroDefinition,
         *,
+        entry_node_id: str | None = None,
         context: GraphExecutionContext | None = None,
         cancelled: Callable[[], bool] | None = None,
         on_node_start: Callable[[MacroNode, GraphRuntime], None] | None = None,
@@ -78,13 +79,21 @@ class GraphEngine:
     ) -> GraphRunResult:
         self.validator.validate_or_raise(definition)
         snapshot = definition.snapshot()
+        selected_entry = entry_node_id or snapshot.entry_for("enter")
+        if selected_entry is None or selected_entry not in {
+            node.id for node in snapshot.nodes
+        }:
+            raise ValueError("selected graph entry node does not exist")
         node_by_id = {node.id: node for node in snapshot.nodes}
         outgoing = _outgoing(snapshot.edges)
+        data_incoming = _data_incoming(snapshot.edges)
         started_monotonic = self.monotonic()
         execution_context = context or GraphExecutionContext()
         assert_json_value(execution_context.variables, name="initial variables")
         execution_context.variables = dict(execution_context.variables)
         execution_context.control_state = {}
+        execution_context.input_values = {}
+        execution_context.node_outputs = {}
         execution_context.started_at = self.now()
         execution_context.trace_id = (
             execution_context.trace_id or f"graph-{uuid4().hex[:12]}"
@@ -96,7 +105,7 @@ class GraphEngine:
         runtime = GraphRuntime(
             definition_id=snapshot.id,
             definition_version=snapshot.version,
-            current_node_id=snapshot.entry_node_id,
+            current_node_id=selected_entry,
             state=GraphRuntimeStatus.RUNNING,
             variables=execution_context.variables,
             started_at=execution_context.started_at,
@@ -104,6 +113,7 @@ class GraphEngine:
         traces: list[GraphNodeTrace] = []
         retry_counts: dict[str, int] = defaultdict(int)
         repeat_counts: dict[str, int] = defaultdict(int)
+        continuations: list[tuple[str, str | None]] = []
 
         def ensure_active() -> None:
             if cancelled is not None and cancelled():
@@ -139,6 +149,11 @@ class GraphEngine:
             if on_node_start is not None:
                 on_node_start(node, runtime)
             try:
+                execution_context.input_values = _resolve_data_inputs(
+                    node.id,
+                    data_incoming,
+                    execution_context.node_outputs,
+                )
                 result = self.registry.get(node.type).execute(
                     execution_context,
                     node.config,
@@ -149,6 +164,8 @@ class GraphEngine:
                     raise TypeError("node result status must be NodeStatus")
                 if not isinstance(result.output, dict):
                     raise TypeError("node result output must be an object")
+                if not isinstance(result.data_outputs, dict):
+                    raise TypeError("node data outputs must be an object")
                 assert_json_value(result.output, name=f"node {node.id!r} output")
                 ensure_active()
             except _GraphCancelled as error:
@@ -179,6 +196,7 @@ class GraphEngine:
             runtime.step_count += 1
             runtime.last_result = result
             traces.append(_trace(node, started_at, self.now(), result))
+            execution_context.node_outputs[node.id] = dict(result.data_outputs)
             self._store_output(execution_context, runtime, node, result)
 
             if result.status is NodeStatus.STOPPED:
@@ -217,6 +235,16 @@ class GraphEngine:
                     _notify(on_trace, traces[-1], runtime)
                     break
 
+            if node.type == "sequence" and result.next_handle == "then_0":
+                outputs = node.config.get("outputs", 2)
+                assert isinstance(outputs, int) and not isinstance(outputs, bool)
+                continuations.extend(
+                    (node.id, f"then_{index}")
+                    for index in range(outputs - 1, 0, -1)
+                )
+            if node.type == "for_loop" and result.next_handle == "loop":
+                continuations.append((node.id, None))
+
             try:
                 edge = _select_edge(outgoing.get(node.id, ()), result)
             except RuntimeError as error:
@@ -231,6 +259,35 @@ class GraphEngine:
                         self.now(),
                         result.error or f"node {node.id!r} failed",
                     )
+                elif continuations:
+                    source_node_id, next_handle = continuations.pop()
+                    if next_handle is None:
+                        runtime.current_node_id = source_node_id
+                        _notify(on_trace, traces[-1], runtime)
+                        continue
+                    try:
+                        continuation_edge = _select_edge(
+                            outgoing.get(source_node_id, ()),
+                            NodeResult.success(next_handle=next_handle),
+                        )
+                    except RuntimeError as error:
+                        _finish(runtime, GraphRuntimeStatus.ERROR, self.now(), str(error))
+                        _notify(on_trace, traces[-1], runtime)
+                        break
+                    if continuation_edge is None:
+                        _finish(
+                            runtime,
+                            GraphRuntimeStatus.ERROR,
+                            self.now(),
+                            f"continuation handle {next_handle!r} is not connected",
+                        )
+                        _notify(on_trace, traces[-1], runtime)
+                        break
+                    runtime.current_node_id = continuation_edge.target
+                    _notify(on_trace, traces[-1], runtime)
+                    if on_edge is not None:
+                        on_edge(continuation_edge, runtime)
+                    continue
                 else:
                     _finish(runtime, GraphRuntimeStatus.COMPLETED, self.now())
                 _notify(on_trace, traces[-1], runtime)
@@ -271,7 +328,8 @@ class _GraphTimedOut(RuntimeError):
 def _outgoing(edges: tuple[MacroEdge, ...]) -> dict[str, tuple[MacroEdge, ...]]:
     grouped: dict[str, list[MacroEdge]] = defaultdict(list)
     for edge in edges:
-        grouped[edge.source].append(edge)
+        if edge.effective_kind == "exec":
+            grouped[edge.source].append(edge)
     return {
         source: tuple(sorted(items, key=lambda edge: edge.id))
         for source, items in grouped.items()
@@ -287,11 +345,50 @@ def _select_edge(
         for edge in edges
         if edge.source_handle == result.next_handle
     ]
+    # Older definitions encoded a normal execution output as a missing handle.
+    # Continue to run those graphs while all newly saved graphs use exec_out.
+    if not candidates and result.next_handle == "exec_out":
+        candidates = [edge for edge in edges if edge.source_handle is None]
+    if not candidates:
+        for handle in result.fallback_handles:
+            candidates = [edge for edge in edges if edge.source_handle == handle]
+            if candidates:
+                break
     exact = [edge for edge in candidates if edge.condition == result.status.value]
     eligible = exact or [edge for edge in candidates if edge.condition is None]
     if len(eligible) > 1:
         raise RuntimeError("graph produced an ambiguous next edge")
     return eligible[0] if eligible else None
+
+
+def _data_incoming(edges: tuple[MacroEdge, ...]) -> dict[str, tuple[MacroEdge, ...]]:
+    grouped: dict[str, list[MacroEdge]] = defaultdict(list)
+    for edge in edges:
+        if edge.effective_kind == "data":
+            grouped[edge.target].append(edge)
+    return {target: tuple(items) for target, items in grouped.items()}
+
+
+def _resolve_data_inputs(
+    node_id: str,
+    incoming: dict[str, tuple[MacroEdge, ...]],
+    outputs: dict[str, dict[str, object]],
+) -> dict[str, object]:
+    resolved: dict[str, object] = {}
+    for edge in incoming.get(node_id, ()):
+        assert edge.source_handle is not None
+        assert edge.target_handle is not None
+        source_values = outputs.get(edge.source)
+        if source_values is None:
+            raise RuntimeError(
+                f"data source node {edge.source!r} has not executed before {node_id!r}"
+            )
+        if edge.source_handle not in source_values:
+            raise RuntimeError(
+                f"data output {edge.source}.{edge.source_handle} is unavailable"
+            )
+        resolved[edge.target_handle] = source_values[edge.source_handle]
+    return resolved
 
 
 def _trace(

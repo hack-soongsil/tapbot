@@ -1,15 +1,15 @@
 import { Button } from '@blueprintjs/core'
 import type { DragEvent } from 'react'
 import { BLOCKS } from './blocks'
-import type { MacroNodeCategory, MacroNodeType } from './types'
+import type { MacroNodeType } from './types'
 
 export const MACRO_BLOCK_MIME = 'application/x-tapbot-macro-node'
 
-const categories: Array<{ id: MacroNodeCategory; label: string }> = [
-  { id: 'ui', label: 'UI' },
-  { id: 'action', label: 'Action' },
-  { id: 'control', label: 'Control' },
-  { id: 'validation', label: 'Validation' },
+const categories: Array<{ id: string; label: string; types: readonly MacroNodeType[] }> = [
+  { id: 'input', label: 'INPUT', types: ['click_point', 'drag_point', 'random_click_area', 'random_drag_area'] },
+  { id: 'flow', label: 'FLOW', types: ['for_loop', 'branch', 'sequence', 'wait', 'retry', 'repeat', 'stop'] },
+  { id: 'ui', label: 'UI', types: ['element_exists', 'click_element', 'click_screen_element', 'find_element', 'require_element'] },
+  { id: 'validation', label: 'VALIDATION', types: ['wait_for_element', 'wait_for_state', 'assert_element'] },
 ]
 
 export interface BlockPaletteProps {
@@ -33,7 +33,7 @@ export function BlockPalette({ onAdd }: BlockPaletteProps) {
           <section className="macro-palette__group" key={category.id}>
             <h2>{category.label}</h2>
             {BLOCKS.filter(
-              (block) => block.palette && block.category === category.id,
+              (block) => block.palette && category.types.includes(block.type),
             ).map((block) => (
               <Button
                 className={`macro-palette__block is-${category.id}`}

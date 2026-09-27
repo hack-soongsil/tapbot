@@ -7,6 +7,7 @@ import math
 import time
 
 from tapbot.macro.graph_models import (
+    GraphElement,
     GraphExecutionContext,
     JsonObject,
     NodeResult,
@@ -19,6 +20,11 @@ from tapbot.macro.node_registry import (
     selector_errors,
 )
 from tapbot.macro.tap_point import TapPointSampler
+from tapbot.macro.area_sampling import (
+    AreaPointSampler,
+    SamplingArea,
+    validate_sampling,
+)
 
 
 class TapElementNode:
@@ -123,8 +129,233 @@ class SwipeNode:
         return NodeResult.success({"action_result": action_result})
 
 
+class ClickPointNode:
+    output_handles = frozenset({"exec_out"})
+
+    def validate(self, config: JsonObject) -> tuple[str, ...]:
+        return collect_errors(
+            _coordinate_errors(config, "x", "coordinate_space"),
+            _coordinate_errors(config, "y", "coordinate_space"),
+            _coordinate_space_errors(config),
+            optional_positive_int(config, "duration_ms", default=70),
+        )
+
+    def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
+        x, y = _resolve_point(
+            context,
+            _number(config, "x"),
+            _number(config, "y"),
+            _text(config, "coordinate_space", "pixel"),
+        )
+        result = _action_result(_require_actions(context).tap_screen(
+            x, y, duration_ms=_integer(config, "duration_ms", 70)
+        ))
+        context.last_action_result = result
+        return NodeResult.success(
+            {"tap_point": [x, y], "action_result": result},
+            next_handle="exec_out",
+        )
+
+
+class DragPointNode:
+    output_handles = frozenset({"exec_out"})
+
+    def validate(self, config: JsonObject) -> tuple[str, ...]:
+        return collect_errors(
+            _point_object_errors(config.get("start"), "start", config),
+            _point_object_errors(config.get("end"), "end", config),
+            _coordinate_space_errors(config),
+            optional_positive_int(config, "duration_ms", default=450),
+        )
+
+    def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
+        start = _point(config, "start")
+        end = _point(config, "end")
+        space = _text(config, "coordinate_space", "pixel")
+        x1, y1 = _resolve_point(context, *start, space)
+        x2, y2 = _resolve_point(context, *end, space)
+        result = _action_result(_require_actions(context).swipe(
+            x1, y1, x2, y2, duration_ms=_integer(config, "duration_ms", 450)
+        ))
+        context.last_action_result = result
+        return NodeResult.success(
+            {"start": [x1, y1], "end": [x2, y2], "action_result": result},
+            next_handle="exec_out",
+        )
+
+
+class RandomClickAreaNode:
+    output_handles = frozenset({"exec_out"})
+
+    def __init__(self, sampler: AreaPointSampler) -> None:
+        self.sampler = sampler
+
+    def validate(self, config: JsonObject) -> tuple[str, ...]:
+        return collect_errors(
+            _area_errors(config.get("area"), "area", config),
+            _coordinate_space_errors(config),
+            validate_sampling(config.get("sampling", {"type": "uniform"})),
+            optional_positive_int(config, "duration_ms", default=70),
+        )
+
+    def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
+        point = self.sampler.sample(_area(config, "area"), _object(config, "sampling", {"type": "uniform"}))
+        x, y = _resolve_point(
+            context, point.x, point.y, _text(config, "coordinate_space", "pixel")
+        )
+        result = _action_result(_require_actions(context).tap_screen(
+            x, y, duration_ms=_integer(config, "duration_ms", 70)
+        ))
+        context.last_action_result = result
+        return NodeResult.success(
+            {"tap_point": [x, y], "sampling": config.get("sampling", {"type": "uniform"}), "action_result": result},
+            next_handle="exec_out",
+            data_outputs={"sampled_position": {"x": x, "y": y}},
+        )
+
+
+class RandomDragAreaNode:
+    output_handles = frozenset({"exec_out"})
+
+    def __init__(self, sampler: AreaPointSampler) -> None:
+        self.sampler = sampler
+
+    def validate(self, config: JsonObject) -> tuple[str, ...]:
+        return collect_errors(
+            _area_errors(config.get("start_area"), "start_area", config),
+            _area_errors(config.get("end_area"), "end_area", config),
+            _coordinate_space_errors(config),
+            validate_sampling(config.get("start_sampling", {"type": "uniform"}), name="start_sampling"),
+            validate_sampling(config.get("end_sampling", {"type": "uniform"}), name="end_sampling"),
+            optional_positive_int(config, "duration_ms", default=450),
+        )
+
+    def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
+        start = self.sampler.sample(_area(config, "start_area"), _object(config, "start_sampling", {"type": "uniform"}))
+        end = self.sampler.sample(_area(config, "end_area"), _object(config, "end_sampling", {"type": "uniform"}))
+        space = _text(config, "coordinate_space", "pixel")
+        x1, y1 = _resolve_point(context, start.x, start.y, space)
+        x2, y2 = _resolve_point(context, end.x, end.y, space)
+        result = _action_result(_require_actions(context).swipe(
+            x1, y1, x2, y2, duration_ms=_integer(config, "duration_ms", 450)
+        ))
+        context.last_action_result = result
+        return NodeResult.success(
+            {"start": [x1, y1], "end": [x2, y2], "action_result": result},
+            next_handle="exec_out",
+            data_outputs={
+                "sampled_start": {"x": x1, "y": y1},
+                "sampled_end": {"x": x2, "y": y2},
+            },
+        )
+
+
+class ClickElementNode:
+    output_handles = frozenset({"exec_out"})
+
+    def validate(self, config: JsonObject) -> tuple[str, ...]:
+        errors = list(selector_errors(config)) if config.get("selector") else []
+        resolve = config.get("resolve", {})
+        if not isinstance(resolve, dict) or resolve.get("strategy", "best_match") not in {"first", "best_match", "unique"}:
+            errors.append("resolve.strategy must be first, best_match, or unique")
+        click = config.get("click", {})
+        if not isinstance(click, dict):
+            errors.append("click must be an object")
+        else:
+            errors.extend(optional_positive_int(click, "duration_ms", default=70))
+        return tuple(errors)
+
+    def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
+        supplied = context.input_values.get("element")
+        if supplied is not None:
+            if not isinstance(supplied, GraphElement):
+                raise RuntimeError("click element data input must be an element")
+            element = supplied
+        else:
+            ui = _require_ui(context)
+            if not config.get("selector"):
+                raise RuntimeError("click element requires element input or selector fallback")
+            resolve = _object(config, "resolve", {})
+            finder = ui.find_element
+            try:
+                element = finder(
+                    _selector(config),
+                    strategy=_text(resolve, "strategy", "best_match"),
+                    require_enabled=resolve.get("require_enabled", True) is True,
+                    require_visible=resolve.get("require_visible", True) is True,
+                )
+            except TypeError:
+                # Compatibility with older/test GraphUiPort implementations.
+                element = finder(_selector(config))
+        if element is None:
+            raise RuntimeError("click element target was not found or was ambiguous")
+        context.last_resolved_element = element
+        point = element.bounds.center
+        click = _object(config, "click", {})
+        result = _action_result(_require_actions(context).tap_screen(
+            point.x, point.y, duration_ms=_integer(click, "duration_ms", 70)
+        ))
+        context.last_action_result = result
+        return NodeResult.success(
+            {"element_id": element.id, "bounds": element.bounds.to_list(), "tap_point": [point.x, point.y], "action_result": result},
+            next_handle="exec_out",
+        )
+
+
+class ClickScreenElementNode:
+    output_handles = frozenset({"exec_out"})
+
+    def validate(self, config: JsonObject) -> tuple[str, ...]:
+        from tapbot.ui_resolution.screens import validate_screen_element_reference
+
+        errors: list[str] = []
+        for key in ("screen_id", "element_id"):
+            value = config.get(key)
+            if not isinstance(value, str) or not value:
+                errors.append(f"{key} must be a non-empty string")
+        params = config.get("params", {})
+        if not isinstance(params, dict):
+            errors.append("params must be an object")
+        else:
+            errors.extend(error for error in validate_screen_element_reference(
+                config.get("screen_id"), config.get("element_id"), params
+            ) if not error.startswith("params.index"))
+        click = config.get("click", {})
+        if not isinstance(click, dict):
+            errors.append("click must be an object")
+        else:
+            errors.extend(optional_positive_int(click, "duration_ms", default=70))
+        return tuple(errors)
+
+    def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
+        ui = _require_ui(context)
+        resolver = getattr(ui, "resolve_screen_element", None)
+        if not callable(resolver):
+            raise RuntimeError("UI port does not support semantic screen elements")
+        screen_id = _text(config, "screen_id", "")
+        element_id = _text(config, "element_id", "")
+        params = dict(_object(config, "params", {}))
+        if "index" in context.input_values:
+            index = context.input_values["index"]
+            if isinstance(index, bool) or not isinstance(index, int) or index < 0:
+                raise RuntimeError("screen element index data input must be a non-negative int")
+            params["index"] = index
+        element = resolver(screen_id, element_id, params)
+        context.last_resolved_element = element
+        point = element.bounds.center
+        click = _object(config, "click", {})
+        result = _action_result(_require_actions(context).tap_screen(
+            point.x, point.y, duration_ms=_integer(click, "duration_ms", 70)
+        ))
+        context.last_action_result = result
+        return NodeResult.success(
+            {"screen_id": screen_id, "element_id": element.id, "bounds": element.bounds.to_list(), "tap_point": [point.x, point.y], "action_result": result},
+            next_handle="exec_out",
+        )
+
+
 class BackNode:
-    output_handles = frozenset()
+    output_handles = frozenset({"exec_out"})
 
     def validate(self, config: JsonObject) -> tuple[str, ...]:
         return ()
@@ -137,11 +368,14 @@ class BackNode:
         del config
         result = _action_result(_require_actions(context).back())
         context.last_action_result = result
-        return NodeResult.success({"action_result": result})
+        return NodeResult.success(
+            {"action_result": result},
+            next_handle="exec_out",
+        )
 
 
 class HomeNode:
-    output_handles = frozenset()
+    output_handles = frozenset({"exec_out"})
 
     def validate(self, config: JsonObject) -> tuple[str, ...]:
         return ()
@@ -154,11 +388,14 @@ class HomeNode:
         del config
         result = _action_result(_require_actions(context).home())
         context.last_action_result = result
-        return NodeResult.success({"action_result": result})
+        return NodeResult.success(
+            {"action_result": result},
+            next_handle="exec_out",
+        )
 
 
 class WaitNode:
-    output_handles = frozenset()
+    output_handles = frozenset({"exec_out"})
 
     def validate(self, config: JsonObject) -> tuple[str, ...]:
         return optional_positive_int(
@@ -181,7 +418,7 @@ class WaitNode:
             sleeper(interval)
             remaining -= interval
         context.check_active()
-        return NodeResult.success()
+        return NodeResult.success(next_handle="exec_out")
 
 
 def _require_actions(context: GraphExecutionContext):
@@ -212,6 +449,154 @@ def _integer(config: JsonObject, key: str, default: int) -> int:
     value = config.get(key, default)
     assert isinstance(value, int) and not isinstance(value, bool)
     return value
+
+
+def _text(config: JsonObject, key: str, default: str) -> str:
+    value = config.get(key, default)
+    assert isinstance(value, str)
+    return value
+
+
+def _object(
+    config: JsonObject,
+    key: str,
+    default: dict[str, object],
+) -> dict[str, object]:
+    value = config.get(key, default)
+    assert isinstance(value, dict)
+    return value
+
+
+def _point(config: JsonObject, key: str) -> tuple[float, float]:
+    value = config[key]
+    assert isinstance(value, dict)
+    x = value["x"]
+    y = value["y"]
+    assert isinstance(x, int | float) and not isinstance(x, bool)
+    assert isinstance(y, int | float) and not isinstance(y, bool)
+    return float(x), float(y)
+
+
+def _area(config: JsonObject, key: str) -> SamplingArea:
+    value = config[key]
+    assert isinstance(value, dict)
+    coordinates = []
+    for name in ("left", "top", "right", "bottom"):
+        item = value[name]
+        assert isinstance(item, int | float) and not isinstance(item, bool)
+        coordinates.append(float(item))
+    return SamplingArea(*coordinates)
+
+
+def _coordinate_space_errors(config: JsonObject) -> tuple[str, ...]:
+    return () if config.get("coordinate_space", "pixel") in {"pixel", "normalized"} else (
+        "coordinate_space must be pixel or normalized",
+    )
+
+
+def _coordinate_errors(
+    config: JsonObject,
+    key: str,
+    space_key: str,
+) -> tuple[str, ...]:
+    errors = _finite_number_errors(config, key)
+    if errors:
+        return errors
+    value = config[key]
+    assert isinstance(value, int | float) and not isinstance(value, bool)
+    if config.get(space_key, "pixel") == "normalized" and not 0 <= value <= 1:
+        return (f"{key} must be between 0 and 1 for normalized coordinates",)
+    if config.get(space_key, "pixel") == "pixel" and value < 0:
+        return (f"{key} must not be negative",)
+    return ()
+
+
+def _point_object_errors(
+    value: object,
+    name: str,
+    parent: JsonObject,
+) -> tuple[str, ...]:
+    if not isinstance(value, dict):
+        return (f"{name} must be an object",)
+    proxy: JsonObject = {
+        "x": value.get("x"),
+        "y": value.get("y"),
+        "coordinate_space": parent.get("coordinate_space", "pixel"),
+    }
+    return collect_errors(
+        _coordinate_errors(proxy, "x", "coordinate_space"),
+        _coordinate_errors(proxy, "y", "coordinate_space"),
+    )
+
+
+def _area_errors(
+    value: object,
+    name: str,
+    parent: JsonObject,
+) -> tuple[str, ...]:
+    if not isinstance(value, dict):
+        return (f"{name} must be an object",)
+    errors: list[str] = []
+    numbers: dict[str, float] = {}
+    for key in ("left", "top", "right", "bottom"):
+        item = value.get(key)
+        if isinstance(item, bool) or not isinstance(item, int | float) or not math.isfinite(item):
+            errors.append(f"{name}.{key} must be a finite number")
+        else:
+            numbers[key] = float(item)
+    if len(numbers) == 4:
+        if numbers["left"] >= numbers["right"]:
+            errors.append(f"{name}.left must be less than right")
+        if numbers["top"] >= numbers["bottom"]:
+            errors.append(f"{name}.top must be less than bottom")
+        if parent.get("coordinate_space", "pixel") == "normalized" and any(
+            not 0 <= item <= 1 for item in numbers.values()
+        ):
+            errors.append(f"{name} values must be between 0 and 1 for normalized coordinates")
+        if parent.get("coordinate_space", "pixel") == "pixel" and any(
+            item < 0 for item in numbers.values()
+        ):
+            errors.append(f"{name} values must not be negative")
+    return tuple(errors)
+
+
+def _resolve_point(
+    context: GraphExecutionContext,
+    x: float,
+    y: float,
+    coordinate_space: str,
+) -> tuple[float, float]:
+    dimensions = _screen_size(context)
+    if coordinate_space == "normalized":
+        if not 0 <= x <= 1 or not 0 <= y <= 1:
+            raise ValueError("normalized coordinates must be between 0 and 1")
+        if dimensions is None:
+            raise RuntimeError("normalized coordinates require current screen dimensions")
+        return x * dimensions[0], y * dimensions[1]
+    if coordinate_space != "pixel":
+        raise ValueError("coordinate_space must be pixel or normalized")
+    if x < 0 or y < 0:
+        raise ValueError("pixel coordinates must not be negative")
+    if dimensions is not None and (x > dimensions[0] or y > dimensions[1]):
+        raise ValueError("pixel coordinates are outside the current screen")
+    return x, y
+
+
+def _screen_size(context: GraphExecutionContext) -> tuple[float, float] | None:
+    ui = context.ui
+    if ui is not None:
+        provider = getattr(ui, "screen_size", None)
+        if callable(provider):
+            size = provider()
+            if size is not None:
+                return float(size[0]), float(size[1])
+    observation = context.last_observation
+    if isinstance(observation, dict):
+        width = observation.get("screen_width")
+        height = observation.get("screen_height")
+        if isinstance(width, int | float) and isinstance(height, int | float):
+            return float(width), float(height)
+    return None
 
 
 def _finite_number_errors(config: JsonObject, key: str) -> tuple[str, ...]:

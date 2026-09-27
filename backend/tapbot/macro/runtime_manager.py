@@ -26,6 +26,7 @@ from tapbot.macro.graph_models import (
     NodeStatus,
 )
 from tapbot.macro.repository import MacroRepository
+from tapbot.macro.screen_lifecycle import ScreenLifecycleDispatcher, ScreenLifecycleEvent
 
 
 class DeviceRuntimeStatus(StrEnum):
@@ -46,6 +47,7 @@ class DeviceRuntimeSnapshot:
     current_node_id: str | None
     current_edge_id: str | None
     state: DeviceRuntimeStatus
+    active_screen_id: str | None = None
     step_count: int = 0
     variables: JsonObject = field(default_factory=dict)
     trace: tuple[GraphNodeTrace, ...] = ()
@@ -61,6 +63,7 @@ class DeviceRuntimeSnapshot:
             "current_node_id": self.current_node_id,
             "current_edge_id": self.current_edge_id,
             "state": self.state.value,
+            "active_screen_id": self.active_screen_id,
             "step_count": self.step_count,
             "variables": json.loads(json.dumps(self.variables)),
             "trace": [item.to_dict() for item in self.trace],
@@ -86,6 +89,7 @@ class _Session:
     error: str | None = None
     current_edge_id: str | None = None
     last_variable_fingerprint: dict[str, str] = field(default_factory=dict)
+    active_screen_id: str | None = None
 
 
 EngineFactory = Callable[[str], GraphEngine]
@@ -105,13 +109,17 @@ class RuntimeManager:
         context_factory: ContextFactory,
         device_online: OnlineCheck | None = None,
         event_broker: MacroEventBroker | None = None,
+        screen_refresh_interval_sec: float = 1.0,
     ) -> None:
+        if screen_refresh_interval_sec <= 0:
+            raise ValueError("screen_refresh_interval_sec must be positive")
         self.repository = repository
         self.bindings = bindings
         self.engine_factory = engine_factory
         self.context_factory = context_factory
         self.device_online = device_online or (lambda _device_id: True)
         self.events = event_broker or MacroEventBroker()
+        self.screen_refresh_interval_sec = screen_refresh_interval_sec
         self._sessions: dict[str, _Session] = {}
         self._lock = RLock()
 
@@ -207,12 +215,13 @@ class RuntimeManager:
                 macro_definition_id=session.definition.id,
                 definition_version=session.definition.version,
                 current_node_id=(
-                    session.definition.entry_node_id
+                    session.definition.entry_for("enter")
                     if runtime is None
                     else runtime.current_node_id
                 ),
                 current_edge_id=session.current_edge_id,
                 state=session.state,
+                active_screen_id=session.active_screen_id,
                 step_count=0 if runtime is None else runtime.step_count,
                 variables=json.loads(json.dumps(session.context.variables)),
                 trace=tuple(session.traces),
@@ -272,7 +281,12 @@ class RuntimeManager:
             self._sessions[device_id] = session
         self._publish(session, "macro.runtime.started", payload={
             "definition_version": definition.version,
-            "entry_node_id": definition.entry_node_id,
+            "entry_node_id": definition.entry_for("enter"),
+            "event_entry_node_ids": (
+                None
+                if definition.event_entry_node_ids is None
+                else definition.event_entry_node_ids.to_dict()
+            ),
         })
         session.thread = Thread(
             target=self._run,
@@ -288,6 +302,9 @@ class RuntimeManager:
 
     def _run(self, session: _Session) -> None:
         try:
+            if session.definition.screen is not None:
+                self._run_screen_lifecycle(session)
+                return
             result = self.engine_factory(session.device_id).run(
                 session.definition,
                 context=session.context,
@@ -322,6 +339,77 @@ class RuntimeManager:
                 session.error = str(error)
                 session.condition.notify_all()
             self._publish(session, "macro.runtime.failed", payload={"error": str(error)})
+
+    def _run_screen_lifecycle(self, session: _Session) -> None:
+        definitions = self._screen_definitions(session.definition)
+        engine = self.engine_factory(session.device_id)
+
+        def execute(
+            definition: MacroDefinition,
+            event: ScreenLifecycleEvent,
+            ui_tree: object,
+        ) -> None:
+            session.context.last_observation = ui_tree
+            self._publish(
+                session,
+                f"macro.screen.{event.kind}",
+                node_id=event.entry_node_id,
+                payload={"screen_id": event.screen_id},
+            )
+            result = engine.run(
+                definition,
+                entry_node_id=event.entry_node_id,
+                context=session.context,
+                cancelled=lambda: self._gate(session),
+                on_node_start=lambda node, runtime: self._node_started(session, node, runtime),
+                on_trace=lambda trace, runtime: self._progress(session, trace, runtime),
+                on_edge=lambda edge, runtime: self._edge_traversed(session, edge, runtime),
+            )
+            with session.condition:
+                session.runtime = result.runtime
+                if result.runtime.state is GraphRuntimeStatus.ERROR:
+                    session.state = DeviceRuntimeStatus.ERROR
+                    session.error = result.runtime.error
+
+        dispatcher = ScreenLifecycleDispatcher(definitions, execute)
+        while True:
+            if self._gate(session):
+                break
+            if session.context.ui is None:
+                raise RuntimeError("screen lifecycle requires a UI tree provider")
+            ui_tree = session.context.ui.read_ui_tree()
+            dispatcher.refresh(ui_tree)
+            with session.condition:
+                session.active_screen_id = dispatcher.active_screen_id
+                if session.state is DeviceRuntimeStatus.ERROR:
+                    break
+                session.condition.wait(timeout=self.screen_refresh_interval_sec)
+
+        with session.condition:
+            if session.state is not DeviceRuntimeStatus.ERROR:
+                session.state = DeviceRuntimeStatus.STOPPED
+            session.condition.notify_all()
+        self._publish(
+            session,
+            "macro.runtime.failed" if session.state is DeviceRuntimeStatus.ERROR else "macro.runtime.stopped",
+            payload={"error": session.error},
+        )
+
+    def _screen_definitions(
+        self,
+        selected: MacroDefinition,
+    ) -> tuple[MacroDefinition, ...]:
+        workflow_id = selected.metadata.get("workflow_id")
+        candidates = tuple(
+            definition.snapshot()
+            for definition in self.repository.list()
+            if definition.screen is not None
+            and (
+                workflow_id is None
+                or definition.metadata.get("workflow_id") == workflow_id
+            )
+        )
+        return candidates or (selected,)
 
     @staticmethod
     def _gate(session: _Session) -> bool:

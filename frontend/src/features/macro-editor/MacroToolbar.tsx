@@ -6,7 +6,9 @@ export interface MacroToolbarProps {
   busy: boolean
   runStatus: string | null
   runtimeVersion?: number | null
+  screenId?: string
   onNameChange: (name: string) => void
+  onScreenChange: (screenId: string) => void
   onNew: () => void
   onLoad: () => void
   onSave: () => void
@@ -27,7 +29,9 @@ export function MacroToolbar({
   busy,
   runStatus,
   runtimeVersion,
+  screenId,
   onNameChange,
+  onScreenChange,
   onNew,
   onLoad,
   onSave,
@@ -50,6 +54,10 @@ export function MacroToolbar({
           value={name}
           onChange={(event) => onNameChange(event.target.value)}
         />
+        <select aria-label="Screen" value={screenId ?? ''} onChange={(event) => onScreenChange(event.target.value)}>
+          <option value="reservation_home">Reservation Home</option>
+          <option value="reservation_detail">Reservation Detail</option>
+        </select>
         {dirty && <Tag intent="warning" minimal>Unsaved</Tag>}
         {runStatus && (
           <Tag intent={runStatus === 'running' ? 'success' : 'none'}>

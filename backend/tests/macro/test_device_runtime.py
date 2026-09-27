@@ -1,21 +1,26 @@
 from __future__ import annotations
 
 from pathlib import Path
+import time
 
 from tapbot.macro.binding import DeviceMacroBinding, DeviceMacroBindingRepository
 from tapbot.macro.graph_engine import GraphEngine
 from tapbot.macro.graph_models import (
     GraphExecutionContext,
+    EventEntryNodeIds,
     MacroDefinition,
     MacroEdge,
     MacroNode,
     NodeResult,
+    ScreenDefinition,
 )
 from tapbot.macro.graph_store import FileMacroDefinitionStore
 from tapbot.macro.graph_validator import GraphValidator
-from tapbot.macro.node_registry import NodeRegistry
+from tapbot.macro.node_registry import NodeRegistry, create_default_node_registry
 from tapbot.macro.repository import MacroRepository
 from tapbot.macro.runtime_manager import DeviceRuntimeStatus, RuntimeManager
+from tapbot.ui_resolution.screens import DEFAULT_SSUTODAY_SCREENS
+from tests.ui_resolution.test_screens import detail_tree, home_tree
 
 
 class RecordDevice:
@@ -143,3 +148,80 @@ def test_one_active_runtime_per_device_and_offline_pause(tmp_path: Path) -> None
     current = manager.current("a")
     assert current.state in {DeviceRuntimeStatus.PAUSED, DeviceRuntimeStatus.COMPLETED}
     manager.close()
+
+
+class CyclingUi:
+    def __init__(self) -> None:
+        self.snapshots = [home_tree(), home_tree("수 30"), detail_tree()]
+        self.index = 0
+
+    def read_ui_tree(self):
+        selected = self.snapshots[min(self.index, len(self.snapshots) - 1)]
+        self.index += 1
+        return selected
+
+    def find_element(self, selector):
+        return None
+
+    def current_state(self):
+        return "unknown"
+
+
+def screen_definition(screen_id: str) -> MacroDefinition:
+    screen = next(item for item in DEFAULT_SSUTODAY_SCREENS if item.id == screen_id)
+    return MacroDefinition(
+        id=f"{screen_id}-graph",
+        name=screen_id,
+        version=1,
+        nodes=(
+            MacroNode("enter", "screen_enter"),
+            MacroNode("update", "screen_update", {"interval_ms": 1, "skip_if_running": True}),
+            MacroNode("exit", "screen_exit"),
+        ),
+        edges=(),
+        entry_node_id=None,
+        metadata={"workflow_id": "ssutoday"},
+        screen=ScreenDefinition(screen.id, screen.match),
+        event_entry_node_ids=EventEntryNodeIds("enter", "update", "exit"),
+    )
+
+
+def test_screen_runtime_refreshes_tree_and_orders_exit_before_next_enter(tmp_path: Path) -> None:
+    registry = create_default_node_registry()
+    repository = MacroRepository(FileMacroDefinitionStore(
+        tmp_path / "screens", validator=GraphValidator(registry)
+    ))
+    repository.create(screen_definition("reservation_home"))
+    repository.create(screen_definition("reservation_detail"))
+    bindings = DeviceMacroBindingRepository(tmp_path / "screen-bindings.json")
+    bindings.set(DeviceMacroBinding("phone", "reservation_home-graph"))
+    ui = CyclingUi()
+    manager = RuntimeManager(
+        repository,
+        bindings,
+        engine_factory=lambda _device_id: GraphEngine(registry),
+        context_factory=lambda device_id, _binding: GraphExecutionContext(
+            device_id=device_id, ui=ui
+        ),
+        screen_refresh_interval_sec=0.01,
+    )
+
+    manager.start("phone")
+    deadline = time.monotonic() + 2
+    while time.monotonic() < deadline:
+        transitions = [
+            (event.type, event.payload.get("screen_id"))
+            for event in manager.events.history("phone")
+            if event.type.startswith("macro.screen.")
+        ]
+        if ("macro.screen.enter", "reservation_detail") in transitions:
+            break
+        time.sleep(0.01)
+    manager.stop("phone")
+
+    assert transitions[:4] == [
+        ("macro.screen.enter", "reservation_home"),
+        ("macro.screen.update", "reservation_home"),
+        ("macro.screen.exit", "reservation_home"),
+        ("macro.screen.enter", "reservation_detail"),
+    ]

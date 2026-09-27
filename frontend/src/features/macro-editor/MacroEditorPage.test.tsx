@@ -29,7 +29,7 @@ vi.mock('./MacroCanvas', () => ({
       ))}
       <button
         onClick={() => {
-          const [source, target] = props.nodes
+          const [source, target] = props.nodes.slice(-2)
           if (source && target) {
             props.onConnect({
               source: source.id,
@@ -64,43 +64,46 @@ describe('MacroEditorPage', () => {
     render(<MacroEditorPage />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Add Wait' }))
-    expect(screen.getByTestId('node-count').textContent).toBe('1')
+    expect(screen.getByTestId('node-count').textContent).toBe('4')
     expect(screen.getByText('Unsaved')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('Duration (ms)'), { target: { value: '900' } })
     expect(screen.getByLabelText<HTMLInputElement>('Duration (ms)').value).toBe('900')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add Back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Click Point' }))
     fireEvent.click(screen.getByRole('button', { name: 'Connect first two' }))
     expect(screen.getByTestId('edge-count').textContent).toBe('1')
 
     fireEvent.click(screen.getByRole('button', { name: 'Delete node' }))
-    expect(screen.getByTestId('node-count').textContent).toBe('1')
+    expect(screen.getByTestId('node-count').textContent).toBe('4')
     expect(screen.getByTestId('edge-count').textContent).toBe('0')
   })
 
   it('serializes to local storage and reloads the saved draft', async () => {
     const first = render(<MacroEditorPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add Back' }))
+    fireEvent.change(screen.getByLabelText('Screen'), { target: { value: 'reservation_detail' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add Click Point' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(macroEditorApi.save).toHaveBeenCalledTimes(1))
     const saved = JSON.parse(window.localStorage.getItem(MACRO_DRAFT_STORAGE_KEY) ?? '{}') as {
       nodes?: unknown[]
     }
-    expect(saved.nodes).toHaveLength(1)
+    expect(saved.nodes).toHaveLength(4)
+    expect(saved).toHaveProperty('event_entry_node_ids.enter', 'event-enter')
+    expect(saved).toHaveProperty('screen.id', 'reservation_detail')
 
     first.unmount()
     render(<MacroEditorPage />)
-    expect(screen.getByTestId('node-count').textContent).toBe('1')
+    expect(screen.getByTestId('node-count').textContent).toBe('4')
   })
 
   it('maps backend validation errors onto the selected node', async () => {
     vi.mocked(macroEditorApi.validate).mockResolvedValue({
       valid: false,
-      errors: [{ node_id: 'back-1', message: 'Backend rejected this node.' }],
+      errors: [{ node_id: 'click_point-1', message: 'Backend rejected this node.' }],
     })
     render(<MacroEditorPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add Back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Click Point' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Validate' }))
 
@@ -110,7 +113,7 @@ describe('MacroEditorPage', () => {
 
   it('supports the Ctrl+S keyboard shortcut', async () => {
     render(<MacroEditorPage />)
-    fireEvent.click(screen.getByRole('button', { name: 'Add Home' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add Click Point' }))
 
     fireEvent.keyDown(window, { key: 's', ctrlKey: true })
 

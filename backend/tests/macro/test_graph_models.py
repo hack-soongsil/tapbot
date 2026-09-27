@@ -3,6 +3,7 @@ import json
 import pytest
 
 from tapbot.macro import (
+    EventEntryNodeIds,
     FileMacroDefinitionStore,
     MacroDefinition,
     MacroEdge,
@@ -72,6 +73,35 @@ def test_edge_optional_fields_round_trip() -> None:
     edge = MacroEdge("yes", "branch", "tap", "true", "success")
 
     assert MacroEdge.from_dict(edge.to_dict()) == edge
+
+
+def test_typed_data_edge_round_trip_preserves_target_handle_and_kind() -> None:
+    edge = MacroEdge(
+        "index",
+        "for",
+        "click",
+        source_handle="index",
+        target_handle="index",
+        kind="data",
+    )
+
+    assert MacroEdge.from_dict(edge.to_dict()) == edge
+    assert edge.to_dict()["kind"] == "data"
+
+
+def test_legacy_entry_is_exposed_as_screen_enter_compatibility_entry() -> None:
+    definition = MacroDefinition.from_dict({
+        "id": "legacy",
+        "name": "Legacy",
+        "version": 1,
+        "entry_node_id": "start",
+        "nodes": [{"id": "start", "type": "stop", "config": {}}],
+        "edges": [],
+    })
+
+    assert definition.entry_for("enter") == "start"
+    assert definition.event_entry_node_ids == EventEntryNodeIds(enter="start")
+    assert definition.entry_for("update") is None
 
 
 def test_file_store_uses_injected_root_and_rejects_path_traversal(tmp_path) -> None:

@@ -90,6 +90,28 @@ def test_exact_text_and_view_id_resolution() -> None:
     assert by_id is not None and by_id.metadata["node_id"] == "n0.0"
 
 
+def test_text_regex_and_visual_index_resolve_dynamic_date_family() -> None:
+    root = node("root", bounds=AndroidUiBounds(0, 0, 1080, 2400))
+    dates = tuple(
+        node(
+            f"date-{index}",
+            text=text,
+            clickable=True,
+            bounds=AndroidUiBounds(20 + index * 180, 300, 170 + index * 180, 390),
+        )
+        for index, text in enumerate(("금 25", "토 26", "일 27"))
+    )
+
+    result = AccessibilityUiResolver().resolve(
+        tree(root, *dates),
+        UiSelector(text_regex=r"^(월|화|수|목|금|토|일) [0-9]{1,2}$", index=1),
+    )
+
+    assert result.status == "resolved"
+    assert result.element is not None
+    assert result.element.text == "토 26"
+
+
 def test_nearest_clickable_parent_supplies_action_bounds() -> None:
     parent = node(
         "n0",

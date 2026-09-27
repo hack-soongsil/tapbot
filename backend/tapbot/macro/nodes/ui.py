@@ -28,9 +28,19 @@ class FindElementNode:
         element = _find(context, config)
         if element is None:
             context.last_resolved_element = None
-            return NodeResult.success({"found": False}, next_handle="missing")
+            return NodeResult.success(
+                {"found": False},
+                next_handle="exec_out",
+                data_outputs={"found": False, "result": False},
+                fallback_handles=("missing",),
+            )
         context.last_resolved_element = element
-        return NodeResult.success(_element_output(element), next_handle="found")
+        return NodeResult.success(
+            _element_output(element),
+            next_handle="exec_out",
+            data_outputs={"found": True, "result": True, "element": element},
+            fallback_handles=("found",),
+        )
 
 
 class RequireElementNode:

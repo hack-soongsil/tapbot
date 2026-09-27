@@ -36,7 +36,8 @@
   text-transform: uppercase;
 }
 
-.macro-toolbar__identity input {
+.macro-toolbar__identity input,
+.macro-toolbar__identity select {
   width: clamp(160px, 24vw, 320px);
   min-width: 0;
   height: 30px;
@@ -149,8 +150,10 @@
 }
 
 .macro-palette__block.is-action { border-left-color: #4c90f0; }
+.macro-palette__block.is-input { border-left-color: #4c90f0; }
 .macro-palette__block.is-ui { border-left-color: #7ecf9b; }
 .macro-palette__block.is-control { border-left-color: #b38df4; }
+.macro-palette__block.is-flow { border-left-color: #b38df4; }
 .macro-palette__block.is-validation { border-left-color: #f0b45a; }
 
 .macro-canvas {
@@ -197,6 +200,7 @@
 }
 
 .macro-node--action { border-left-color: #4c90f0; }
+.macro-node--event { border-left-color: #f06a8a; background: color-mix(in srgb, #f06a8a 9%, var(--surface)); }
 .macro-node--ui { border-left-color: #7ecf9b; }
 .macro-node--condition { border-left-color: #58c7d8; }
 .macro-node--control { border-left-color: #b38df4; }
@@ -363,6 +367,61 @@
   text-align: center;
 }
 
+.macro-node__data-port {
+  position: absolute;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 74px;
+  color: #9faab6;
+  font-size: 8px;
+  line-height: 1;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.macro-node__data-port--input {
+  left: 0;
+  padding-left: 7px;
+}
+
+.macro-node__data-port--output {
+  right: 0;
+  justify-content: flex-end;
+  padding-right: 7px;
+  text-align: right;
+}
+
+.macro-node__data-port span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.macro-node__data-port .react-flow__handle {
+  width: 8px;
+  height: 8px;
+  pointer-events: all;
+}
+
+.macro-node__data-port[data-port-type='bool'] .react-flow__handle { background: #d77fe8; }
+.macro-node__data-port[data-port-type='int'] .react-flow__handle { background: #69c6a3; }
+.macro-node__data-port[data-port-type='float'] .react-flow__handle { background: #77b9e8; }
+.macro-node__data-port[data-port-type='string'] .react-flow__handle { background: #e7b968; }
+.macro-node__data-port[data-port-type='position'] .react-flow__handle { background: #ef8f69; }
+.macro-node__data-port[data-port-type='rect'] .react-flow__handle { background: #b49af2; }
+.macro-node__data-port[data-port-type='element'] .react-flow__handle { background: #f0779d; }
+
+.macro-node__data-port .react-flow__handle.valid {
+  box-shadow: 0 0 0 3px rgb(255 255 255 / 28%);
+}
+
+.macro-edge--data .react-flow__edge-path {
+  stroke: #d77fe8;
+  stroke-dasharray: 5 3;
+}
+
 .macro-node .react-flow__handle {
   width: 8px;
   height: 8px;
@@ -456,6 +515,107 @@
   border-radius: 4px;
   color: #ffd5d6;
   background: #421f23;
+  font-size: 11px;
+}
+
+.quick-block-search {
+  position: fixed;
+  z-index: 1000;
+  display: grid;
+  width: min(360px, calc(100vw - 16px));
+  max-height: min(500px, calc(100vh - 16px));
+  overflow: hidden;
+  border: 1px solid #4b5664;
+  border-radius: 8px;
+  background: #161b21;
+  box-shadow: 0 14px 42px rgb(0 0 0 / 55%);
+}
+
+.quick-block-search__input {
+  width: 100%;
+  min-width: 0;
+  padding: 12px 13px;
+  border: 0;
+  border-bottom: 1px solid #343c47;
+  outline: 0;
+  color: #f2f5f8;
+  background: #20262e;
+  font: inherit;
+}
+
+.quick-block-search__input:focus {
+  box-shadow: inset 0 -2px #4998ef;
+}
+
+.quick-block-search__list {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 6px;
+}
+
+.quick-block-search__section + .quick-block-search__section {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid #292f38;
+}
+
+.quick-block-search__section-title {
+  margin: 0;
+  padding: 5px 7px;
+  color: #84909e;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+}
+
+.quick-block-search__item {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 2px;
+  padding: 8px;
+  border: 0;
+  border-radius: 5px;
+  color: #dce3ea;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quick-block-search__item:hover,
+.quick-block-search__item--active {
+  color: #fff;
+  background: #2b4058;
+}
+
+.quick-block-search__label,
+.quick-block-search__description {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-block-search__label {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.quick-block-search__description {
+  color: #929dab;
+  font-size: 9px;
+}
+
+.quick-block-search__description b {
+  color: #68a7e8;
+  font-weight: 700;
+}
+
+.quick-block-search__empty {
+  padding: 28px 12px;
+  color: #919ca9;
+  text-align: center;
   font-size: 11px;
 }
 

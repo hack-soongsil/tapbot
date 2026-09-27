@@ -210,7 +210,7 @@ afterEach(() => {
 })
 
 describe('Android live viewport layout stability', () => {
-  it('renders live, hierarchy, and inspector as three sibling editor panes', () => {
+  it('renders live, macro, hierarchy, and inspector as four sibling editor panes', () => {
     const view = render(
       <AndroidDebugWorkspace
         controller={controller({ uiTree: tree(3) })}
@@ -225,11 +225,15 @@ describe('Android live viewport layout stability', () => {
 
     expect(panes.map((pane) => pane.getAttribute('data-editor-pane'))).toEqual([
       'live',
+      'macro',
       'hierarchy',
       'inspector',
     ])
-    expect(panes[1]?.contains(panes[2] ?? null)).toBe(false)
-    expect(panes[1]?.parentElement).toBe(panes[2]?.parentElement)
+    expect(panes[2]?.contains(panes[3] ?? null)).toBe(false)
+    expect(panes[1]?.parentElement).toBe(panes[3]?.parentElement)
+    const bottom = view.container.querySelector('[data-workspace-region="bottom"]')
+    expect(grid?.contains(bottom)).toBe(false)
+    expect(bottom?.parentElement).toBe(grid?.parentElement)
     expect(
       (view.getByRole('button', {
         name: 'Download UI tree JSON',

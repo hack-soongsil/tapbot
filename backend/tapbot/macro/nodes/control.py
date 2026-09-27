@@ -17,21 +17,107 @@ class BranchNode:
     output_handles = frozenset({"true", "false"})
 
     def validate(self, config: JsonObject) -> tuple[str, ...]:
-        return required_text(config, "variable")
+        condition = config.get("condition")
+        if condition is None:
+            return () if not config.get("variable") else required_text(config, "variable")
+        if not isinstance(condition, dict):
+            return ("condition must be an object",)
+        condition_type = condition.get("type", "variable_equals")
+        if condition_type not in {
+            "variable_equals", "variable_not_equals", "variable_truthy"
+        }:
+            return ("condition.type is not supported",)
+        return () if not condition.get("variable") else required_text(condition, "variable")
 
     def execute(
         self,
         context: GraphExecutionContext,
         config: JsonObject,
     ) -> NodeResult:
-        name = config["variable"]
-        assert isinstance(name, str)
-        actual = context.variables.get(name)
-        expected = config.get("equals", True)
-        matches = actual == expected
+        if "condition" in context.input_values:
+            actual = context.input_values["condition"]
+            if not isinstance(actual, bool):
+                raise RuntimeError("branch condition data input must be bool")
+            matches = actual
+        else:
+            condition = config.get("condition")
+            source = condition if isinstance(condition, dict) else config
+            name = source.get("variable")
+            if not isinstance(name, str) or not name:
+                raise RuntimeError("branch requires condition input or variable fallback")
+            actual = context.variables.get(name)
+            condition_type = source.get("type", "variable_equals")
+            expected = source.get("value", source.get("equals", True))
+            if condition_type == "variable_truthy":
+                matches = bool(actual)
+            elif condition_type == "variable_not_equals":
+                matches = actual != expected
+            else:
+                matches = actual == expected
         return NodeResult.success(
             {"value": matches},
             next_handle="true" if matches else "false",
+        )
+
+
+class ForLoopNode:
+    output_handles = frozenset({"loop", "completed"})
+
+    def validate(self, config: JsonObject) -> tuple[str, ...]:
+        errors: list[str] = []
+        for key, default in (("start", 0), ("end", 0), ("step", 1)):
+            value = config.get(key, default)
+            if isinstance(value, bool) or not isinstance(value, int):
+                errors.append(f"{key} must be an integer")
+        if config.get("step", 1) == 0:
+            errors.append("step must not be zero")
+        errors.extend(required_text(config, "index_variable"))
+        if not isinstance(config.get("inclusive_end", False), bool):
+            errors.append("inclusive_end must be a boolean")
+        return tuple(errors)
+
+    def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
+        start = _integer(config, "start", 0)
+        end = _integer(config, "end", 0)
+        step = _integer(config, "step", 1)
+        inclusive = config.get("inclusive_end", False)
+        assert isinstance(inclusive, bool)
+        key = _control_key(context, "for")
+        current = context.control_state.get(key, start)
+        within = current <= end if step > 0 and inclusive else (
+            current < end if step > 0 else current >= end if inclusive else current > end
+        )
+        if not within:
+            context.control_state.pop(key, None)
+            return NodeResult.success(
+                {"completed": True, "iterations_finished": True},
+                next_handle="completed",
+            )
+        variable = config["index_variable"]
+        assert isinstance(variable, str)
+        context.variables[variable] = current
+        context.control_state[key] = current + step
+        return NodeResult.success(
+            {"index": current, "variable": variable, "completed": False},
+            next_handle="loop",
+            data_outputs={"index": current},
+        )
+
+
+class SequenceNode:
+    output_handles = frozenset({f"then_{index}" for index in range(16)})
+
+    def validate(self, config: JsonObject) -> tuple[str, ...]:
+        outputs = config.get("outputs", 2)
+        if isinstance(outputs, bool) or not isinstance(outputs, int) or not 2 <= outputs <= 16:
+            return ("outputs must be an integer between 2 and 16",)
+        return ()
+
+    def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
+        outputs = _integer(config, "outputs", 2)
+        return NodeResult.success(
+            {"outputs": outputs},
+            next_handle="then_0",
         )
 
 

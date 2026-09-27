@@ -43,19 +43,104 @@ describe('macro graph converters', () => {
 
     const restored = flowToMacroDefinition(definition, flow.nodes, flow.edges)
 
-    expect(restored).toEqual(definition)
-    expect(restored.nodes[0]).not.toHaveProperty('selected')
-    expect(restored.nodes[0]).not.toHaveProperty('measured')
+    expect(restored.entry_node_id).toBeUndefined()
+    expect(restored.event_entry_node_ids).toEqual({
+      enter: 'event-enter', update: 'event-update', exit: 'event-exit',
+    })
+    expect(restored.edges[0]).toMatchObject({ source: 'event-enter', target: 'find' })
+    const restoredFind = restored.nodes.find((node) => node.id === 'find')!
+    expect(restoredFind).not.toHaveProperty('selected')
+    expect(restoredFind).not.toHaveProperty('measured')
   })
 
   it('keeps position as editor metadata without changing config', () => {
     const flow = macroDefinitionToFlow(definition)
-    flow.nodes[0]!.position = { x: 900, y: 450 }
+    const find = flow.nodes.find((node) => node.id === 'find')!
+    find.position = { x: 900, y: 450 }
 
     const restored = flowToMacroDefinition(definition, flow.nodes, flow.edges)
 
-    expect(restored.nodes[0]!.position).toEqual({ x: 900, y: 450 })
-    expect(restored.nodes[0]!.config).toEqual(definition.nodes[0]!.config)
+    const restoredFind = restored.nodes.find((node) => node.id === 'find')!
+    expect(restoredFind.position).toEqual({ x: 900, y: 450 })
+    expect(restoredFind.config).toEqual(definition.nodes[0]!.config)
+  })
+
+  it('round-trips screen lifecycle entry nodes without legacy entry metadata', () => {
+    const lifecycle: MacroDefinition = {
+      id: 'home', name: 'Home', version: 1,
+      screen: { id: 'reservation_home', match: { content_description: '예약 내역' } },
+      event_entry_node_ids: { enter: 'enter', update: 'update', exit: 'exit' },
+      metadata: {},
+      nodes: [
+        { id: 'enter', type: 'screen_enter', config: {}, position: { x: 80, y: 40 } },
+        { id: 'update', type: 'screen_update', config: { interval_ms: 1_000, skip_if_running: true }, position: { x: 320, y: 40 } },
+        { id: 'exit', type: 'screen_exit', config: {}, position: { x: 560, y: 40 } },
+      ],
+      edges: [],
+    }
+
+    const flow = macroDefinitionToFlow(lifecycle)
+    const restored = flowToMacroDefinition(lifecycle, flow.nodes, flow.edges)
+
+    expect(restored).toEqual(lifecycle)
+    expect(flow.nodes.every((node) => node.deletable === false)).toBe(true)
+  })
+
+  it('preserves extended block config and dynamic execution handles', () => {
+    const extended: MacroDefinition = {
+      id: 'extended', name: 'Extended', version: 1,
+      screen: { id: 'reservation_home', match: {} },
+      event_entry_node_ids: { enter: 'enter', update: 'update', exit: 'exit' },
+      metadata: {},
+      nodes: [
+        { id: 'enter', type: 'screen_enter', config: {} },
+        { id: 'update', type: 'screen_update', config: { interval_ms: 1_000, skip_if_running: true } },
+        { id: 'exit', type: 'screen_exit', config: {} },
+        { id: 'sequence', type: 'sequence', config: { outputs: 3 } },
+        { id: 'random', type: 'random_click_area', config: {
+          area: { left: 0.1, top: 0.2, right: 0.8, bottom: 0.9 },
+          coordinate_space: 'normalized',
+          sampling: { type: 'normal', center_x: 0.4, center_y: 0.6, sigma_x: 0.1, sigma_y: 0.2, clip: true },
+          duration_ms: 70,
+        } },
+        { id: 'semantic', type: 'click_screen_element', config: {
+          screen_id: 'reservation_home', element_id: 'quick_date', params: { index: 2 }, click: { duration_ms: 70 },
+        } },
+      ],
+      edges: [
+        { id: 'start', source: 'enter', target: 'sequence', source_handle: 'exec_out' },
+        { id: 'first', source: 'sequence', target: 'random', source_handle: 'then_0' },
+        { id: 'third', source: 'sequence', target: 'semantic', source_handle: 'then_2' },
+      ],
+    }
+
+    const flow = macroDefinitionToFlow(extended)
+    const restored = flowToMacroDefinition(extended, flow.nodes, flow.edges)
+
+    expect(restored.nodes.find((node) => node.id === 'random')?.config)
+      .toEqual(extended.nodes.find((node) => node.id === 'random')?.config)
+    expect(restored.nodes.find((node) => node.id === 'semantic')?.config)
+      .toEqual(extended.nodes.find((node) => node.id === 'semantic')?.config)
+    expect(restored.edges.map((edge) => edge.source_handle)).toEqual(['exec_out', 'then_0', 'then_2'])
+  })
+
+  it('round-trips typed data edge handles and kind', () => {
+    const typed: MacroDefinition = {
+      id: 'typed', name: 'Typed', version: 1, entry_node_id: 'find', metadata: {},
+      nodes: [
+        { id: 'find', type: 'find_element', config: { selector: { text: 'Reserve' } } },
+        { id: 'click', type: 'click_element', config: { click: { duration_ms: 70 } } },
+      ],
+      edges: [
+        { id: 'exec', source: 'find', target: 'click', source_handle: 'exec_out', target_handle: 'exec_in', kind: 'exec' },
+        { id: 'data', source: 'find', target: 'click', source_handle: 'element', target_handle: 'element', kind: 'data' },
+      ],
+    }
+
+    const flow = macroDefinitionToFlow(typed)
+    const restored = flowToMacroDefinition(typed, flow.nodes, flow.edges)
+
+    expect(restored.edges.filter((edge) => edge.id !== 'legacy-enter')).toEqual(typed.edges)
   })
 })
 
@@ -79,5 +164,62 @@ describe('frontend graph validation', () => {
     expect(messages).toContain('Invalid source handle: maybe')
     expect(messages).toContain('Enter at least one selector field.')
     expect(messages).toContain('Variable is required.')
+  })
+
+  it('requires exactly one protected entry for each screen lifecycle event', () => {
+    const invalid: MacroDefinition = {
+      id: 'screen', name: 'Screen', version: 1,
+      screen: { id: 'reservation_home', match: {} },
+      event_entry_node_ids: { enter: 'enter', update: 'missing', exit: 'exit' },
+      metadata: {},
+      nodes: [
+        { id: 'enter', type: 'screen_enter', config: {} },
+        { id: 'exit', type: 'screen_exit', config: {} },
+      ],
+      edges: [{ id: 'incoming', source: 'exit', target: 'enter' }],
+    }
+
+    const messages = validateMacroDefinition(invalid).map((item) => item.message)
+    expect(messages).toContain('Screen graph must contain exactly one screen_update node.')
+    expect(messages).toContain('Screen update entry is missing.')
+    expect(messages).toContain('Event nodes cannot have incoming edges.')
+  })
+
+  it('validates sequence output handles and extended block config', () => {
+    const invalid: MacroDefinition = {
+      id: 'invalid-extended', name: 'Invalid extended', version: 1,
+      entry_node_id: 'sequence', metadata: {},
+      nodes: [
+        { id: 'sequence', type: 'sequence', config: { outputs: 2 } },
+        { id: 'random', type: 'random_click_area', config: {
+          area: { left: 10, top: 10, right: 5, bottom: 5 },
+          coordinate_space: 'pixel', sampling: { type: 'normal', sigma_x: 0, sigma_y: -1 }, duration_ms: 70,
+        } },
+      ],
+      edges: [{ id: 'bad-handle', source: 'sequence', target: 'random', source_handle: 'then_2' }],
+    }
+
+    const messages = validateMacroDefinition(invalid).map((item) => item.message)
+    expect(messages).toContain('Invalid source handle: then_2')
+    expect(messages).toContain('Area must have positive width and height.')
+    expect(messages).toContain('Normal sigma values must be greater than zero.')
+  })
+
+  it('rejects mismatched typed data ports', () => {
+    const invalid: MacroDefinition = {
+      id: 'typed-invalid', name: 'Typed invalid', version: 1,
+      entry_node_id: 'for', metadata: {},
+      nodes: [
+        { id: 'for', type: 'for_loop', config: { start: 0, end: 1, step: 1, inclusive_end: false, index_variable: 'i' } },
+        { id: 'branch', type: 'branch', config: {} },
+      ],
+      edges: [
+        { id: 'exec', source: 'for', target: 'branch', source_handle: 'loop', target_handle: 'exec_in', kind: 'exec' },
+        { id: 'bad', source: 'for', target: 'branch', source_handle: 'index', target_handle: 'condition', kind: 'data' },
+      ],
+    }
+
+    const messages = validateMacroDefinition(invalid).map((item) => item.message)
+    expect(messages).toContain('Port type mismatch: int → bool')
   })
 })
