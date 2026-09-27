@@ -54,7 +54,11 @@ def create_test_app(
             dry_run=True,
         ),
         camera=CameraSettings(fps=camera_fps),
-        paths=PathSettings(macro_trace_dir=capture_dir),
+        paths=PathSettings(
+            macro_trace_dir=capture_dir,
+            macro_definition_dir=capture_dir / "definitions",
+            macro_bindings_file=capture_dir / "device-macro-bindings.json",
+        ),
     )
     instances = create_instances(
         config,

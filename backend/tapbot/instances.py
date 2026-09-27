@@ -41,8 +41,22 @@ from tapbot.macro import (
     MacroEvent,
     MacroExecutor,
     MacroService,
+    TapBounds,
+    TapPointSampler,
+    TapPointSamplingPolicy,
     default_screen_geometry,
 )
+from tapbot.macro.binding import DeviceMacroBinding, DeviceMacroBindingRepository
+from tapbot.macro.graph_engine import GraphEngine
+from tapbot.macro.graph_models import GraphElement, GraphExecutionContext, JsonObject
+from tapbot.macro.graph_store import FileMacroDefinitionStore
+from tapbot.macro.graph_validator import GraphValidator
+from tapbot.macro.node_registry import create_default_node_registry
+from tapbot.macro.repository import MacroRepository
+from tapbot.macro.runtime_manager import RuntimeManager
+from tapbot.macro.service import MacroManagementService
+from tapbot.ui_resolution.accessibility import AccessibilityUiResolver
+from tapbot.ui_resolution.models import UiSelector
 from tapbot.model.client import HttpModelClient, ModelClient
 from tapbot.ui_resolution.visual import TargetResolver
 from tapbot.model.service import ModelService
@@ -78,6 +92,10 @@ class ApplicationInstances:
     android_discovery: AndroidDiscoveryService
     system_service: SystemService
     android_http: AndroidHttpDependencies
+    macro_repository: MacroRepository
+    macro_bindings: DeviceMacroBindingRepository
+    macro_runtime_manager: RuntimeManager
+    macro_management_service: MacroManagementService
     model_client: ModelClient | None = None
     model_service: ModelService | None = None
     _started: bool = field(default=False, init=False, repr=False)
@@ -108,6 +126,7 @@ class ApplicationInstances:
                 return
             self._started = False
         await asyncio.to_thread(self.android_discovery.stop)
+        await asyncio.to_thread(self.macro_runtime_manager.close)
         for context in self.android_registry.list():
             try:
                 await asyncio.to_thread(context.debug_service.close)
@@ -230,6 +249,42 @@ def create_instances(
         model_service = ModelService(model_client)
 
     system_service = SystemService(robot_service, vision_service, android_registry, event_log)
+    graph_validator = GraphValidator(create_default_node_registry(
+        tap_point_sampler=_tap_point_sampler(config)
+    ))
+    macro_repository = MacroRepository(FileMacroDefinitionStore(
+        config.paths.macro_definition_dir, validator=graph_validator
+    ))
+    macro_bindings = DeviceMacroBindingRepository(config.paths.macro_bindings_file)
+
+    def device_exists(device_id: str) -> bool:
+        try:
+            android_registry.get(device_id)
+        except KeyError:
+            return False
+        return True
+
+    def device_online(device_id: str) -> bool:
+        return bool(android_registry.refresh(device_id).get("connected"))
+
+    macro_runtime_manager = RuntimeManager(
+        macro_repository,
+        macro_bindings,
+        engine_factory=lambda _device_id: GraphEngine(create_default_node_registry(
+            tap_point_sampler=_tap_point_sampler(config)
+        )),
+        context_factory=lambda device_id, binding: _graph_context(
+            android_registry.get(device_id), binding
+        ),
+        device_online=device_online,
+    )
+    macro_management_service = MacroManagementService(
+        macro_repository,
+        macro_bindings,
+        macro_runtime_manager,
+        graph_validator,
+        device_exists=device_exists,
+    )
     return ApplicationInstances(
         config=config,
         event_log=event_log,
@@ -247,8 +302,93 @@ def create_instances(
             discovery=discovery,
             manual_token=config.android.discovery_token,
         ),
+        macro_repository=macro_repository,
+        macro_bindings=macro_bindings,
+        macro_runtime_manager=macro_runtime_manager,
+        macro_management_service=macro_management_service,
         model_client=model_client,
         model_service=model_service,
+    )
+
+
+def _tap_point_sampler(config: TapBotConfig) -> TapPointSampler:
+    settings = config.tap_point
+    return TapPointSampler(TapPointSamplingPolicy(
+        enabled=settings.randomization_enabled,
+        edge_inset_ratio=settings.edge_inset_ratio,
+        sigma_x_ratio=settings.sigma_ratio,
+        sigma_y_ratio=settings.sigma_ratio,
+        min_jitter_px=settings.min_jitter_px,
+        max_jitter_px=settings.max_jitter_px,
+        max_attempts=settings.max_attempts,
+    ))
+
+
+class _AndroidGraphActions:
+    def __init__(self, context: AndroidDeviceContext) -> None:
+        self.context = context
+
+    def tap_screen(self, x: float, y: float, *, duration_ms: int):
+        result = self.context.controller.tap(x, y, duration_ms=duration_ms)
+        self.context.ui_tree_provider.invalidate()
+        return result.to_dict()
+
+    def swipe(self, x1: float, y1: float, x2: float, y2: float, *, duration_ms: int):
+        result = self.context.controller.swipe(x1, y1, x2, y2, duration_ms=duration_ms)
+        self.context.ui_tree_provider.invalidate()
+        return result.to_dict()
+
+    def back(self):
+        return self.context.debug_service.back()
+
+    def home(self):
+        return self.context.debug_service.home()
+
+
+class _AndroidGraphUi:
+    def __init__(self, context: AndroidDeviceContext) -> None:
+        self.context = context
+        self.resolver = AccessibilityUiResolver()
+
+    def read_ui_tree(self):
+        return self.context.ui_tree_provider.snapshot(max_age_ms=0).to_dict()
+
+    def find_element(self, selector: JsonObject) -> GraphElement | None:
+        allowed = {
+            "text", "text_contains", "content_description", "view_id", "class_name",
+            "clickable", "enabled", "visible_to_user",
+        }
+        query = UiSelector(**{key: value for key, value in selector.items() if key in allowed})
+        result = self.resolver.resolve(
+            self.context.ui_tree_provider.snapshot(max_age_ms=0), query
+        )
+        if result.status != "resolved" or result.element is None:
+            return None
+        element = result.element
+        return GraphElement(
+            element.label,
+            TapBounds.from_xywh(
+                element.bbox.x, element.bbox.y, element.bbox.width, element.bbox.height
+            ),
+            element.text,
+            {"view_id": element.view_id, "class_name": element.class_name},
+        )
+
+    def current_state(self) -> str:
+        state = self.context.debug_service.debug_state().get("state", {})
+        return str(state.get("current", "unknown")) if isinstance(state, dict) else "unknown"
+
+
+def _graph_context(
+    context: AndroidDeviceContext,
+    binding: DeviceMacroBinding,
+) -> GraphExecutionContext:
+    variables = binding.config.get("variables", {})
+    return GraphExecutionContext(
+        device_id=context.config.id,
+        variables=dict(variables) if isinstance(variables, dict) else {},
+        actions=_AndroidGraphActions(context),
+        ui=_AndroidGraphUi(context),
     )
 
 
@@ -313,10 +453,22 @@ def create_android_context_factory(
         trace_dir = trace_root / device.id
 
         def engine_factory(macro_id: str) -> MacroEngine:
+            tap_settings = config.tap_point
             executor = MacroExecutor(
                 controller,
                 geometry_factory=default_screen_geometry,
                 after_execution=ui_tree_provider.invalidate,
+                tap_point_sampler=TapPointSampler(
+                    TapPointSamplingPolicy(
+                        enabled=tap_settings.randomization_enabled,
+                        edge_inset_ratio=tap_settings.edge_inset_ratio,
+                        sigma_x_ratio=tap_settings.sigma_ratio,
+                        sigma_y_ratio=tap_settings.sigma_ratio,
+                        min_jitter_px=tap_settings.min_jitter_px,
+                        max_jitter_px=tap_settings.max_jitter_px,
+                        max_attempts=tap_settings.max_attempts,
+                    )
+                ),
             )
             coordinator = MacroCoordinator(
                 source,

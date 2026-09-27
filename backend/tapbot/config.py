@@ -6,6 +6,7 @@ import argparse
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -16,7 +17,7 @@ from tapbot.android.models import AndroidDeviceConfig
 @dataclass(frozen=True, slots=True)
 class BackendSettings:
     host: str = "127.0.0.1"
-    port: int = 8000
+    port: int = 18880
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,9 +66,45 @@ class ModelSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class TapPointSettings:
+    randomization_enabled: bool = True
+    edge_inset_ratio: float = 0.15
+    sigma_ratio: float = 0.15
+    min_jitter_px: float = 1.0
+    max_jitter_px: float = 48.0
+    max_attempts: int = 8
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.randomization_enabled, bool):
+            raise ValueError("tap randomization enabled must be a boolean")
+        if (
+            not math.isfinite(self.edge_inset_ratio)
+            or not 0 <= self.edge_inset_ratio < 0.5
+        ):
+            raise ValueError("tap edge inset ratio must be between 0 and 0.5")
+        if not math.isfinite(self.sigma_ratio) or self.sigma_ratio <= 0:
+            raise ValueError("tap sigma ratio must be positive and finite")
+        if not math.isfinite(self.min_jitter_px) or self.min_jitter_px <= 0:
+            raise ValueError("tap minimum jitter must be positive and finite")
+        if (
+            not math.isfinite(self.max_jitter_px)
+            or self.max_jitter_px < self.min_jitter_px
+        ):
+            raise ValueError("tap maximum jitter must be >= minimum jitter")
+        if (
+            isinstance(self.max_attempts, bool)
+            or not isinstance(self.max_attempts, int)
+            or self.max_attempts <= 0
+        ):
+            raise ValueError("tap max attempts must be a positive integer")
+
+
+@dataclass(frozen=True, slots=True)
 class PathSettings:
     calibration_file: Path = Path("tapbot-calibrations.json")
     macro_trace_dir: Path = Path("tapbot-captures/android")
+    macro_definition_dir: Path = Path("tapbot-data/macros")
+    macro_bindings_file: Path = Path("tapbot-data/device-macro-bindings.json")
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,6 +114,7 @@ class TapBotConfig:
     robot: RobotSettings = RobotSettings()
     camera: CameraSettings = CameraSettings()
     model: ModelSettings = ModelSettings()
+    tap_point: TapPointSettings = TapPointSettings()
     paths: PathSettings = PathSettings()
 
     def __post_init__(self) -> None:
@@ -131,7 +169,7 @@ def load_config(environ: Mapping[str, str] | None = None) -> TapBotConfig:
     return TapBotConfig(
         backend=BackendSettings(
             host=_text(env, "TAPBOT_BACKEND_HOST", "127.0.0.1"),
-            port=_integer(env, "TAPBOT_BACKEND_PORT", 8000),
+            port=_integer(env, "TAPBOT_BACKEND_PORT", 18880),
         ),
         android=android,
         robot=robot,
@@ -145,9 +183,35 @@ def load_config(environ: Mapping[str, str] | None = None) -> TapBotConfig:
             model_name=_optional(env, "TAPBOT_MODEL_NAME"),
             api_token=_optional(env, "TAPBOT_MODEL_API_TOKEN"),
         ),
+        tap_point=TapPointSettings(
+            randomization_enabled=_boolean(
+                env,
+                "TAPBOT_TAP_RANDOMIZATION_ENABLED",
+                True,
+            ),
+            edge_inset_ratio=_number(
+                env,
+                "TAPBOT_TAP_EDGE_INSET_RATIO",
+                0.15,
+            ),
+            sigma_ratio=_number(env, "TAPBOT_TAP_SIGMA_RATIO", 0.15),
+            min_jitter_px=_number(env, "TAPBOT_TAP_MIN_JITTER_PX", 1.0),
+            max_jitter_px=_number(env, "TAPBOT_TAP_MAX_JITTER_PX", 48.0),
+            max_attempts=_integer(env, "TAPBOT_TAP_MAX_ATTEMPTS", 8),
+        ),
         paths=PathSettings(
             calibration_file=Path(_text(env, "TAPBOT_CALIBRATION_FILE", "tapbot-calibrations.json")),
             macro_trace_dir=Path(_text(env, "TAPBOT_MACRO_TRACE_DIR", str(android.capture_dir))),
+            macro_definition_dir=Path(
+                _text(env, "TAPBOT_MACRO_DEFINITION_DIR", "tapbot-data/macros")
+            ),
+            macro_bindings_file=Path(
+                _text(
+                    env,
+                    "TAPBOT_MACRO_BINDINGS_FILE",
+                    "tapbot-data/device-macro-bindings.json",
+                )
+            ),
         ),
     )
 

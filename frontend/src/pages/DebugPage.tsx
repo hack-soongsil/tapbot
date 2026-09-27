@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { AndroidDebugWorkspace } from '../features/android/AndroidDebugWorkspace'
 import { useAndroidDebug } from '../features/android/useAndroidDebug'
 import { DeviceSelector } from '../features/devices/DeviceSelector'
+import { DeviceMacroControls } from '../features/devices/DeviceMacroControls'
 import {
   chooseInitialDevice,
   SELECTED_DEVICE_STORAGE_KEY,
@@ -49,24 +50,27 @@ export function DebugPage() {
 
   return (
     <div className="vision-workspace-page android-editor-page">
-      <DeviceSelector
-        devices={deviceList.devices}
-        selectedDeviceId={selectedDeviceId}
-        discovering={deviceList.discovering}
-        message={deviceList.error}
-        detail={deviceList.detail}
-        onSelect={selectDevice}
-        onRefresh={deviceList.refresh}
-        onAddManual={async (input) => {
-          const device = await deviceList.addManual(input)
-          selectDevice(device.id)
-        }}
-      />
-      {selectedDevice && !selectedDevice.connected && (
-        <Callout intent="warning" title={`${selectedDevice.name} is offline`}>
-          The device remains selected. Refresh discovery or choose another device.
-        </Callout>
-      )}
+      <div className="android-device-toolbar">
+        <DeviceSelector
+          devices={deviceList.devices}
+          selectedDeviceId={selectedDeviceId}
+          discovering={deviceList.discovering}
+          message={deviceList.error}
+          detail={deviceList.detail}
+          onSelect={selectDevice}
+          onRefresh={deviceList.refresh}
+          onAddManual={async (input) => {
+            const device = await deviceList.addManual(input)
+            selectDevice(device.id)
+          }}
+        />
+        {selectedDevice && !selectedDevice.connected && (
+          <Callout intent="warning" title={`${selectedDevice.name} is offline`}>
+            The device remains selected. Refresh discovery or choose another device.
+          </Callout>
+        )}
+        {selectedDeviceId && <DeviceMacroControls deviceId={selectedDeviceId} />}
+      </div>
       {selectedDevice ? (
         <AndroidDebugWorkspace controller={controller} />
       ) : (

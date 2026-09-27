@@ -734,9 +734,24 @@ select:focus-visible {
   --accent-soft: rgb(76 144 240 / 12%);
 }
 
+.vision-app-shell.is-debug-route {
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .vision-app-shell .route-content {
   min-height: calc(100vh - 50px);
   padding-top: 50px;
+}
+
+.vision-app-shell.is-debug-route .route-content {
+  width: 100%;
+  height: 100dvh;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .vision-navbar.bp6-navbar {
@@ -779,11 +794,16 @@ select:focus-visible {
 }
 
 .vision-workspace-page.android-editor-page {
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
   width: 100%;
   max-width: none;
-  gap: 14px;
-  padding: 16px 12px 40px;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px 12px;
   margin: 0;
+  overflow: hidden;
 }
 
 .vision-workspace-page .camera-source-bar {
@@ -891,17 +911,22 @@ select:focus-visible {
 
 .android-debug-workspace {
   display: grid;
+  height: 100%;
   min-width: 0;
-  gap: 18px;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) clamp(180px, 26vh, 260px);
+  gap: 8px;
+  overflow: hidden;
 }
 
 .android-debug-heading {
   display: grid;
-  min-height: 62px;
+  min-width: 0;
+  min-height: 48px;
   grid-template-columns: minmax(190px, 1fr) minmax(300px, 1fr);
   align-items: center;
   gap: 20px;
-  padding: 0 2px 4px;
+  padding: 0 2px;
 }
 
 .android-debug-heading > div:first-child {
@@ -934,8 +959,30 @@ select:focus-visible {
 
 .device-selector-card.bp6-card {
   display: grid;
-  gap: 14px;
-  padding: 16px;
+  min-width: 0;
+  grid-template-columns: minmax(190px, 0.45fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 12px;
+}
+
+.android-device-toolbar {
+  min-width: 0;
+  min-height: 0;
+  max-height: min(28vh, 240px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.android-device-toolbar > .bp6-callout {
+  margin-top: 8px;
+}
+
+.device-selector-card > .device-discovery-message,
+.device-selector-card > .bp6-collapse,
+.device-selector-card > .device-advanced {
+  grid-column: 1 / -1;
 }
 
 .device-selector-heading {
@@ -954,7 +1001,7 @@ select:focus-visible {
 
 .device-selector-heading h2 {
   margin: 2px 0 0;
-  font-size: 19px;
+  font-size: 17px;
 }
 
 .device-selector-actions,
@@ -979,8 +1026,8 @@ select:focus-visible {
 .device-list-item {
   display: grid;
   min-width: 0;
-  gap: 9px;
-  padding: 12px 14px;
+  gap: 5px;
+  padding: 8px 10px;
   border: 1px solid #394b59;
   border-radius: 4px;
   color: inherit;
@@ -1041,10 +1088,16 @@ select:focus-visible {
 
 .android-debug-grid {
   display: grid;
+  height: 100%;
   min-width: 0;
-  grid-template-columns: minmax(420px, 2fr) minmax(300px, 1fr) minmax(300px, 1fr);
+  min-height: 0;
+  grid-template-columns:
+    minmax(420px, 1.6fr) minmax(260px, 0.8fr)
+    minmax(280px, 0.8fr);
+  grid-template-rows: minmax(0, 1fr);
   align-items: stretch;
   gap: 8px;
+  overflow: hidden;
 }
 
 .android-live-card.bp6-card,
@@ -1066,19 +1119,20 @@ select:focus-visible {
 
 .android-live-card {
   display: grid;
+  height: 100%;
   min-width: 0;
-  align-self: start;
-  grid-template-rows: auto auto auto;
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .android-hierarchy-pane.bp6-card,
 .android-node-inspector-pane.bp6-card {
   min-width: 0;
   min-height: 0;
-  height: auto;
+  height: 100%;
   padding: 0;
   overflow: hidden;
-  contain: size layout;
+  contain: layout paint;
 }
 
 .android-hierarchy-pane.bp6-card {
@@ -1093,10 +1147,12 @@ select:focus-visible {
 .android-live-shell {
   display: grid;
   width: 100%;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
   place-items: center;
   overflow: hidden;
-  padding: 16px;
+  padding: 10px;
   background: #090c0f;
 }
 
@@ -1127,6 +1183,12 @@ select:focus-visible {
   gap: 2px;
 }
 
+.android-card-heading > div:last-child {
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .android-card-heading strong {
   color: #e5e8eb;
   font-size: 14px;
@@ -1134,8 +1196,12 @@ select:focus-visible {
 
 .android-live-stage {
   position: relative;
-  width: min(100%, 440px);
+  width: 100%;
+  height: 100%;
   min-width: 0;
+  min-height: 0;
+  max-width: 440px;
+  max-height: 100%;
   overflow: hidden;
   background:
     radial-gradient(circle at center, rgb(43 49 57 / 24%), transparent 54%), #090c0f;
@@ -1270,7 +1336,6 @@ select:focus-visible {
   backdrop-filter: blur(8px);
 }
 
-.android-live-badges .is-placeholder-badge,
 .android-control-bar .is-placeholder-control {
   visibility: hidden;
 }
@@ -1309,16 +1374,22 @@ select:focus-visible {
 
 .android-control-bar {
   display: flex;
-  min-height: 64px;
+  min-width: 0;
+  min-height: 52px;
+  max-height: 118px;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
-  padding: 12px 14px;
+  padding: 8px 10px;
+  overflow: auto;
+  overscroll-behavior: contain;
   border-top: 1px solid #383e47;
   background: #181c21;
 }
 
 .android-debug-side-panel {
-  height: min(920px, calc(100vh - 170px));
+  height: 100%;
+  min-height: 0;
   min-width: 0;
   overflow: hidden;
   overflow-anchor: none;
@@ -1424,6 +1495,13 @@ select:focus-visible {
   font-size: 8px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.android-tree-heading-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
 }
 
 .android-tree-status {
@@ -1718,11 +1796,10 @@ select:focus-visible {
 }
 
 .android-node-fields dd {
-  overflow: hidden;
+  overflow-wrap: anywhere;
   color: #d4d9df;
   font-family: var(--mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 
 .android-node-state-flags {
@@ -1757,6 +1834,9 @@ select:focus-visible {
 }
 
 .android-selector-preview textarea {
+  width: 100%;
+  min-width: 0;
+  overflow: auto;
   resize: none;
   padding: 6px 7px;
   border: 1px solid #404954;
@@ -1788,6 +1868,9 @@ select:focus-visible {
 
 .android-console-panel.bp6-card {
   display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
 }
@@ -1797,7 +1880,7 @@ select:focus-visible {
 }
 
 .android-console-panel .android-event-list {
-  height: 180px;
+  height: 100%;
 }
 
 .android-console-tabs {
@@ -1807,7 +1890,8 @@ select:focus-visible {
 }
 
 .android-console-content {
-  height: 220px;
+  height: auto;
+  min-width: 0;
   min-height: 0;
   overflow: hidden;
 }
@@ -1823,7 +1907,7 @@ select:focus-visible {
 
 .android-debug-message-slot {
   display: grid;
-  min-height: 112px;
+  min-height: 0;
   max-height: 112px;
   align-content: start;
   gap: 8px;
@@ -1834,6 +1918,10 @@ select:focus-visible {
   scrollbar-gutter: stable;
 }
 
+.android-debug-message-slot.is-empty {
+  display: none;
+}
+
 .android-message-placeholder {
   visibility: hidden;
 }
@@ -1841,6 +1929,11 @@ select:focus-visible {
 .android-control-bar > .bp6-divider {
   height: 28px;
   margin: 0 4px;
+}
+
+.android-control-bar .bp6-button-group {
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .android-state-list {
@@ -2096,19 +2189,69 @@ select:focus-visible {
   color: #fa999c;
 }
 
-@media (max-width: 1199px) {
+.device-macro-controls {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border: 1px solid #383e47;
+  border-radius: 4px;
+  background: #1a2027;
+}
+
+.device-macro-controls label {
+  display: flex;
+  min-width: 220px;
+  flex: 1 1 280px;
+  align-items: center;
+  gap: 8px;
+}
+
+.device-macro-controls label > span {
+  color: #8994a2;
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.device-macro-controls select {
+  min-width: 0;
+  height: 30px;
+  flex: 1;
+  border: 1px solid #414956;
+  border-radius: 3px;
+  color: #d9dee6;
+  background: #11171d;
+}
+
+.device-macro-controls .bp6-callout {
+  width: 100%;
+}
+
+@media (min-width: 900px) and (max-width: 1279px) {
   .android-debug-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(420px, 1.55fr) minmax(280px, 0.9fr);
+    grid-template-rows: repeat(2, minmax(0, 1fr));
   }
 
-  .android-hierarchy-pane.bp6-card,
+  .android-live-card {
+    grid-column: 1;
+    grid-row: 1 / 3;
+  }
+
+  .android-hierarchy-pane.bp6-card {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
   .android-node-inspector-pane.bp6-card {
-    height: 680px;
-    contain: layout;
+    grid-column: 2;
+    grid-row: 2;
   }
 }
 
-@media (max-width: 840px) {
+@media (max-width: 899px) {
   .vision-navbar__links {
     display: none;
   }
@@ -2119,16 +2262,39 @@ select:focus-visible {
   }
 
   .android-debug-heading {
-    min-height: 178px;
+    min-height: 0;
     grid-template-columns: 1fr;
     grid-template-rows: auto auto;
     align-items: stretch;
-    gap: 10px;
+    gap: 6px;
+    padding-block: 4px;
+  }
+
+  .android-device-toolbar {
+    max-height: min(30vh, 220px);
+  }
+
+  .device-selector-card.bp6-card {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .device-selector-card > * {
+    grid-column: 1;
+  }
+
+  .android-debug-grid {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows:
+      minmax(340px, 1fr) minmax(300px, 1fr)
+      minmax(280px, 1fr);
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
   }
 
   .android-control-bar {
-    align-items: stretch;
-    flex-direction: column;
+    align-items: center;
   }
 
   .android-debug-heading__tags {
@@ -2139,11 +2305,6 @@ select:focus-visible {
     padding: 10px;
   }
 
-  .android-control-bar > .bp6-divider {
-    width: 100%;
-    height: 1px;
-  }
-
   .android-control-bar .bp6-button-group {
     display: grid;
     grid-template-columns: repeat(3, 1fr);
@@ -2151,11 +2312,6 @@ select:focus-visible {
 
   .android-state-card {
     grid-template-columns: 1fr;
-  }
-
-  .android-hierarchy-pane.bp6-card,
-  .android-node-inspector-pane.bp6-card {
-    height: 600px;
   }
 
   .android-decision-debug {
@@ -2169,5 +2325,28 @@ select:focus-visible {
 
   .android-event-row small {
     display: none;
+  }
+}
+
+@media (max-width: 600px) {
+  .vision-workspace-page.android-editor-page {
+    padding-inline: 8px;
+  }
+
+  .android-debug-workspace {
+    grid-template-rows: auto minmax(0, 1fr) clamp(180px, 30vh, 220px);
+  }
+
+  .android-console-panel .android-card-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .android-console-tabs {
+    width: 100%;
+  }
+
+  .android-console-tabs .bp6-button {
+    flex: 1;
   }
 }

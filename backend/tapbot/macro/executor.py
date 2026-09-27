@@ -19,6 +19,12 @@ from tapbot.macro.actions import (
     WaitAction,
 )
 from tapbot.macro.models import MacroExecutionResult, MacroExecutionStatus
+from tapbot.macro.tap_point import (
+    TapBounds,
+    TapPoint,
+    TapPointSample,
+    TapPointSampler,
+)
 from tapbot.ui_resolution.visual import ResolvedTarget
 from tapbot.android.geometry import ScreenGeometry, ScreenInsets
 from tapbot.android.screen import ScreenFrame
@@ -66,11 +72,17 @@ class MacroExecutor:
         geometry_factory: GeometryFactory,
         sleep: Callable[[float], None] = time.sleep,
         after_execution: Callable[[], None] | None = None,
+        tap_point_sampler: TapPointSampler | None = None,
     ) -> None:
         self.primitives = primitives
         self.geometry_factory = geometry_factory
         self.sleep = sleep
         self.after_execution = after_execution
+        self.tap_point_sampler = (
+            tap_point_sampler
+            if tap_point_sampler is not None
+            else TapPointSampler()
+        )
 
     def execute(
         self,
@@ -85,12 +97,14 @@ class MacroExecutor:
                 error=action.reason,
             )
 
-        target = self._target_payload(context)
         if isinstance(action, TapTargetAction) and context.resolved_target is None:
             return MacroExecutionResult(
                 MacroExecutionStatus.TARGET_NOT_FOUND,
                 error=f"Target {action.target!r} was not resolved",
             )
+
+        planned_tap = self._plan_tap(action, context)
+        target = self._target_payload(context, planned_tap)
 
         if not enabled:
             return MacroExecutionResult(
@@ -99,7 +113,7 @@ class MacroExecutor:
             )
 
         try:
-            controller_result = self._execute(action, context)
+            controller_result = self._execute(action, context, planned_tap)
         except Exception as error:
             api_result = _error_result(error)
             return MacroExecutionResult(
@@ -125,14 +139,15 @@ class MacroExecutor:
         self,
         action: MacroAction,
         context: MacroExecutionContext,
+        planned_tap: TapPointSample | None,
     ) -> AndroidInputResult | None:
         geometry = self.geometry_factory(context.frame, context.source_metadata)
         match action:
             case TapTargetAction(duration_ms=duration_ms):
-                assert context.resolved_target is not None
+                assert planned_tap is not None
                 x, y = geometry.screen_to_device(
-                    context.resolved_target.center.x,
-                    context.resolved_target.center.y,
+                    planned_tap.point.x,
+                    planned_tap.point.y,
                 )
                 return self.primitives.tap(x, y, duration_ms=duration_ms)
             case SwipeAction(
@@ -164,24 +179,59 @@ class MacroExecutor:
     def _target_payload(
         self,
         context: MacroExecutionContext,
+        planned_tap: TapPointSample | None,
     ) -> dict[str, object] | None:
         resolved = context.resolved_target
         if resolved is None:
             return None
+        point = (
+            TapPoint(resolved.center.x, resolved.center.y)
+            if planned_tap is None
+            else planned_tap.point
+        )
         geometry = self.geometry_factory(context.frame, context.source_metadata)
         device_x, device_y = geometry.screen_to_device(
-            resolved.center.x,
-            resolved.center.y,
+            point.x,
+            point.y,
         )
         target: dict[str, object] = {
             "name": resolved.name,
             "source": resolved.source,
-            "screen": {"x": resolved.center.x, "y": resolved.center.y},
+            "screen": {"x": point.x, "y": point.y},
             "device": {"x": device_x, "y": device_y},
         }
+        if planned_tap is not None:
+            target.update(planned_tap.to_trace())
+            target["resolved_center"] = {
+                "x": resolved.center.x,
+                "y": resolved.center.y,
+            }
         if resolved.metadata is not None:
             target["metadata"] = dict(resolved.metadata)
         return target
+
+    def _plan_tap(
+        self,
+        action: MacroAction,
+        context: MacroExecutionContext,
+    ) -> TapPointSample | None:
+        if not isinstance(action, TapTargetAction):
+            return None
+        resolved = context.resolved_target
+        assert resolved is not None
+        bbox = resolved.bbox
+        if bbox is None:
+            point = TapPoint(resolved.center.x, resolved.center.y)
+            return TapPointSample(
+                point=point,
+                bounds=None,
+                safe_bounds=None,
+                mode="center-no-bounds",
+                randomization_enabled=False,
+            )
+        return self.tap_point_sampler.sample_with_trace(
+            TapBounds.from_xywh(bbox.x, bbox.y, bbox.width, bbox.height)
+        )
 
 
 def _error_result(error: BaseException) -> dict[str, Any]:

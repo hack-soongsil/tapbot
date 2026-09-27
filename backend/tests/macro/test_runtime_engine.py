@@ -1,5 +1,6 @@
 import cv2
 import numpy as np
+import pytest
 
 from tapbot.android.client import AndroidActionResult, AndroidScreenshot
 from tapbot.android.controller import AndroidRemoteController
@@ -12,6 +13,7 @@ from tapbot.macro import (
     MacroExecutor,
     MacroStateMachine,
     TapTargetAction,
+    TapPointSampler,
     default_screen_geometry,
 )
 from tapbot.ui_resolution.visual import TargetResolver
@@ -100,6 +102,7 @@ def test_android_screenshot_runs_vision_and_calls_remote_tap() -> None:
             MacroExecutor(
                 controller,
                 geometry_factory=default_screen_geometry,
+                tap_point_sampler=TapPointSampler(seed=42),
             ),
         ),
     )
@@ -112,6 +115,17 @@ def test_android_screenshot_runs_vision_and_calls_remote_tap() -> None:
     assert result.trace.api_result["metadata"]["backend"] == "android_remote"
     assert len(client.taps) == 1
     tap_x, tap_y, duration = client.taps[0]
-    assert 108 <= tap_x <= 111
-    assert 48 <= tap_y <= 51
+    assert result.trace.target is not None
+    target = result.trace.target
+    safe_bounds = target["safe_bounds"]
+    tap_point = target["tap_point"]
+    device = target["device"]
+    assert isinstance(safe_bounds, list)
+    assert isinstance(tap_point, list)
+    assert isinstance(device, dict)
+    assert safe_bounds[0] <= tap_point[0] <= safe_bounds[2]
+    assert safe_bounds[1] <= tap_point[1] <= safe_bounds[3]
+    assert target["screen"] == {"x": tap_point[0], "y": tap_point[1]}
+    assert tap_x == pytest.approx(device["x"])
+    assert tap_y == pytest.approx(device["y"])
     assert duration == 70

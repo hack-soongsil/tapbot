@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tapbot.local/schemas/macro-graph.schema.json",
+  "title": "TapBot Macro Definition",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "name", "version", "nodes", "edges", "entry_node_id"],
+  "properties": {
+    "id": {"type": "string", "minLength": 1},
+    "name": {"type": "string", "minLength": 1},
+    "version": {"type": "integer", "minimum": 1},
+    "entry_node_id": {"type": "string", "minLength": 1},
+    "metadata": {"type": "object", "default": {}},
+    "nodes": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/node"}
+    },
+    "edges": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/edge"}
+    }
+  },
+  "$defs": {
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "config"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "type": {
+          "type": "string",
+          "enum": [
+            "tap_element", "tap_point", "swipe", "back", "home", "wait",
+            "find_element", "require_element", "read_ui_tree",
+            "element_exists", "element_text_equals", "state_equals",
+            "branch", "retry", "repeat", "timeout", "stop",
+            "wait_for_element", "wait_for_state", "assert_element"
+          ]
+        },
+        "config": {"type": "object"},
+        "label": {"type": "string"},
+        "position": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y"],
+          "properties": {
+            "x": {"type": "number"},
+            "y": {"type": "number"}
+          }
+        }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "source", "target"],
+      "properties": {
+        "id": {"type": "string", "minLength": 1},
+        "source": {"type": "string", "minLength": 1},
+        "target": {"type": "string", "minLength": 1},
+        "source_handle": {"type": "string", "minLength": 1},
+        "condition": {
+          "type": "string",
+          "enum": ["success", "failure", "retry", "stopped"]
+        }
+      }
+    }
+  }
+}

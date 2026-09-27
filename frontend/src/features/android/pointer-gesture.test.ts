@@ -28,6 +28,26 @@ describe('pointer gesture recorder', () => {
     ).toBeNull()
   })
 
+  it('keeps logical coordinates stable after the rendered viewport resizes', () => {
+    const before = mapPointerToFrame(
+      60,
+      45,
+      { left: 10, top: 20, width: 200, height: 100 },
+      200,
+      100,
+    )
+    const after = mapPointerToFrame(
+      110,
+      70,
+      { left: 10, top: 20, width: 400, height: 200 },
+      200,
+      100,
+    )
+
+    expect(before).toEqual({ x: 50, y: 25 })
+    expect(after).toEqual(before)
+  })
+
   it('samples small moves and resamples over the point limit', () => {
     const first = [{ x: 0, y: 0, t_ms: 0 }]
     expect(appendSampledPoint(first, { x: 1, y: 1, t_ms: 5 })).toBe(first)

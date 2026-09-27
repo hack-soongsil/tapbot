@@ -11,21 +11,37 @@ def test_load_config_parses_typed_runtime_settings() -> None:
         {
             "TAPBOT_DRY_RUN": "true",
             "TAPBOT_BACKEND_HOST": "0.0.0.0",
-            "TAPBOT_BACKEND_PORT": "18000",
+            "TAPBOT_BACKEND_PORT": "28880",
             "TAPBOT_CAMERA_SOURCE": "opencv:2",
             "TAPBOT_CAMERA_FPS": "12.5",
             "TAPBOT_WORKSPACE_WIDTH": "320",
             "TAPBOT_MODEL_ENDPOINT": "http://model.test/decide",
+            "TAPBOT_TAP_RANDOMIZATION_ENABLED": "false",
+            "TAPBOT_TAP_EDGE_INSET_RATIO": "0.2",
+            "TAPBOT_TAP_SIGMA_RATIO": "0.1",
+            "TAPBOT_TAP_MIN_JITTER_PX": "2",
+            "TAPBOT_TAP_MAX_JITTER_PX": "36",
+            "TAPBOT_TAP_MAX_ATTEMPTS": "5",
+            "TAPBOT_MACRO_DEFINITION_DIR": "runtime/macros",
+            "TAPBOT_MACRO_BINDINGS_FILE": "runtime/bindings.json",
         }
     )
 
     assert config.backend.host == "0.0.0.0"
-    assert config.backend.port == 18000
+    assert config.backend.port == 28880
     assert config.robot.dry_run is True
     assert config.robot.workspace_width == 320
     assert config.camera.source == "opencv:2"
     assert config.camera.fps == 12.5
     assert config.model.endpoint == "http://model.test/decide"
+    assert config.tap_point.randomization_enabled is False
+    assert config.tap_point.edge_inset_ratio == 0.2
+    assert config.tap_point.sigma_ratio == 0.1
+    assert config.tap_point.min_jitter_px == 2
+    assert config.tap_point.max_jitter_px == 36
+    assert config.tap_point.max_attempts == 5
+    assert config.paths.macro_definition_dir == Path("runtime/macros")
+    assert config.paths.macro_bindings_file == Path("runtime/bindings.json")
 
 
 def test_android_tokens_are_overridden_and_redacted(
@@ -97,6 +113,13 @@ def test_invalid_or_partial_hardware_configuration_is_rejected() -> None:
                 "TAPBOT_BACKEND_PORT": "70000",
             }
         )
+    with pytest.raises(ValueError, match="inset"):
+        load_config(
+            {
+                "TAPBOT_DRY_RUN": "true",
+                "TAPBOT_TAP_EDGE_INSET_RATIO": "0.5",
+            }
+        )
 
 
 def test_cli_values_override_environment(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -105,7 +128,7 @@ def test_cli_values_override_environment(monkeypatch: pytest.MonkeyPatch) -> Non
     config = load_cli_config(
         [
             "--port",
-            "18000",
+            "28880",
             "--camera-source",
             "3",
             "--workspace-width",
@@ -113,6 +136,6 @@ def test_cli_values_override_environment(monkeypatch: pytest.MonkeyPatch) -> Non
         ]
     )
 
-    assert config.backend.port == 18000
+    assert config.backend.port == 28880
     assert config.camera.source == 3
     assert config.robot.workspace_width == 450

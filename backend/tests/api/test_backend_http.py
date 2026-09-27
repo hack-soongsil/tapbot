@@ -55,7 +55,7 @@ def make_client() -> tuple[TestClient, FakeRobotController]:
 def wait_for_camera(client: TestClient) -> object:
     for _ in range(50):
         response = client.get(
-            "/api/camera/frame", headers={"Origin": "http://localhost:5173"}
+            "/api/camera/frame", headers={"Origin": "http://localhost:15180"}
         )
         if response.status_code == 200:
             return response

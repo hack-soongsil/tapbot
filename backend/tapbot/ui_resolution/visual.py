@@ -85,6 +85,7 @@ class TargetResolver:
                 name=target_name,
                 center=roi.center,
                 source="predefined_roi",
+                bbox=roi,
             )
         return None
 

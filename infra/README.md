@@ -89,7 +89,7 @@ npm run android:publish -- --no-commit
 
 `infra/docker/`는 backend와 frontend image 및 로컬 compose 구성을 소유합니다.
 기본 compose는 물리 장비 없이 확인할 수 있도록 backend를 dry-run으로 실행하며,
-frontend를 `http://localhost:8080`에 노출합니다.
+frontend를 `http://localhost:15180`에 노출합니다.
 
 ```powershell
 docker compose -f infra/docker/compose.yaml up --build

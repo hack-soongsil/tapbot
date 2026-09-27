@@ -63,7 +63,9 @@ def create_app(instances: ApplicationInstances) -> FastAPI:
 
     application.include_router(create_system_router(instances.system_service))
     application.include_router(create_android_router(instances.android_http))
-    application.include_router(create_macro_router(instances.android_http))
+    application.include_router(
+        create_macro_router(instances.android_http, instances.macro_management_service)
+    )
     application.include_router(create_robot_router(instances.robot_service))
     application.include_router(create_vision_router(instances.vision_service))
 
@@ -82,6 +84,7 @@ def create_app(instances: ApplicationInstances) -> FastAPI:
     application.state.robot_service = instances.robot_service
     application.state.vision_service = instances.vision_service
     application.state.system_service = instances.system_service
+    application.state.macro_management_service = instances.macro_management_service
     return application
 
 

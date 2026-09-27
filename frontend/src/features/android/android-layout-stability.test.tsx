@@ -163,12 +163,10 @@ function controller(overrides: Record<string, unknown> = {}): Controller {
     error: null,
     notice: null,
     busy: null,
-    manualTapEnabled: false,
     selectedDetectionId: null,
     highlightedDetectionId: null,
     streamNonce: 1,
     streamFailed: false,
-    setManualTapEnabled: vi.fn(),
     setSelectedDetectionId: vi.fn(),
     setHighlightedDetectionId: vi.fn(),
     setSelectedUiNodeId: vi.fn(),
@@ -232,6 +230,11 @@ describe('Android live viewport layout stability', () => {
     ])
     expect(panes[1]?.contains(panes[2] ?? null)).toBe(false)
     expect(panes[1]?.parentElement).toBe(panes[2]?.parentElement)
+    expect(
+      (view.getByRole('button', {
+        name: 'Download UI tree JSON',
+      }) as HTMLButtonElement).disabled,
+    ).toBe(false)
   })
 
   it('preserves the same viewport through status, message, overlay, and tree updates', async () => {
@@ -248,6 +251,11 @@ describe('Android live viewport layout stability', () => {
 
     expect(stage).toBeTruthy()
     expect(view.container.querySelector('.android-live-shell')).toBeTruthy()
+    expect(
+      view.container
+        .querySelector('.android-debug-message-slot')
+        ?.classList.contains('is-empty'),
+    ).toBe(true)
 
     view.rerender(
       <AndroidDebugWorkspace
@@ -263,6 +271,11 @@ describe('Android live viewport layout stability', () => {
     expect(
       view.container.querySelector('.android-node-inspector-pane .bp6-callout'),
     ).toBeTruthy()
+    expect(
+      view.container
+        .querySelector('.android-debug-message-slot')
+        ?.classList.contains('is-empty'),
+    ).toBe(false)
 
     view.rerender(
       <AndroidDebugWorkspace
@@ -307,7 +320,7 @@ describe('Android live viewport layout stability', () => {
     const gesture = vi.fn()
     const view = render(
       <AndroidDebugWorkspace
-        controller={controller({ manualTapEnabled: true, gesture })}
+        controller={controller({ gesture })}
         devices={devices}
         onDeviceChange={vi.fn()}
       />,
@@ -345,7 +358,6 @@ describe('Android live viewport layout stability', () => {
     view.rerender(
       <AndroidDebugWorkspace
         controller={controller({
-          manualTapEnabled: true,
           gesture,
           status: geometryUpdate,
           debug: debugState(detections(10)),
@@ -603,6 +615,11 @@ describe('Unity-style UI tree inspector', () => {
     )
     expect(view.getByText('UI tree unavailable')).toBeTruthy()
     expect(view.getByText('No active accessibility root.')).toBeTruthy()
+    expect(
+      (view.getByRole('button', {
+        name: 'Download UI tree JSON',
+      }) as HTMLButtonElement).disabled,
+    ).toBe(true)
 
     view.rerender(
       <AndroidDebugWorkspace

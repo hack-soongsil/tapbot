@@ -44,7 +44,9 @@ export function Header() {
 
   const workspace = location.pathname.startsWith('/tools/camera')
     ? 'Robot Camera'
-    : 'Android Debug'
+    : location.pathname.startsWith('/macros')
+      ? 'Macro Editor'
+      : 'Android Debug'
 
   return (
     <Navbar className="vision-navbar" fixedToTop>
@@ -54,6 +56,7 @@ export function Header() {
         <span className="vision-navbar__workspace">{workspace}</span>
         <nav className="vision-navbar__links" aria-label="Debug tools">
           <NavLink to="/debug">Android</NavLink>
+          <NavLink to="/macros">Macros</NavLink>
           <NavLink to="/tools/camera">Robot Camera</NavLink>
         </nav>
       </NavbarGroup>

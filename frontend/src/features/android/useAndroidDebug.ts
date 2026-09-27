@@ -42,7 +42,6 @@ export function useAndroidDebug(deviceId: string | null) {
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
-  const [manualTapEnabled, setManualTapEnabled] = useState(false)
   const [selectedDetectionId, setSelectedDetectionId] = useState<string | null>(null)
   const [highlightedDetectionId, setHighlightedDetectionId] = useState<string | null>(
     null,
@@ -75,7 +74,6 @@ export function useAndroidDebug(deviceId: string | null) {
       setError(null)
       setNotice(null)
       setBusy(null)
-      setManualTapEnabled(false)
       setSelectedDetectionId(null)
       setHighlightedDetectionId(null)
       setStreamFailed(false)
@@ -292,12 +290,10 @@ export function useAndroidDebug(deviceId: string | null) {
     error,
     notice,
     busy,
-    manualTapEnabled,
     selectedDetectionId,
     highlightedDetectionId,
     streamNonce,
     streamFailed,
-    setManualTapEnabled,
     setSelectedDetectionId,
     setHighlightedDetectionId,
     setSelectedUiNodeId: selectUiNode,

@@ -19,6 +19,7 @@ import type {
 import type { VisionDetection } from '../../types/vision'
 import { androidApi } from './android-api'
 import { appendSampledPoint, isTapPath, mapPointerToFrame } from './pointer-gesture'
+import { downloadUiTree } from './ui-tree-download'
 import {
   buildCompressedHierarchy,
   countCompressedRows,
@@ -27,6 +28,7 @@ import {
 } from './ui-tree/hierarchy-compression'
 import type { CompressedHierarchyRow } from './ui-tree/hierarchy-compression'
 import type { AndroidDebugController } from './useAndroidDebug'
+import { useMacroRuntime } from '../macro-runtime/useMacroRuntime'
 
 interface AndroidDebugWorkspaceProps {
   controller: AndroidDebugController
@@ -203,6 +205,7 @@ export function AndroidDebugWorkspace({
   controller,
 }: AndroidDebugWorkspaceProps) {
   const { status, debug } = controller
+  const liveMacro = useMacroRuntime(controller.deviceId)
   const currentGeometry = useMemo(
     () =>
       validGeometry(status?.stream?.width, status?.stream?.height) ??
@@ -227,7 +230,10 @@ export function AndroidDebugWorkspace({
         controller.deviceId ?? '',
         debug?.frame?.frame_id ?? controller.streamNonce,
       )
-  const plannedPoint = debug?.decision.target?.screen ?? null
+  const macroTapPoint = liveMacro.overlay.tapPoint
+  const plannedPoint = macroTapPoint
+    ? { x: macroTapPoint[0], y: macroTapPoint[1] }
+    : (debug?.decision.target?.screen ?? null)
   const selected = useMemo(
     () =>
       debug?.detections.find(
@@ -249,12 +255,23 @@ export function AndroidDebugWorkspace({
     [controller.uiTree?.nodes, hoveredUiNodeId],
   )
   const overlayUiNode = hoveredUiNode ?? selectedUiNode
-  const selectedUiBounds =
+  const selectedUiBoundsFromTree =
     controller.uiTree?.screen_width === frameWidth &&
     controller.uiTree.screen_height === frameHeight
       ? (overlayUiNode?.bounds ?? null)
       : null
-  const selectedUiLabel = overlayUiNode
+  const macroBounds = liveMacro.overlay.bounds
+  const selectedUiBounds = macroBounds
+    ? {
+        left: macroBounds[0],
+        top: macroBounds[1],
+        right: macroBounds[2],
+        bottom: macroBounds[3],
+      }
+    : selectedUiBoundsFromTree
+  const selectedUiLabel = macroBounds
+    ? `Macro · ${liveMacro.overlay.nodeId ?? 'tap'}`
+    : overlayUiNode
     ? (overlayUiNode.text ??
       overlayUiNode.content_description ??
       shortClassName(overlayUiNode.class_name))
@@ -305,13 +322,13 @@ export function AndroidDebugWorkspace({
   }, [currentGeometry, isRecording])
 
   useEffect(() => {
-    if (!controller.manualTapEnabled || !status?.connected || controller.streamFailed) {
+    if (!canControl || controller.streamFailed) {
       activePointer.current = null
       const reset = window.setTimeout(() => setRecordingPath([]), 0)
       return () => window.clearTimeout(reset)
     }
     return undefined
-  }, [controller.manualTapEnabled, controller.streamFailed, status?.connected])
+  }, [canControl, controller.streamFailed])
 
   useEffect(
     () => () => {
@@ -331,7 +348,7 @@ export function AndroidDebugWorkspace({
     mapPointerToFrame(event.clientX, event.clientY, bounds, width, height)
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!controller.manualTapEnabled || !canControl || event.button !== 0) return
+    if (!canControl || event.button !== 0) return
     const rect = event.currentTarget.getBoundingClientRect()
     const bounds = {
       left: rect.left,
@@ -437,7 +454,7 @@ export function AndroidDebugWorkspace({
         </div>
       </div>
 
-      <div className="android-debug-grid">
+      <div className="android-debug-grid" data-workspace-region="main">
         <Card
           className="android-live-card"
           elevation={Elevation.ONE}
@@ -461,7 +478,7 @@ export function AndroidDebugWorkspace({
 
           <div className="android-live-shell">
             <div
-              className={`android-live-stage ${controller.manualTapEnabled ? 'is-tap-mode' : ''}`}
+              className={`android-live-stage ${canControl ? 'is-tap-mode' : ''}`}
               style={{
                 aspectRatio: `${frameWidth.toString()} / ${frameHeight.toString()}`,
               }}
@@ -470,8 +487,8 @@ export function AndroidDebugWorkspace({
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerCancel}
               onContextMenu={(event) => event.preventDefault()}
-              role={controller.manualTapEnabled ? 'button' : undefined}
-              tabIndex={controller.manualTapEnabled ? 0 : undefined}
+              role={canControl ? 'button' : undefined}
+              tabIndex={canControl ? 0 : undefined}
               data-geometry={`${frameWidth.toString()}x${frameHeight.toString()}`}
             >
               <img
@@ -497,11 +514,8 @@ export function AndroidDebugWorkspace({
                 <Tag intent={useStream ? 'success' : 'warning'} minimal>
                   {useStream ? 'MJPEG LIVE' : 'SCREENSHOT FALLBACK'}
                 </Tag>
-                <Tag
-                  className={controller.manualTapEnabled ? '' : 'is-placeholder-badge'}
-                  intent="warning"
-                >
-                  MANUAL CONTROL ACTIVE
+                <Tag intent={canControl ? 'success' : 'warning'}>
+                  {canControl ? 'CONTROL READY' : 'CONTROL UNAVAILABLE'}
                 </Tag>
                 {!overlayFrameMatches && (
                   <Tag intent="warning">OVERLAY GEOMETRY STALE</Tag>
@@ -521,18 +535,6 @@ export function AndroidDebugWorkspace({
           </div>
 
           <div className="android-control-bar">
-            <Button
-              active={controller.manualTapEnabled}
-              intent={controller.manualTapEnabled ? 'warning' : 'none'}
-              icon="hand"
-              text={
-                controller.manualTapEnabled ? 'Manual Control On' : 'Manual Control'
-              }
-              disabled={!canControl}
-              onClick={() =>
-                controller.setManualTapEnabled(!controller.manualTapEnabled)
-              }
-            />
             <Button
               icon="camera"
               text="Screenshot"
@@ -699,8 +701,14 @@ function preferredSelector(node: AndroidUiNode): string {
 
 function InspectorMessages({ controller }: { controller: AndroidDebugController }) {
   const { status } = controller
+  const hasMessages = Boolean(
+    (status && !status.configured) || controller.error || controller.notice,
+  )
   return (
-    <div className="android-debug-message-slot" aria-live="polite">
+    <div
+      className={`android-debug-message-slot${hasMessages ? '' : ' is-empty'}`}
+      aria-live="polite"
+    >
       {status && !status.configured && (
         <Callout intent="warning" title="Android Agent is not configured">
           Configure an Android Agent in the PC backend.
@@ -802,15 +810,28 @@ function UiTreeHierarchy({
             {tree?.package_name ?? controller.uiTree?.package_name ?? 'No package'}
           </small>
         </div>
-        <Button
-          minimal
-          small
-          icon="refresh"
-          aria-label="Refresh UI tree"
-          loading={controller.uiTreeLoading}
-          disabled={!controller.deviceId}
-          onClick={() => void controller.refreshUiTree()}
-        />
+        <span className="android-tree-heading-actions">
+          <Button
+            minimal
+            small
+            icon="download"
+            text="Download"
+            aria-label="Download UI tree JSON"
+            disabled={!controller.uiTree}
+            onClick={() => {
+              if (controller.uiTree) downloadUiTree(controller.uiTree)
+            }}
+          />
+          <Button
+            minimal
+            small
+            icon="refresh"
+            aria-label="Refresh UI tree"
+            loading={controller.uiTreeLoading}
+            disabled={!controller.deviceId}
+            onClick={() => void controller.refreshUiTree()}
+          />
+        </span>
       </header>
       <div className="android-tree-status">
         <span>{controller.uiTree?.node_count ?? 0} nodes</span>
@@ -1231,7 +1252,11 @@ function AndroidConsolePanel({
 }) {
   const [tab, setTab] = useState<ConsoleTab>('console')
   return (
-    <Card className="android-console-panel" elevation={Elevation.ONE}>
+    <Card
+      className="android-console-panel"
+      elevation={Elevation.ONE}
+      data-workspace-region="bottom"
+    >
       <header className="android-card-heading">
         <div>
           <span>Bounded bottom panel</span>

@@ -18,6 +18,6 @@ RUN useradd --create-home --uid 10001 tapbot \
     && chown -R tapbot:tapbot /data
 USER tapbot
 
-EXPOSE 8000
+EXPOSE 18880
 
-CMD ["tapbot-api", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["tapbot-api", "--host", "0.0.0.0", "--port", "18880"]

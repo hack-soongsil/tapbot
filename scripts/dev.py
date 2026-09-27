@@ -59,8 +59,8 @@ def parse_args() -> argparse.Namespace:
         default=os.getenv("TAPBOT_GRBL_SERIAL_PORT"),
         help="GRBL serial port (or set TAPBOT_GRBL_SERIAL_PORT)",
     )
-    parser.add_argument("--backend-port", type=int, default=8000)
-    parser.add_argument("--frontend-port", type=int, default=5175)
+    parser.add_argument("--backend-port", type=int, default=18880)
+    parser.add_argument("--frontend-port", type=int, default=15180)
     return parser.parse_args()
 
 

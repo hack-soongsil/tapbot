@@ -198,12 +198,10 @@ describe('multi-device Android debug UI', () => {
         error: null,
         notice: null,
         busy: null,
-        manualTapEnabled: true,
         selectedDetectionId: null,
         highlightedDetectionId: null,
         streamNonce: 1,
         streamFailed: false,
-        setManualTapEnabled: vi.fn(),
         setSelectedDetectionId: vi.fn(),
         setHighlightedDetectionId: vi.fn(),
         setSelectedUiNodeId: vi.fn(),
@@ -230,6 +228,9 @@ describe('multi-device Android debug UI', () => {
       />,
     )
     let stage = view.container.querySelector('.android-live-stage') as HTMLDivElement
+    expect(view.queryByRole('button', { name: /Manual Control/ })).toBeNull()
+    expect(stage.classList.contains('is-tap-mode')).toBe(true)
+    expect(view.getByText('CONTROL READY')).toBeTruthy()
     vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue({
       left: 0,
       top: 0,

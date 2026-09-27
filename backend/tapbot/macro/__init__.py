@@ -36,14 +36,71 @@ from tapbot.macro.models import (
     MacroStatus,
     MacroStepResult,
 )
-from tapbot.macro.service import MacroService
+from tapbot.macro.service import MacroManagementService, MacroService
+from tapbot.macro.binding import DeviceMacroBinding, DeviceMacroBindingRepository
+from tapbot.macro.repository import MacroRepository
+from tapbot.macro.runtime_manager import (
+    DeviceRuntimeSnapshot,
+    DeviceRuntimeStatus,
+    RuntimeManager,
+)
+from tapbot.macro.events import MacroEventBroker, MacroRuntimeEvent
 from tapbot.macro.trace import MacroStepTrace, MacroTrace
+from tapbot.macro.tap_point import (
+    TapBounds,
+    TapPoint,
+    TapPointSample,
+    TapPointSampler,
+    TapPointSamplingPolicy,
+)
+from tapbot.macro.graph_models import (
+    GraphActionPort,
+    GraphElement,
+    GraphExecutionContext,
+    GraphNodeTrace,
+    GraphRunResult,
+    GraphRuntime,
+    GraphRuntimeStatus,
+    GraphUiPort,
+    MacroDefinition,
+    MacroEdge,
+    MacroNode,
+    NodePosition,
+    NodeResult,
+    NodeStatus,
+)
+from tapbot.macro.graph_engine import GraphEngine, GraphRunLimits
+from tapbot.macro.graph_validator import (
+    GraphValidationError,
+    GraphValidationReport,
+    GraphValidator,
+)
+from tapbot.macro.node_registry import (
+    NodeHandler,
+    NodeRegistry,
+    create_default_node_registry,
+)
+from tapbot.macro.graph_store import FileMacroDefinitionStore
 
 __all__ = [
     "BackAction",
     "DetectionStateClassifier",
     "DetectionStateRule",
     "HomeAction",
+    "GraphActionPort",
+    "GraphElement",
+    "GraphEngine",
+    "GraphExecutionContext",
+    "GraphNodeTrace",
+    "GraphRunLimits",
+    "GraphRunResult",
+    "GraphRuntime",
+    "GraphRuntimeStatus",
+    "GraphUiPort",
+    "GraphValidationError",
+    "GraphValidationReport",
+    "GraphValidator",
+    "FileMacroDefinitionStore",
     "MacroAction",
     "MacroCommand",
     "MacroCoordinator",
@@ -54,8 +111,20 @@ __all__ = [
     "MacroExecutionStatus",
     "MacroExecutor",
     "MacroLifecycleError",
+    "MacroDefinition",
+    "MacroEdge",
+    "MacroNode",
     "MacroRuntimeState",
     "MacroService",
+    "MacroManagementService",
+    "MacroRepository",
+    "DeviceMacroBinding",
+    "DeviceMacroBindingRepository",
+    "DeviceRuntimeSnapshot",
+    "DeviceRuntimeStatus",
+    "RuntimeManager",
+    "MacroEventBroker",
+    "MacroRuntimeEvent",
     "MacroStateSnapshot",
     "MacroStateMachine",
     "MacroStatus",
@@ -63,12 +132,23 @@ __all__ = [
     "MacroStepTrace",
     "MacroTrace",
     "PrimitiveExecutor",
+    "NodeHandler",
+    "NodePosition",
+    "NodeRegistry",
+    "NodeResult",
+    "NodeStatus",
     "RequestHumanAction",
     "ScreenshotAction",
     "StateClassification",
     "StateClassifier",
     "SwipeAction",
     "TapTargetAction",
+    "TapBounds",
+    "TapPoint",
+    "TapPointSample",
+    "TapPointSampler",
+    "TapPointSamplingPolicy",
     "WaitAction",
+    "create_default_node_registry",
     "default_screen_geometry",
 ]

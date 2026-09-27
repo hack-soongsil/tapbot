@@ -190,6 +190,37 @@ def test_android_proxy_status_screenshot_and_stream(tmp_path: Path) -> None:
     assert ui_tree.json()["nodes"][1]["text"] == "예약하기"
 
 
+def test_device_macro_definition_binding_and_runtime_contract(tmp_path: Path) -> None:
+    client, android = make_android_client(tmp_path)
+    definition = {
+        "id": "device-home",
+        "name": "Device Home",
+        "version": 1,
+        "entry_node_id": "home",
+        "nodes": [{"id": "home", "type": "home", "config": {}}],
+        "edges": [],
+        "metadata": {},
+    }
+
+    with client:
+        created = client.post("/api/macros", json=definition)
+        binding = client.put(
+            "/api/android/default/macro-binding",
+            json={"macro_definition_id": "device-home", "enabled": True},
+        )
+        started = client.post("/api/android/default/macro/start")
+        runtime = client.get("/api/android/default/macro/runtime")
+        schema = client.get("/openapi.json")
+
+    assert created.status_code == 201
+    assert binding.json()["binding"]["macro_definition_id"] == "device-home"
+    assert started.status_code == 200
+    assert runtime.json()["runtime"]["definition_version"] == 1
+    assert runtime.json()["runtime"]["state"] == "completed"
+    assert android.commands[-1] == "home"
+    assert "/api/android/{device_id}/macro/events" in schema.json()["paths"]
+
+
 def test_android_vision_macro_step_and_manual_controls(tmp_path: Path) -> None:
     client, android = make_android_client(tmp_path)
 
@@ -218,6 +249,12 @@ def test_android_vision_macro_step_and_manual_controls(tmp_path: Path) -> None:
     assert vision.json()["detections"][0]["label"] == "reservation_button"
     assert step.json()["macro"]["step_index"] == 1
     assert step.json()["last_action"]["type"] == "tap_target"
+    planned_target = step.json()["decision"]["target"]
+    assert planned_target["sampling"] == "small-element-jitter"
+    assert planned_target["tap_point"] == [
+        planned_target["screen"]["x"],
+        planned_target["screen"]["y"],
+    ]
     assert manual.json()["device"] == {"x": 10.0, "y": 20.0}
     assert gesture.status_code == 200
     assert gesture.json()["device"]["points"][-1] == {
@@ -226,7 +263,8 @@ def test_android_vision_macro_step_and_manual_controls(tmp_path: Path) -> None:
         "t_ms": 240,
     }
     assert len(android.taps) == 3
-    assert android.taps[0][:2] == (30.0, 20.0)
+    assert android.taps[0][0] == planned_target["device"]["x"]
+    assert android.taps[0][1] == planned_target["device"]["y"]
     assert android.commands == ["back", "home"]
     assert Path(saved.json()["path"]).is_file()
 

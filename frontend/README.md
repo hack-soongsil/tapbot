@@ -24,7 +24,7 @@ npm run dev
 port 설정 여부와 관계없이 dry-run을 강제하려면 `npm run dev:dry-run`을 사용합니다.
 
 터미널에 표시되는 Dashboard 주소의 `/debug`로 접속하세요. 기본 주소는
-`http://localhost:5175/debug`이며, 포트가 사용 중이면 다음 빈 포트를 자동으로
+`http://localhost:15180/debug`이며, 포트가 사용 중이면 다음 빈 포트를 자동으로
 선택합니다. `Ctrl+C`를 누르면 두 서버가 함께 종료됩니다.
 
 Backend와 Frontend를 따로 실행하려면 다음 명령을 사용합니다.
@@ -57,7 +57,7 @@ Blueprint dark theme가 앱 루트에 적용되며 `/debug`에는 다음 영역�
 - Android/Stream/Macro 상태 Navbar
 - MJPEG live stream과 screenshot fallback
 - PC Vision detection overlay와 planned tap point
-- 명시적으로 켜야 하는 Manual Control click/drag mode
+- 연결 준비 시 항상 활성화되는 live-screen click/drag control
 - Screenshot, Back, Home control
 - Macro Start/Stop/Pause/Reset/Step
 - State, detection, decision, action result, event log
@@ -96,7 +96,8 @@ overlay에 사용됩니다. 해당 source가 없거나 target이 모호하면 ma
 Vision detection으로 fallback합니다. UI tree 조회를 위해 Android Agent token을
 브라우저에 전달하지 않습니다.
 
-Manual Control은 live screen의 pointer down/move/up을 브라우저에서 기록하고
+Live screen control은 Android Agent의 Accessibility와 Remote Control이 준비되면 별도
+토글 없이 항상 활성화됩니다. pointer down/move/up을 브라우저에서 기록하고
 pointer-up 시점에만 완성된 trajectory를 backend로 보냅니다. 8px/300ms 미만 입력은
 tap으로, 나머지는 gesture로 처리합니다. 경로는 4px 또는 12ms 간격으로 sampling하고
 최대 256개 점으로 resample하며 device 전환, pointer cancel, stream disconnect 시 진행
@@ -148,7 +149,7 @@ Vite는 실행 모드에 맞춰 `.env.development` 또는 `.env.production`을 �
 
 | 변수                  | 기본값 (development)        | 설명                |
 | --------------------- | --------------------------- | ------------------- |
-| `VITE_API_BASE_URL`   | `http://localhost:8000/api` | 백엔드 API 기본 URL |
+| `VITE_API_BASE_URL`   | `http://localhost:18880/api` | 백엔드 API 기본 URL |
 | `VITE_API_TIMEOUT_MS` | `10000`                     | 요청 제한 시간(ms)  |
 
 공통 API 클라이언트는 `src/lib/api-client.ts`에 있으며 timeout, HTTP 오류, 네트워크
