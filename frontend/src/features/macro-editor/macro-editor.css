@@ -397,8 +397,9 @@
   --node-accent: #7d8998;
   --node-accent-soft: rgb(125 137 152 / 20%);
   position: relative;
-  width: 250px;
+  width: max-content;
   min-width: 220px;
+  max-width: 320px;
   min-height: 0;
   overflow: visible;
   border: 1px solid #46515e;
@@ -415,8 +416,7 @@
   min-width: 0;
   gap: 3px;
   padding: 7px 11px 9px;
-  border-bottom: 1px solid color-mix(in srgb, var(--node-accent) 34%, #313944);
-  border-radius: 3px 3px 0 0;
+  border-radius: 3px;
   background:
     linear-gradient(90deg, var(--node-accent-soft), transparent 82%),
     #252c35;
@@ -430,18 +430,12 @@
 .macro-node--kind-variable,
 .macro-node--kind-function { --node-accent: #e4bd61; --node-accent-soft: rgb(228 189 97 / 22%); }
 
-.macro-node[data-node-type='get_variable'] {
-  width: 180px;
-  min-width: 160px;
-}
-
 .macro-node[data-node-type='get_variable'] .macro-node__header {
   padding-block: 6px;
 }
 
 .macro-node[data-node-type='get_variable'] .macro-node__eyebrow { display: none; }
-.macro-node[data-node-type='get_variable'] .macro-node__ports { grid-template-columns: 1fr; padding-block: 3px 6px; }
-.macro-node[data-node-type='get_variable'] .macro-node__port-column--input { display: none; }
+.macro-node[data-node-type='get_variable'] .macro-node__pin-rows { padding-block: 2px 5px; }
 .macro-node[data-node-type='function_entry'] { --node-accent: #ef6a91; --node-accent-soft: rgb(239 106 145 / 20%); }
 .macro-node[data-node-type='function_return'] { --node-accent: #a887ef; --node-accent-soft: rgb(168 135 239 / 20%); }
 .macro-node--kind-validation { --node-accent: #ed9e50; --node-accent-soft: rgb(237 158 80 / 22%); }
@@ -602,20 +596,22 @@
 .macro-node__badge.is-entry { color: #8fd8ab; }
 .macro-node__badge.is-error { color: #ff999c; }
 
-.macro-node__ports {
+.macro-node__pin-rows {
   display: grid;
   min-width: 0;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 8px;
-  padding: 7px 0 8px;
+  padding: 4px 0 6px;
 }
 
-.macro-node__port-column {
-  display: flex;
+.macro-node__pin-row {
+  display: grid;
   min-width: 0;
-  flex-direction: column;
-  align-self: start;
-  gap: 0;
+  min-height: 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+.macro-node__pin-slot {
+  position: relative;
+  min-width: 0;
 }
 
 .macro-node__port {
@@ -623,7 +619,7 @@
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: 31px;
+  min-height: 28px;
   flex-direction: row;
   align-items: center;
   justify-content: center;
@@ -634,13 +630,13 @@
 
 .macro-node__port--input {
   justify-content: flex-start;
-  padding: 2px 4px 2px 19px;
+  padding: 1px 4px 1px 15px;
   text-align: left;
 }
 
 .macro-node__port--output {
   justify-content: flex-end;
-  padding: 2px 19px 2px 4px;
+  padding: 1px 15px 1px 4px;
   text-align: right;
 }
 
@@ -658,6 +654,7 @@
   max-width: 100%;
   font-size: 12.5px;
   font-weight: 500;
+  line-height: 1.25;
   overflow-wrap: anywhere;
 }
 
@@ -668,14 +665,14 @@
 
 .macro-node__port-handle.react-flow__handle {
   z-index: 6;
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   border: 0;
   background: transparent;
 }
 
-.macro-node__port--input .macro-node__port-handle { left: 0; }
-.macro-node__port--output .macro-node__port-handle { right: 0; left: auto; }
+.macro-node__port--input .macro-node__port-handle { left: -1px; }
+.macro-node__port--output .macro-node__port-handle { right: -1px; left: auto; }
 
 .macro-node__port-handle::after {
   position: absolute;
@@ -699,6 +696,10 @@
   border-radius: 0;
   clip-path: polygon(0 0, 100% 50%, 0 100%);
   filter: drop-shadow(0 0 1px #fff) drop-shadow(0 1px 1px #000);
+}
+
+.macro-node__port--input[data-port-kind='exec'] .macro-node__port-handle::after {
+  clip-path: polygon(100% 0, 0 50%, 100% 100%);
 }
 
 .macro-node__port-handle:hover::after,

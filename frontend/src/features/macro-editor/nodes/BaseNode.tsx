@@ -15,14 +15,29 @@ type PortDirection = 'input' | 'output'
 export function BaseNode({ id, data, selected }: NodeProps<MacroFlowNode>) {
   const ports = getNodePorts(data.nodeType, data.config)
   const isEvent = data.category === 'event'
+  const inputPorts = isEvent ? [] : ports.inputs
+  const hasLegacyExecOutput = ports.outputs.length === 0
+    && data.nodeType !== 'stop'
+    && data.nodeType !== 'function_return'
+  const rowCount = Math.max(inputPorts.length, ports.outputs.length, hasLegacyExecOutput ? 1 : 0)
   const connection = useConnection<MacroFlowNode>()
-  const sourceType = connection.inProgress && connection.fromHandle.type === 'source'
-    ? outputPortType(connection.fromNode.data, connection.fromHandle.id)
+  const connectedPortType = connection.inProgress
+    ? connectionPortType(
+        connection.fromNode.data,
+        connection.fromHandle.id,
+        connection.fromHandle.type,
+      )
     : null
 
   const compatibility = (port: PortDefinition, direction: PortDirection) => {
-    if (direction !== 'input' || sourceType === null) return undefined
-    return portTypesAreCompatible(sourceType, port.type)
+    if (!connection.inProgress || connectedPortType === null) return undefined
+    if (connection.fromHandle.type === 'source' && direction === 'input') {
+      return portTypesAreCompatible(connectedPortType, port.type)
+    }
+    if (connection.fromHandle.type === 'target' && direction === 'output') {
+      return portTypesAreCompatible(port.type, connectedPortType)
+    }
+    return undefined
   }
   const displayLabel = localizeNodeLabel(data.label, data.nodeType)
   const visualKind = nodeVisualKind(data.nodeType, data.category)
@@ -53,28 +68,40 @@ export function BaseNode({ id, data, selected }: NodeProps<MacroFlowNode>) {
         <div className="macro-node__title">{displayLabel}</div>
       </header>
 
-      <div className="macro-node__ports">
-        <div className="macro-node__port-column macro-node__port-column--input">
-          {!isEvent && ports.inputs.map((port) => (
-            <PortRow
-              key={port.id}
-              nodeId={id}
-              port={port}
-              direction="input"
-              compatible={compatibility(port, 'input')}
-            />
-          ))}
+      {rowCount > 0 && (
+        <div className="macro-node__pin-rows">
+          {Array.from({ length: rowCount }, (_, rowIndex) => {
+            const input = inputPorts[rowIndex]
+            const output = ports.outputs[rowIndex]
+            return (
+              <div className="macro-node__pin-row" data-pin-row={rowIndex} key={rowIndex}>
+                <div className="macro-node__pin-slot macro-node__pin-slot--input">
+                  {input && (
+                    <PortRow
+                      nodeId={id}
+                      port={input}
+                      direction="input"
+                      compatible={compatibility(input, 'input')}
+                    />
+                  )}
+                </div>
+                <div className="macro-node__pin-slot macro-node__pin-slot--output">
+                  {output ? (
+                    <PortRow
+                      nodeId={id}
+                      port={output}
+                      direction="output"
+                      compatible={compatibility(output, 'output')}
+                    />
+                  ) : hasLegacyExecOutput && rowIndex === 0 ? (
+                    <LegacyExecOutput />
+                  ) : null}
+                </div>
+              </div>
+            )
+          })}
         </div>
-        <div className="macro-node__port-column macro-node__port-column--output">
-          {ports.outputs.map((port) => (
-            <PortRow key={port.id} nodeId={id} port={port} direction="output" />
-          ))}
-          {ports.outputs.length === 0 && data.nodeType !== 'stop' && (
-            <LegacyExecOutput />
-          )}
-        </div>
-      </div>
-
+      )}
     </div>
   )
 }
@@ -194,12 +221,14 @@ function LegacyExecOutput() {
   )
 }
 
-function outputPortType(
+function connectionPortType(
   data: MacroFlowNode['data'],
   handleId: string | null | undefined,
+  handleType: 'source' | 'target',
 ): PortType | null {
   if (handleId == null) return 'exec'
-  return getNodePorts(data.nodeType, data.config).outputs
+  const ports = getNodePorts(data.nodeType, data.config)
+  return (handleType === 'source' ? ports.outputs : ports.inputs)
     .find((port) => port.id === handleId)?.type ?? null
 }
 

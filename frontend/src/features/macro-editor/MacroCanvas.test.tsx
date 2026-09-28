@@ -173,6 +173,47 @@ describe('MacroCanvas', () => {
     expect(container.querySelector('.react-flow__handle')?.classList.contains('connectable')).toBe(true)
   })
 
+  it('renders border-attached pin rows for event and branch nodes', () => {
+    const eventNode = flowNode('event', 'screen_enter')
+    eventNode.type = 'event'
+    eventNode.data.category = 'event'
+    eventNode.data.label = '스터디룸 예약 메인 / Enter'
+    const branchNode = flowNode('branch-layout', 'branch')
+    branchNode.data.label = 'Branch'
+
+    const { container } = render(
+      <div style={{ width: 800, height: 600 }}>
+        <MacroCanvas
+          nodes={[eventNode, branchNode]}
+          edges={[]}
+          onNodesChange={vi.fn()}
+          onEdgesChange={vi.fn()}
+          onConnect={vi.fn()}
+          onSelectNode={vi.fn()}
+          onDropBlock={vi.fn()}
+          onReady={vi.fn()}
+        />
+      </div>,
+    )
+
+    const event = screen.getByLabelText('스터디룸 예약 메인 / Enter 매크로 노드')
+    expect(event.querySelectorAll('.macro-node__pin-row')).toHaveLength(1)
+    expect(event.querySelectorAll('[data-port-direction="input"]')).toHaveLength(0)
+    expect(event.querySelectorAll('[data-port-direction="output"]')).toHaveLength(1)
+    expect(event.querySelector('.react-flow__handle-right')).toBeTruthy()
+
+    const branch = screen.getByLabelText('분기 매크로 노드')
+    expect(branch.querySelectorAll('.macro-node__pin-row')).toHaveLength(2)
+    expect(branch.querySelectorAll('[data-port-direction="input"]')).toHaveLength(2)
+    expect(branch.querySelectorAll('[data-port-direction="output"]')).toHaveLength(2)
+    expect(branch.querySelectorAll('.react-flow__handle-left')).toHaveLength(2)
+    expect(branch.querySelectorAll('.react-flow__handle-right')).toHaveLength(2)
+    expect(branch.querySelector('[data-port-kind="data"]')).toBeTruthy()
+    expect(branch.querySelector('[data-port-kind="exec"]')).toBeTruthy()
+    expect(container.querySelector('.macro-node__ports')).toBeNull()
+    expect(container.querySelector('.macro-node__port-column')).toBeNull()
+  })
+
   it('converts palette drops from screen coordinates into flow coordinates', async () => {
     const onDropBlock = vi.fn()
     let instance: ReactFlowInstance<MacroFlowNode, MacroFlowEdge> | null = null
