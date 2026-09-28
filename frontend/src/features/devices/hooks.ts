@@ -26,24 +26,6 @@ export function discoveryMessage(status: AndroidDiscoveryStatus): string | null 
   return null
 }
 
-export function chooseInitialDevice(
-  devices: AndroidDeviceSummary[],
-  routeDeviceId: string | undefined,
-  rememberedDeviceId: string | null,
-): string | null {
-  if (routeDeviceId) {
-    if (devices.some((device) => device.id === routeDeviceId)) return routeDeviceId
-  }
-  if (
-    rememberedDeviceId &&
-    devices.some((device) => device.id === rememberedDeviceId)
-  ) {
-    return rememberedDeviceId
-  }
-  const online = devices.filter((device) => device.connected)
-  return online[0]?.id ?? null
-}
-
 export function useDevices() {
   const [devices, setDevices] = useState<AndroidDeviceSummary[]>([])
   const [defaultDeviceId, setDefaultDeviceId] = useState<string | null>(null)

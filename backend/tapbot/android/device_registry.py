@@ -263,6 +263,8 @@ class AndroidDeviceRegistry:
         agent = agent if isinstance(agent, dict) else {}
         stream = status.get("stream")
         stream = stream if isinstance(stream, dict) else {}
+        device = agent.get("device")
+        device = device if isinstance(device, dict) else {}
         connected = bool(status.get("connected"))
         with self._lock:
             previous = self._health.get(context.config.id, {})
@@ -282,6 +284,9 @@ class AndroidDeviceRegistry:
             ),
             "capture_ready": bool(agent.get("capture_ready")),
             "stream_running": bool(stream.get("running", agent.get("stream_running"))),
+            "screen_width": _positive_int(stream.get("width", device.get("width"))),
+            "screen_height": _positive_int(stream.get("height", device.get("height"))),
+            "stream_fps": _nonnegative_float(stream.get("fps")),
             "accessibility_enabled": bool(agent.get("accessibility_enabled")),
             "remote_control_enabled": bool(agent.get("remote_control_enabled")),
             "macro_status": context.debug_service.macro_status,
@@ -306,6 +311,9 @@ class AndroidDeviceRegistry:
             "last_seen_at": previous.get("last_seen_at"),
             "capture_ready": False,
             "stream_running": False,
+            "screen_width": previous.get("screen_width"),
+            "screen_height": previous.get("screen_height"),
+            "stream_fps": previous.get("stream_fps"),
             "accessibility_enabled": False,
             "remote_control_enabled": False,
             "macro_status": context.debug_service.macro_status,
@@ -373,6 +381,8 @@ class AndroidDeviceRegistry:
         agent: DiscoveredAndroidAgent,
     ) -> None:
         status = agent.status
+        device = status.get("device")
+        device = device if isinstance(device, dict) else {}
         with self._lock:
             previous = self._health.get(context.config.id, {})
             self._health[context.config.id] = {
@@ -385,6 +395,9 @@ class AndroidDeviceRegistry:
                 "last_seen_at": _now(),
                 "capture_ready": bool(status.get("capture_ready")),
                 "stream_running": bool(status.get("stream_running")),
+                "screen_width": _positive_int(device.get("width")),
+                "screen_height": _positive_int(device.get("height")),
+                "stream_fps": previous.get("stream_fps"),
                 "accessibility_enabled": bool(status.get("accessibility_enabled")),
                 "remote_control_enabled": bool(
                     status.get("remote_control_enabled")
@@ -407,6 +420,18 @@ class AndroidDeviceRegistry:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _positive_int(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
+        return None
+    return int(value)
+
+
+def _nonnegative_float(value: object) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, int | float) or value < 0:
+        return None
+    return float(value)
 
 
 def _canonical_endpoint(value: str) -> str:

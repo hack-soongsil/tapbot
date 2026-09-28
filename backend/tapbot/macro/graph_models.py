@@ -279,6 +279,9 @@ class MacroVariableDefinition:
     name: str
     type: str
     default: JsonValue = None
+    input: bool = False
+    description: str | None = None
+    options: tuple[JsonValue, ...] = ()
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -290,16 +293,33 @@ class MacroVariableDefinition:
     def from_dict(cls, value: dict[str, Any]) -> MacroVariableDefinition:
         default = value.get("default")
         assert_json_value(default, name="variable default")
+        input_value = value.get("input", False)
+        if not isinstance(input_value, bool):
+            raise ValueError("variable input must be a boolean")
+        raw_options = value.get("options", [])
+        if not isinstance(raw_options, list):
+            raise ValueError("variable options must be an array")
+        for option in raw_options:
+            assert_json_value(option, name="variable option")
         return cls(
             name=_text(value.get("name", ""), "variable name"),
             type=_text(value.get("type", ""), "variable type"),
             default=default,
+            input=input_value,
+            description=_optional_text(value.get("description"), "variable description"),
+            options=tuple(_json_copy(option) for option in raw_options),
         )
 
     def to_dict(self) -> JsonObject:
         result: JsonObject = {"name": self.name, "type": self.type}
         if self.default is not None:
             result["default"] = _json_copy(self.default)
+        if self.input:
+            result["input"] = True
+        if self.description is not None:
+            result["description"] = self.description
+        if self.options:
+            result["options"] = [_json_copy(option) for option in self.options]
         return result
 
 

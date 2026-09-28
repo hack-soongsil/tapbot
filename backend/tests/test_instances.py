@@ -9,7 +9,7 @@ from tapbot.config import (
     RobotSettings,
     TapBotConfig,
 )
-from tapbot.instances import create_instances
+from tapbot.instances import _AndroidGraphUi, create_instances
 from tapbot.android.discovery import TailscaleDiscoveryError
 from tapbot.model.client import HttpModelClient
 from tests.fakes import FakeRobotController
@@ -20,10 +20,12 @@ class FakeCamera:
 
     def __init__(self) -> None:
         self.opened = False
+        self.open_count = 0
         self.close_count = 0
 
     def open(self) -> None:
         self.opened = True
+        self.open_count += 1
 
     def close(self) -> None:
         self.opened = False
@@ -34,6 +36,19 @@ class FakeCamera:
 
     def read_frame(self) -> np.ndarray:
         return np.zeros((8, 12, 3), dtype=np.uint8)
+
+
+class StaticUiTreeProvider:
+    def __init__(self, tree: object) -> None:
+        self.tree = tree
+
+    def snapshot(self, *, max_age_ms: int):
+        return self.tree
+
+
+class StaticAndroidContext:
+    def __init__(self, tree: object) -> None:
+        self.ui_tree_provider = StaticUiTreeProvider(tree)
 
 
 def test_composition_root_exposes_one_process_scoped_graph(tmp_path: Path) -> None:
@@ -79,10 +94,16 @@ def test_lifecycle_is_idempotent_and_releases_background_worker(tmp_path: Path) 
     async def exercise() -> None:
         await instances.start()
         await instances.start()
-        for _ in range(50):
-            if instances.vision_service.worker.latest_frame() is not None:
-                break
-            await asyncio.sleep(0.01)
+        assert instances.vision_service.worker._thread is None
+        assert camera.opened is False
+        assert camera.open_count == 0
+
+        frame = await asyncio.to_thread(instances.vision_service.camera_frame)
+        assert frame.width == 12
+        assert camera.opened is True
+        instances.vision_service.release_camera()
+        assert camera.opened is False
+
         await instances.stop()
         await instances.stop()
 
@@ -91,6 +112,7 @@ def test_lifecycle_is_idempotent_and_releases_background_worker(tmp_path: Path) 
     assert instances.robot_service.dispatcher._thread is None
     assert instances.vision_service.worker._thread is None
     assert camera.opened is False
+    assert camera.open_count == 1
     assert camera.close_count >= 1
 
 
@@ -132,3 +154,57 @@ def test_missing_tailscale_does_not_fail_application_lifecycle(tmp_path: Path) -
     assert status["tailscale_available"] is False
     assert status["last_error"] == "Tailscale CLI is not installed"
     assert instances.android_discovery._thread is None
+
+
+def test_semantic_slot_resolution_returns_disabled_and_hidden_state_metadata() -> None:
+    def ui_node(
+        node_id: str,
+        *,
+        text: str | None = None,
+        bounds: tuple[int, int, int, int],
+        enabled: bool = True,
+        visible: bool = True,
+        class_name: str = "android.widget.Button",
+    ) -> dict[str, object]:
+        return {
+            "node_id": node_id,
+            "parent_id": None,
+            "class_name": class_name,
+            "text": text,
+            "content_description": None,
+            "view_id_resource_name": None,
+            "bounds": dict(zip(("left", "top", "right", "bottom"), bounds, strict=True)),
+            "clickable": True,
+            "enabled": enabled,
+            "visible_to_user": visible,
+        }
+
+    tree = {"nodes": [
+        ui_node(
+            "guidance",
+            text="한 칸은 30분입니다. 예약된 시간은 선택할 수 없어요",
+            bounds=(20, 220, 900, 280),
+            class_name="android.widget.TextView",
+        ),
+        ui_node("date", text="2026년 9월 28일(월)", bounds=(100, 120, 900, 200)),
+        ui_node("reset", text="초기화", bounds=(800, 300, 1000, 380)),
+        ui_node("slot-disabled", bounds=(50, 500, 220, 570), enabled=False),
+        ui_node("slot-hidden", bounds=(290, 500, 460, 570), visible=False),
+        ui_node("cta", text="시간을 선택하세요", bounds=(80, 1700, 1000, 1820), enabled=False),
+    ]}
+    resolver = _AndroidGraphUi(StaticAndroidContext(tree))  # type: ignore[arg-type]
+
+    disabled = resolver.resolve_screen_element(
+        "reservation_detail", "time_slot", {"index": 0}
+    )
+    hidden = resolver.resolve_screen_element(
+        "reservation_detail", "time_slot", {"index": 1}
+    )
+
+    assert disabled.id == "time_slot[0]"
+    assert disabled.metadata["index"] == 0
+    assert disabled.metadata["enabled"] is False
+    assert disabled.metadata["visible"] is True
+    assert hidden.id == "time_slot[1]"
+    assert hidden.metadata["enabled"] is True
+    assert hidden.metadata["visible"] is False

@@ -200,6 +200,10 @@ def test_device_macro_definition_binding_and_runtime_contract(tmp_path: Path) ->
         "nodes": [{"id": "home", "type": "home", "config": {}}],
         "edges": [],
         "metadata": {},
+        "variables": [
+            {"name": "attempts", "type": "int", "default": 1, "input": True},
+            {"name": "internal", "type": "string", "default": "private"},
+        ],
     }
 
     with client:
@@ -208,15 +212,20 @@ def test_device_macro_definition_binding_and_runtime_contract(tmp_path: Path) ->
             "/api/android/default/macro-binding",
             json={"macro_definition_id": "device-home", "enabled": True},
         )
-        started = client.post("/api/android/default/macro/start")
+        started = client.post(
+            "/api/android/default/macro/start",
+            json={"variables": {"attempts": 3}},
+        )
         runtime = client.get("/api/android/default/macro/runtime")
         schema = client.get("/openapi.json")
 
     assert created.status_code == 201
     assert binding.json()["binding"]["macro_definition_id"] == "device-home"
     assert started.status_code == 200
+    assert started.json()["runtime"]["variables"]["attempts"] == 3
     assert runtime.json()["runtime"]["definition_version"] == 1
     assert runtime.json()["runtime"]["state"] == "completed"
+    assert runtime.json()["runtime"]["variables"]["internal"] == "private"
     assert android.commands[-1] == "home"
     assert "/api/android/{device_id}/macro/events" in schema.json()["paths"]
 

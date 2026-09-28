@@ -168,6 +168,7 @@ def _element_output(element: GraphElement) -> JsonObject:
         "element_id": element.id,
         "bounds": element.bounds.to_list(),
         "text": element.text,
+        "metadata": dict(element.metadata),
     }
 
 

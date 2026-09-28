@@ -144,13 +144,28 @@ describe('QuickBlockSearch', () => {
     expect(onSelect).not.toHaveBeenCalled()
   })
 
-  it('shows an empty state and closes with Escape', () => {
+  it('shows an empty state and closes with Escape without closing a parent modal', () => {
     const { onClose } = setup()
+    const closeParentModal = vi.fn()
+    window.addEventListener('keydown', closeParentModal)
     const input = screen.getByLabelText('매크로 블록 검색')
     fireEvent.change(input, { target: { value: 'foobar' } })
     expect(screen.getByText('검색 결과가 없습니다: “foobar”')).toBeTruthy()
     fireEvent.keyDown(input, { key: 'Escape' })
     expect(onClose).toHaveBeenCalledTimes(1)
+    expect(closeParentModal).not.toHaveBeenCalled()
+    window.removeEventListener('keydown', closeParentModal)
+  })
+
+  it('cancels any open search on right click without selecting a block', () => {
+    const { onClose, onSelect } = setup()
+    const contextMenu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+
+    screen.getByRole('dialog', { name: '빠른 블록 검색' }).dispatchEvent(contextMenu)
+
+    expect(contextMenu.defaultPrevented).toBe(true)
+    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(onSelect).not.toHaveBeenCalled()
   })
 
   it('selects by mouse and stores a deduplicated maximum-eight recent list', () => {

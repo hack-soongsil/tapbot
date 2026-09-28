@@ -10,9 +10,15 @@ import {
   type NodeTypes,
   type ReactFlowInstance,
 } from '@xyflow/react'
-import { useRef, useState, type DragEvent } from 'react'
+import { createPortal } from 'react-dom'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
+import '@xyflow/react/dist/style.css'
 import { MACRO_BLOCK_MIME } from './BlockPalette'
-import { BLOCKS } from './blocks'
+import {
+  MACRO_BLUEPRINT_MIME,
+  type BlueprintDragItem,
+} from './blueprint-dnd'
+import { BLOCKS, type BlockDefinition } from './blocks'
 import { QuickBlockSearch } from './QuickBlockSearch'
 import {
   connectionForCreatedNode,
@@ -50,6 +56,26 @@ export interface MacroCanvasProps {
     position: { x: number; y: number },
   ) => CreatedMacroNode | null | undefined
   onReady: (instance: ReactFlowInstance<MacroFlowNode, MacroFlowEdge>) => void
+  onDropBlueprintItem?: (
+    item: BlueprintDragItem,
+    position: { x: number; y: number },
+  ) => void
+  onPromoteToVariable?: (
+    port: PromoteVariablePort,
+    position: { x: number; y: number },
+  ) => void
+  quickSearchBlocks?: readonly BlockDefinition[]
+  onDropQuickBlock?: (
+    block: BlockDefinition,
+    position: { x: number; y: number },
+  ) => CreatedMacroNode | null | undefined
+}
+
+export interface PromoteVariablePort {
+  nodeId: string
+  portId: string
+  portType: Exclude<import('./types').PortType, 'exec' | 'any'>
+  direction: 'input' | 'output'
 }
 
 export function MacroCanvas({
@@ -61,7 +87,12 @@ export function MacroCanvas({
   onSelectNode,
   onDropBlock,
   onReady,
+  onDropBlueprintItem,
+  onPromoteToVariable,
+  quickSearchBlocks = BLOCKS,
+  onDropQuickBlock,
 }: MacroCanvasProps) {
+  const canvasRef = useRef<HTMLElement>(null)
   const flowInstance = useRef<ReactFlowInstance<MacroFlowNode, MacroFlowEdge> | null>(null)
   const draggedPort = useRef<SourcePortContext | null>(null)
   const [quickSearch, setQuickSearch] = useState<{
@@ -69,6 +100,64 @@ export function MacroCanvas({
     flowPosition: { x: number; y: number }
     sourcePortContext: SourcePortContext | null
   } | null>(null)
+  const [blueprintDrop, setBlueprintDrop] = useState<{
+    item: Extract<BlueprintDragItem, { kind: 'variable' }>
+    screenPosition: { x: number; y: number }
+    flowPosition: { x: number; y: number }
+  } | null>(null)
+  const [promoteMenu, setPromoteMenu] = useState<{
+    port: PromoteVariablePort
+    screenPosition: { x: number; y: number }
+    flowPosition: { x: number; y: number }
+  } | null>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || !onPromoteToVariable) return
+    const openPromoteMenu = (event: Event) => {
+      const detail = (event as CustomEvent<PromoteVariablePort & {
+        clientX: number
+        clientY: number
+      }>).detail
+      if (!detail?.nodeId || !flowInstance.current) return
+      const screenPosition = { x: detail.clientX, y: detail.clientY }
+      setQuickSearch(null)
+      setBlueprintDrop(null)
+      setPromoteMenu({
+        port: {
+          nodeId: detail.nodeId,
+          portId: detail.portId,
+          portType: detail.portType,
+          direction: detail.direction,
+        },
+        screenPosition,
+        flowPosition: flowInstance.current.screenToFlowPosition(screenPosition),
+      })
+    }
+    canvas.addEventListener('tapbot:promote-variable', openPromoteMenu)
+    return () => canvas.removeEventListener('tapbot:promote-variable', openPromoteMenu)
+  }, [onPromoteToVariable])
+
+  useEffect(() => {
+    if (!blueprintDrop && !promoteMenu) return
+    const close = (event: PointerEvent) => {
+      if (event.target instanceof Element && event.target.closest('.macro-canvas-context-menu')) return
+      setBlueprintDrop(null)
+      setPromoteMenu(null)
+    }
+    const escape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      event.stopPropagation()
+      setBlueprintDrop(null)
+      setPromoteMenu(null)
+    }
+    document.addEventListener('pointerdown', close, true)
+    document.addEventListener('keydown', escape, true)
+    return () => {
+      document.removeEventListener('pointerdown', close, true)
+      document.removeEventListener('keydown', escape, true)
+    }
+  }, [blueprintDrop, promoteMenu])
   const allowDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
@@ -79,6 +168,19 @@ export function MacroCanvas({
     instance: ReactFlowInstance<MacroFlowNode, MacroFlowEdge>,
   ) => {
     event.preventDefault()
+    const blueprintItem = parseBlueprintDragItem(
+      event.dataTransfer.getData(MACRO_BLUEPRINT_MIME),
+    )
+    if (blueprintItem && onDropBlueprintItem) {
+      const screenPosition = { x: event.clientX, y: event.clientY }
+      const flowPosition = instance.screenToFlowPosition(screenPosition)
+      if (blueprintItem.kind === 'variable' && !blueprintItem.mode) {
+        setBlueprintDrop({ item: blueprintItem, screenPosition, flowPosition })
+      } else {
+        onDropBlueprintItem(blueprintItem, flowPosition)
+      }
+      return
+    }
     const nodeType = event.dataTransfer.getData(MACRO_BLOCK_MIME) as MacroNodeType
     if (!nodeType) return
     onDropBlock(
@@ -88,7 +190,7 @@ export function MacroCanvas({
   }
 
   return (
-    <section className="macro-canvas" aria-label="Macro graph canvas">
+    <section ref={canvasRef} className="macro-canvas" aria-label="Macro graph canvas">
       <ReactFlow<MacroFlowNode, MacroFlowEdge>
         nodes={nodes}
         edges={edges}
@@ -153,6 +255,13 @@ export function MacroCanvas({
         onDrop={(event) => {
           if (flowInstance.current) drop(event, flowInstance.current)
         }}
+        nodesDraggable
+        nodesConnectable
+        elementsSelectable
+        panOnDrag
+        zoomOnScroll
+        zoomOnPinch
+        selectionOnDrag={false}
         fitView
         minZoom={0.25}
         maxZoom={1.8}
@@ -167,7 +276,7 @@ export function MacroCanvas({
         open={quickSearch !== null}
         screenPosition={quickSearch?.screenPosition ?? { x: 0, y: 0 }}
         flowPosition={quickSearch?.flowPosition ?? { x: 0, y: 0 }}
-        blocks={BLOCKS}
+        blocks={quickSearchBlocks}
         sourcePortContext={quickSearch?.sourcePortContext}
         onSelect={(type, position) => {
           const created = onDropBlock(type, position)
@@ -182,10 +291,71 @@ export function MacroCanvas({
             targetHandle: planned.connection.targetHandle ?? null,
           }, planned.kind)
         }}
+        onSelectDefinition={onDropQuickBlock ? (block, position) => {
+          const created = onDropQuickBlock(block, position)
+          const context = quickSearch?.sourcePortContext
+          if (!created || !context) return
+          const planned = connectionForCreatedNode(context, created)
+          if (!planned || !planned.connection.source || !planned.connection.target) return
+          onConnect({
+            source: planned.connection.source,
+            sourceHandle: planned.connection.sourceHandle ?? null,
+            target: planned.connection.target,
+            targetHandle: planned.connection.targetHandle ?? null,
+          }, planned.kind)
+        } : undefined}
         onClose={() => setQuickSearch(null)}
       />
+      {blueprintDrop && createPortal((
+        <div
+          className="macro-canvas-context-menu"
+          role="menu"
+          aria-label={`${blueprintDrop.item.id} 변수 노드 선택`}
+          style={{ left: blueprintDrop.screenPosition.x, top: blueprintDrop.screenPosition.y }}
+        >
+          <strong>{blueprintDrop.item.id}</strong>
+          <button type="button" role="menuitem" onClick={() => {
+            onDropBlueprintItem?.({ ...blueprintDrop.item, mode: 'get' }, blueprintDrop.flowPosition)
+            setBlueprintDrop(null)
+          }}>Get</button>
+          <button type="button" role="menuitem" onClick={() => {
+            onDropBlueprintItem?.({ ...blueprintDrop.item, mode: 'set' }, blueprintDrop.flowPosition)
+            setBlueprintDrop(null)
+          }}>Set</button>
+        </div>
+      ), document.body)}
+      {promoteMenu && createPortal((
+        <div
+          className="macro-canvas-context-menu"
+          role="menu"
+          aria-label="데이터 핀 메뉴"
+          style={{ left: promoteMenu.screenPosition.x, top: promoteMenu.screenPosition.y }}
+        >
+          <button type="button" role="menuitem" onClick={() => {
+            onPromoteToVariable?.(promoteMenu.port, promoteMenu.flowPosition)
+            setPromoteMenu(null)
+          }}>변수로 승격</button>
+        </div>
+      ), document.body)}
     </section>
   )
+}
+
+function parseBlueprintDragItem(value: string): BlueprintDragItem | null {
+  if (!value) return null
+  try {
+    const item = JSON.parse(value) as Partial<BlueprintDragItem>
+    if ((item.kind !== 'variable' && item.kind !== 'function') || typeof item.id !== 'string') {
+      return null
+    }
+    if (item.kind === 'variable') {
+      const mode = item.mode === 'get' || item.mode === 'set' ? item.mode : undefined
+      return { kind: 'variable', id: item.id, ...(mode ? { mode } : {}) }
+    }
+    return { kind: 'function', id: item.id }
+  } catch {
+    return null
+  }
 }
 
 function isCanvasChrome(target: EventTarget | null) {

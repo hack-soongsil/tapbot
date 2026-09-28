@@ -7,7 +7,11 @@ import {
   Spinner,
   Tag,
 } from '@blueprintjs/core'
-import type { PointerEvent as ReactPointerEvent } from 'react'
+import type {
+  CSSProperties,
+  KeyboardEvent as ReactKeyboardEvent,
+  PointerEvent as ReactPointerEvent,
+} from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   AndroidDebugState,
@@ -44,9 +48,9 @@ import { ko } from '../../i18n/ko'
 
 interface AndroidDebugWorkspaceProps {
   controller: AndroidDebugController
-  /** @deprecated Device selection now belongs to features/devices. */
+  /** Kept for call-site compatibility; device switching is handled by /debug. */
   devices?: readonly unknown[]
-  /** @deprecated Device selection now belongs to features/devices. */
+  /** Kept for call-site compatibility; no selector is rendered in this workspace. */
   onDeviceChange?: (deviceId: string) => void
 }
 
@@ -75,6 +79,165 @@ interface PointerBoundsSnapshot {
 }
 
 const DEFAULT_PHONE_GEOMETRY: StableGeometry = { width: 1080, height: 2280 }
+const WORKSPACE_LAYOUT_STORAGE_KEY = 'tapbot.workspace.layout.v1'
+const WORKSPACE_SPLITTER_SIZE = 8
+const WORKSPACE_MAX_PANEL_FRACTION = 0.75
+const WORKSPACE_MIN_MAIN_HEIGHT = 280
+const WORKSPACE_LAYOUT_DEFAULTS = {
+  liveScreenWidth: 380,
+  uiTreeWidth: 270,
+  inspectorWidth: 270,
+  consoleHeight: 210,
+} as const
+const WORKSPACE_LAYOUT_MINIMUMS = {
+  liveScreenWidth: 320,
+  macroCanvasWidth: 420,
+  uiTreeWidth: 220,
+  inspectorWidth: 240,
+  consoleHeight: 140,
+} as const
+
+interface WorkspaceLayout {
+  liveScreenWidth: number
+  uiTreeWidth: number
+  inspectorWidth: number
+  consoleHeight: number
+}
+
+type WorkspaceSplitter = 'live-macro' | 'macro-tree' | 'tree-inspector' | 'main-console'
+
+interface WorkspaceResizeDrag {
+  splitter: WorkspaceSplitter
+  pointerId: number
+  startX: number
+  startY: number
+  startLayout: WorkspaceLayout
+  workspaceWidth: number
+  workspaceHeight: number
+  previousCursor: string
+  previousUserSelect: string
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(Math.max(value, minimum), Math.max(minimum, maximum))
+}
+
+function loadWorkspaceLayout(): WorkspaceLayout {
+  if (typeof window === 'undefined') return { ...WORKSPACE_LAYOUT_DEFAULTS }
+  try {
+    const stored = JSON.parse(
+      window.localStorage.getItem(WORKSPACE_LAYOUT_STORAGE_KEY) ?? 'null',
+    ) as Partial<Record<keyof WorkspaceLayout, unknown>> | null
+    if (!stored) return { ...WORKSPACE_LAYOUT_DEFAULTS }
+    const read = (key: keyof WorkspaceLayout): number => {
+      const value = stored[key]
+      return typeof value === 'number' && Number.isFinite(value)
+        ? value
+        : WORKSPACE_LAYOUT_DEFAULTS[key]
+    }
+    return {
+      liveScreenWidth: read('liveScreenWidth'),
+      uiTreeWidth: read('uiTreeWidth'),
+      inspectorWidth: read('inspectorWidth'),
+      consoleHeight: read('consoleHeight'),
+    }
+  } catch {
+    return { ...WORKSPACE_LAYOUT_DEFAULTS }
+  }
+}
+
+function constrainWorkspaceLayout(
+  layout: WorkspaceLayout,
+  workspaceWidth: number,
+  workspaceHeight: number,
+): WorkspaceLayout {
+  const widthLimit =
+    workspaceWidth > 0
+      ? workspaceWidth * WORKSPACE_MAX_PANEL_FRACTION
+      : Number.POSITIVE_INFINITY
+  let liveScreenWidth = clamp(
+    layout.liveScreenWidth,
+    WORKSPACE_LAYOUT_MINIMUMS.liveScreenWidth,
+    widthLimit,
+  )
+  let uiTreeWidth = clamp(
+    layout.uiTreeWidth,
+    WORKSPACE_LAYOUT_MINIMUMS.uiTreeWidth,
+    widthLimit,
+  )
+  let inspectorWidth = clamp(
+    layout.inspectorWidth,
+    WORKSPACE_LAYOUT_MINIMUMS.inspectorWidth,
+    widthLimit,
+  )
+
+  if (workspaceWidth > 0) {
+    const availableFixedWidth = Math.max(
+      WORKSPACE_LAYOUT_MINIMUMS.liveScreenWidth +
+        WORKSPACE_LAYOUT_MINIMUMS.uiTreeWidth +
+        WORKSPACE_LAYOUT_MINIMUMS.inspectorWidth,
+      workspaceWidth -
+        WORKSPACE_SPLITTER_SIZE * 3 -
+        WORKSPACE_LAYOUT_MINIMUMS.macroCanvasWidth,
+    )
+    const fixedWidth = liveScreenWidth + uiTreeWidth + inspectorWidth
+    if (fixedWidth > availableFixedWidth) {
+      const liveHeadroom = liveScreenWidth - WORKSPACE_LAYOUT_MINIMUMS.liveScreenWidth
+      const treeHeadroom = uiTreeWidth - WORKSPACE_LAYOUT_MINIMUMS.uiTreeWidth
+      const inspectorHeadroom =
+        inspectorWidth - WORKSPACE_LAYOUT_MINIMUMS.inspectorWidth
+      const totalHeadroom = liveHeadroom + treeHeadroom + inspectorHeadroom
+      if (totalHeadroom > 0) {
+        const reductionRatio = Math.min(
+          1,
+          (fixedWidth - availableFixedWidth) / totalHeadroom,
+        )
+        liveScreenWidth -= liveHeadroom * reductionRatio
+        uiTreeWidth -= treeHeadroom * reductionRatio
+        inspectorWidth -= inspectorHeadroom * reductionRatio
+      }
+    }
+  }
+
+  const consoleMaximum =
+    workspaceHeight > 0
+      ? Math.min(
+          workspaceHeight * WORKSPACE_MAX_PANEL_FRACTION,
+          workspaceHeight - WORKSPACE_SPLITTER_SIZE - WORKSPACE_MIN_MAIN_HEIGHT,
+        )
+      : Number.POSITIVE_INFINITY
+  return {
+    liveScreenWidth: Math.round(liveScreenWidth),
+    uiTreeWidth: Math.round(uiTreeWidth),
+    inspectorWidth: Math.round(inspectorWidth),
+    consoleHeight: Math.round(
+      clamp(
+        layout.consoleHeight,
+        WORKSPACE_LAYOUT_MINIMUMS.consoleHeight,
+        consoleMaximum,
+      ),
+    ),
+  }
+}
+
+function resizeWorkspaceLayout(
+  splitter: WorkspaceSplitter,
+  start: WorkspaceLayout,
+  deltaX: number,
+  deltaY: number,
+  workspaceWidth: number,
+  workspaceHeight: number,
+): WorkspaceLayout {
+  const next = { ...start }
+  if (splitter === 'live-macro') next.liveScreenWidth += deltaX
+  if (splitter === 'macro-tree') next.uiTreeWidth -= deltaX
+  if (splitter === 'tree-inspector') {
+    next.uiTreeWidth += deltaX
+    next.inspectorWidth -= deltaX
+  }
+  if (splitter === 'main-console') next.consoleHeight -= deltaY
+  return constrainWorkspaceLayout(next, workspaceWidth, workspaceHeight)
+}
 
 function validGeometry(
   width: number | null | undefined,
@@ -213,13 +376,184 @@ function macroIntent(status: string | undefined) {
   return 'none' as const
 }
 
-export function AndroidDebugWorkspace({
-  controller,
-}: AndroidDebugWorkspaceProps) {
+export function AndroidDebugWorkspace({ controller }: AndroidDebugWorkspaceProps) {
   const { status, debug, setSelectedUiNodeId } = controller
   const liveMacro = useMacroRuntime(controller.deviceId)
   const macroPanelRef = useRef<IntegratedMacroPanelHandle>(null)
   const [macroCanvasAvailable, setMacroCanvasAvailable] = useState(false)
+  const workspaceGridRef = useRef<HTMLDivElement>(null)
+  const workspaceResizeDrag = useRef<WorkspaceResizeDrag | null>(null)
+  const [activeSplitter, setActiveSplitter] = useState<WorkspaceSplitter | null>(null)
+  const [workspaceSize, setWorkspaceSize] = useState({ width: 0, height: 0 })
+  const [workspaceLayout, setWorkspaceLayout] =
+    useState<WorkspaceLayout>(loadWorkspaceLayout)
+  const effectiveWorkspaceLayout = useMemo(
+    () =>
+      constrainWorkspaceLayout(
+        workspaceLayout,
+        workspaceSize.width,
+        workspaceSize.height,
+      ),
+    [workspaceLayout, workspaceSize.height, workspaceSize.width],
+  )
+  const workspaceGridStyle = {
+    '--tapbot-live-screen-width': `${effectiveWorkspaceLayout.liveScreenWidth.toString()}px`,
+    '--tapbot-ui-tree-width': `${effectiveWorkspaceLayout.uiTreeWidth.toString()}px`,
+    '--tapbot-inspector-width': `${effectiveWorkspaceLayout.inspectorWidth.toString()}px`,
+    '--tapbot-console-height': `${effectiveWorkspaceLayout.consoleHeight.toString()}px`,
+  } as CSSProperties
+
+  useEffect(() => {
+    const grid = workspaceGridRef.current
+    if (!grid) return
+    const updateSize = () => {
+      const bounds = grid.getBoundingClientRect()
+      setWorkspaceSize({ width: bounds.width, height: bounds.height })
+    }
+    updateSize()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', updateSize)
+      return () => window.removeEventListener('resize', updateSize)
+    }
+    const observer = new ResizeObserver(updateSize)
+    observer.observe(grid)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        WORKSPACE_LAYOUT_STORAGE_KEY,
+        JSON.stringify(workspaceLayout),
+      )
+    } catch {
+      // Storage can be unavailable in restricted browser contexts.
+    }
+  }, [workspaceLayout])
+
+  const finishWorkspaceResize = useCallback(() => {
+    const drag = workspaceResizeDrag.current
+    if (!drag) return
+    workspaceResizeDrag.current = null
+    setActiveSplitter(null)
+    document.body.classList.remove('is-resizing-workspace')
+    document.body.style.cursor = drag.previousCursor
+    document.body.style.userSelect = drag.previousUserSelect
+  }, [])
+
+  useEffect(() => finishWorkspaceResize, [finishWorkspaceResize])
+
+  const beginWorkspaceResize = useCallback(
+    (splitter: WorkspaceSplitter, event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      const bounds = workspaceGridRef.current?.getBoundingClientRect()
+      if (!bounds) return
+      const cursor = splitter === 'main-console' ? 'row-resize' : 'col-resize'
+      workspaceResizeDrag.current = {
+        splitter,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        startLayout: constrainWorkspaceLayout(
+          effectiveWorkspaceLayout,
+          bounds.width,
+          bounds.height,
+        ),
+        workspaceWidth: bounds.width,
+        workspaceHeight: bounds.height,
+        previousCursor: document.body.style.cursor,
+        previousUserSelect: document.body.style.userSelect,
+      }
+      event.currentTarget.setPointerCapture?.(event.pointerId)
+      setActiveSplitter(splitter)
+      document.body.classList.add('is-resizing-workspace')
+      document.body.style.cursor = cursor
+      document.body.style.userSelect = 'none'
+    },
+    [effectiveWorkspaceLayout],
+  )
+
+  const moveWorkspaceResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      const drag = workspaceResizeDrag.current
+      if (!drag || drag.pointerId !== event.pointerId) return
+      event.preventDefault()
+      setWorkspaceLayout(
+        resizeWorkspaceLayout(
+          drag.splitter,
+          drag.startLayout,
+          event.clientX - drag.startX,
+          event.clientY - drag.startY,
+          drag.workspaceWidth,
+          drag.workspaceHeight,
+        ),
+      )
+    },
+    [],
+  )
+
+  const endWorkspaceResize = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (workspaceResizeDrag.current?.pointerId !== event.pointerId) return
+      event.currentTarget.releasePointerCapture?.(event.pointerId)
+      finishWorkspaceResize()
+    },
+    [finishWorkspaceResize],
+  )
+
+  const resetWorkspaceSplitter = useCallback((splitter: WorkspaceSplitter) => {
+    setWorkspaceLayout((current) => {
+      if (splitter === 'live-macro') {
+        return {
+          ...current,
+          liveScreenWidth: WORKSPACE_LAYOUT_DEFAULTS.liveScreenWidth,
+        }
+      }
+      if (splitter === 'macro-tree') {
+        return { ...current, uiTreeWidth: WORKSPACE_LAYOUT_DEFAULTS.uiTreeWidth }
+      }
+      if (splitter === 'tree-inspector') {
+        return {
+          ...current,
+          uiTreeWidth: WORKSPACE_LAYOUT_DEFAULTS.uiTreeWidth,
+          inspectorWidth: WORKSPACE_LAYOUT_DEFAULTS.inspectorWidth,
+        }
+      }
+      return { ...current, consoleHeight: WORKSPACE_LAYOUT_DEFAULTS.consoleHeight }
+    })
+  }, [])
+
+  const resizeWorkspaceWithKeyboard = useCallback(
+    (splitter: WorkspaceSplitter, event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (event.key === 'Home') {
+        event.preventDefault()
+        resetWorkspaceSplitter(splitter)
+        return
+      }
+      const horizontal = splitter === 'main-console'
+      const delta = 16
+      const deltaX =
+        event.key === 'ArrowLeft' ? -delta : event.key === 'ArrowRight' ? delta : 0
+      const deltaY =
+        event.key === 'ArrowUp' ? -delta : event.key === 'ArrowDown' ? delta : 0
+      if ((horizontal && deltaY === 0) || (!horizontal && deltaX === 0)) return
+      event.preventDefault()
+      const bounds = workspaceGridRef.current?.getBoundingClientRect()
+      if (!bounds) return
+      setWorkspaceLayout((current) =>
+        resizeWorkspaceLayout(
+          splitter,
+          constrainWorkspaceLayout(current, bounds.width, bounds.height),
+          deltaX,
+          deltaY,
+          bounds.width,
+          bounds.height,
+        ),
+      )
+    },
+    [resetWorkspaceSplitter],
+  )
   const currentGeometry = useMemo(
     () =>
       validGeometry(status?.stream?.width, status?.stream?.height) ??
@@ -508,7 +842,12 @@ export function AndroidDebugWorkspace({
         </div>
       </div>
 
-      <div className="android-debug-grid" data-workspace-region="main">
+      <div
+        ref={workspaceGridRef}
+        className="android-debug-grid"
+        data-workspace-region="main"
+        style={workspaceGridStyle}
+      >
         <Card
           className="android-live-card"
           elevation={Elevation.ONE}
@@ -602,10 +941,10 @@ export function AndroidDebugWorkspace({
                 aria-hidden={status?.connected}
               >
                 {status === null ? <Spinner size={36} /> : null}
-                <strong>
-                  {status === null ? '연결 중' : '안드로이드 연결 불가'}
-                </strong>
-                <span>{status?.error ?? '안드로이드 에이전트 상태를 기다리는 중입니다.'}</span>
+                <strong>{status === null ? '연결 중' : '안드로이드 연결 불가'}</strong>
+                <span>
+                  {status?.error ?? '안드로이드 에이전트 상태를 기다리는 중입니다.'}
+                </span>
               </div>
             </div>
           </div>
@@ -642,15 +981,47 @@ export function AndroidDebugWorkspace({
           </div>
         </Card>
 
+        <div
+          className={`android-workspace-splitter is-live-macro${activeSplitter === 'live-macro' ? ' is-active' : ''}`}
+          role="separator"
+          aria-label="Live Screen과 Macro Canvas 크기 조절"
+          aria-orientation="vertical"
+          aria-valuemin={WORKSPACE_LAYOUT_MINIMUMS.liveScreenWidth}
+          aria-valuenow={effectiveWorkspaceLayout.liveScreenWidth}
+          tabIndex={0}
+          onPointerDown={(event) => beginWorkspaceResize('live-macro', event)}
+          onPointerMove={moveWorkspaceResize}
+          onPointerUp={endWorkspaceResize}
+          onPointerCancel={endWorkspaceResize}
+          onDoubleClick={() => resetWorkspaceSplitter('live-macro')}
+          onKeyDown={(event) => resizeWorkspaceWithKeyboard('live-macro', event)}
+        />
+
         {controller.deviceId && (
           <IntegratedMacroPanel
-            key={controller.deviceId}
+            key={`macro-${controller.deviceId}`}
             ref={macroPanelRef}
             deviceId={controller.deviceId}
             runtime={liveMacro}
             onAvailabilityChange={setMacroCanvasAvailable}
           />
         )}
+
+        <div
+          className={`android-workspace-splitter is-macro-tree${activeSplitter === 'macro-tree' ? ' is-active' : ''}`}
+          role="separator"
+          aria-label="Macro Canvas와 UI Tree 크기 조절"
+          aria-orientation="vertical"
+          aria-valuemin={WORKSPACE_LAYOUT_MINIMUMS.uiTreeWidth}
+          aria-valuenow={effectiveWorkspaceLayout.uiTreeWidth}
+          tabIndex={0}
+          onPointerDown={(event) => beginWorkspaceResize('macro-tree', event)}
+          onPointerMove={moveWorkspaceResize}
+          onPointerUp={endWorkspaceResize}
+          onPointerCancel={endWorkspaceResize}
+          onDoubleClick={() => resetWorkspaceSplitter('macro-tree')}
+          onKeyDown={(event) => resizeWorkspaceWithKeyboard('macro-tree', event)}
+        />
 
         <Card
           className="android-hierarchy-pane"
@@ -663,6 +1034,22 @@ export function AndroidDebugWorkspace({
             onHoverNode={setHoveredUiNodeId}
           />
         </Card>
+
+        <div
+          className={`android-workspace-splitter is-tree-inspector${activeSplitter === 'tree-inspector' ? ' is-active' : ''}`}
+          role="separator"
+          aria-label="UI Tree와 Node Inspector 크기 조절"
+          aria-orientation="vertical"
+          aria-valuemin={WORKSPACE_LAYOUT_MINIMUMS.uiTreeWidth}
+          aria-valuenow={effectiveWorkspaceLayout.uiTreeWidth}
+          tabIndex={0}
+          onPointerDown={(event) => beginWorkspaceResize('tree-inspector', event)}
+          onPointerMove={moveWorkspaceResize}
+          onPointerUp={endWorkspaceResize}
+          onPointerCancel={endWorkspaceResize}
+          onDoubleClick={() => resetWorkspaceSplitter('tree-inspector')}
+          onKeyDown={(event) => resizeWorkspaceWithKeyboard('tree-inspector', event)}
+        />
 
         <Card
           className="android-node-inspector-pane"
@@ -685,14 +1072,30 @@ export function AndroidDebugWorkspace({
           />
           <InspectorMessages controller={controller} />
         </Card>
-      </div>
 
-      <AndroidConsolePanel
-        key={controller.deviceId ?? 'no-device'}
-        controller={controller}
-        selectedDetection={selected}
-        macroEvents={liveMacro.events}
-      />
+        <div
+          className={`android-workspace-splitter is-main-console${activeSplitter === 'main-console' ? ' is-active' : ''}`}
+          role="separator"
+          aria-label="Main 영역과 Console 높이 조절"
+          aria-orientation="horizontal"
+          aria-valuemin={WORKSPACE_LAYOUT_MINIMUMS.consoleHeight}
+          aria-valuenow={effectiveWorkspaceLayout.consoleHeight}
+          tabIndex={0}
+          onPointerDown={(event) => beginWorkspaceResize('main-console', event)}
+          onPointerMove={moveWorkspaceResize}
+          onPointerUp={endWorkspaceResize}
+          onPointerCancel={endWorkspaceResize}
+          onDoubleClick={() => resetWorkspaceSplitter('main-console')}
+          onKeyDown={(event) => resizeWorkspaceWithKeyboard('main-console', event)}
+        />
+
+        <AndroidConsolePanel
+          key={`console-${controller.deviceId ?? 'no-device'}`}
+          controller={controller}
+          selectedDetection={selected}
+          macroEvents={liveMacro.events}
+        />
+      </div>
     </section>
   )
 }
@@ -1197,9 +1600,17 @@ function UiNodeInspector({
     { label: '텍스트', value: node.text ?? '—', code: false },
     { label: '설명', value: node.content_description ?? '—', code: false },
     { label: '뷰 ID', value: node.view_id_resource_name ?? '—', code: true },
-    { label: '경계', value: `${bounds.left}, ${bounds.top} → ${bounds.right}, ${bounds.bottom}`, code: true },
+    {
+      label: '경계',
+      value: `${bounds.left}, ${bounds.top} → ${bounds.right}, ${bounds.bottom}`,
+      code: true,
+    },
     { label: '크기', value: `${width} × ${height}`, code: true },
-    { label: '중앙', value: `${centerX.toFixed(1)}, ${centerY.toFixed(1)}`, code: true },
+    {
+      label: '중앙',
+      value: `${centerX.toFixed(1)}, ${centerY.toFixed(1)}`,
+      code: true,
+    },
   ]
   const states = [
     ['clickable', node.clickable],
@@ -1228,7 +1639,9 @@ function UiNodeInspector({
           {fields.map(({ label, value, code }) => (
             <div key={label}>
               <dt>{label}</dt>
-              <dd className={code ? 'code-text' : undefined} title={value}>{value}</dd>
+              <dd className={code ? 'code-text' : undefined} title={value}>
+                {value}
+              </dd>
             </div>
           ))}
         </dl>
@@ -1374,15 +1787,18 @@ export function AndroidConsolePanel({
     }
     return macroEvents
       .slice(lastRuntimeStart + 1)
-      .filter((event) => (
-        event.type === 'macro.user_debug' && !dismissedUserEvents.has(event.event_id)
-      ))
+      .filter(
+        (event) =>
+          event.type === 'macro.user_debug' && !dismissedUserEvents.has(event.event_id),
+      )
       .slice(-500)
   }, [clearOnStart, dismissedUserEvents, macroEvents])
 
-  const shownUserLogs = useMemo(() => userLogs.filter((event) => (
-    level === 'all' || userDebugLevel(event) === level
-  )), [level, userLogs])
+  const shownUserLogs = useMemo(
+    () =>
+      userLogs.filter((event) => level === 'all' || userDebugLevel(event) === level),
+    [level, userLogs],
+  )
 
   useEffect(() => {
     if (tab !== 'user' || !autoScroll || !userLogBody.current) return
@@ -1403,7 +1819,9 @@ export function AndroidConsolePanel({
               ? ko.panels.system
               : tab === 'user'
                 ? ko.panels.userDebug
-                : tab === 'vision' ? '비전' : '매크로'}
+                : tab === 'vision'
+                  ? '비전'
+                  : '매크로'}
           </strong>
         </div>
         <div className="android-console-tabs" role="tablist" aria-label="하단 패널">
@@ -1420,9 +1838,9 @@ export function AndroidConsolePanel({
                   ? `${ko.panels.system} (${controller.events.length.toString()})`
                   : value === 'user'
                     ? `${ko.panels.userDebug} (${userLogs.length.toString()})`
-                  : value === 'vision'
-                    ? '비전'
-                    : '매크로'
+                    : value === 'vision'
+                      ? '비전'
+                      : '매크로'
               }
               onClick={() => setTab(value)}
             />
@@ -1496,30 +1914,39 @@ export function AndroidConsolePanel({
                 small
                 minimal
                 icon="trash"
-                onClick={() => setDismissedUserEvents((current) => {
-                  const next = new Set(current)
-                  userLogs.forEach((event) => next.add(event.event_id))
-                  return next
-                })}
+                onClick={() =>
+                  setDismissedUserEvents((current) => {
+                    const next = new Set(current)
+                    userLogs.forEach((event) => next.add(event.event_id))
+                    return next
+                  })
+                }
               >
                 지우기
               </Button>
             </header>
             <div className="user-debug-console__body" ref={userLogBody}>
-              {shownUserLogs.length > 0 ? shownUserLogs.map((event) => {
-                const eventLevel = userDebugLevel(event)
-                return (
-                  <div key={event.event_id} className={`user-debug-row is-${eventLevel}`}>
-                    <time>{new Date(event.timestamp).toLocaleTimeString()}</time>
-                    <Tag minimal intent={userDebugIntent(eventLevel)}>{eventLevel}</Tag>
-                    <span>{userDebugMessage(event)}</span>
-                    <small title={event.runtime_id}>
-                      {event.node_id ?? 'debug'}
-                    </small>
-                  </div>
-                )
-              }) : (
-                <div className="android-panel-empty">아직 사용자 디버그 출력이 없습니다.</div>
+              {shownUserLogs.length > 0 ? (
+                shownUserLogs.map((event) => {
+                  const eventLevel = userDebugLevel(event)
+                  return (
+                    <div
+                      key={event.event_id}
+                      className={`user-debug-row is-${eventLevel}`}
+                    >
+                      <time>{new Date(event.timestamp).toLocaleTimeString()}</time>
+                      <Tag minimal intent={userDebugIntent(eventLevel)}>
+                        {eventLevel}
+                      </Tag>
+                      <span>{userDebugMessage(event)}</span>
+                      <small title={event.runtime_id}>{event.node_id ?? 'debug'}</small>
+                    </div>
+                  )
+                })
+              ) : (
+                <div className="android-panel-empty">
+                  아직 사용자 디버그 출력이 없습니다.
+                </div>
               )}
             </div>
           </section>

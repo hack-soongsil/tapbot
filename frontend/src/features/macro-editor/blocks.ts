@@ -17,6 +17,8 @@ export interface BlockDefinition {
   description?: string
   inputs?: readonly PortDefinition[]
   outputs?: readonly PortDefinition[]
+  presetConfig?: Record<string, JsonValue>
+  presetLabel?: string
 }
 
 const selector = {

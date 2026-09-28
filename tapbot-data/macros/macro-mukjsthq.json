@@ -1,0 +1,103 @@
+{
+  "edges": [],
+  "id": "macro-mukjsthq",
+  "metadata": {},
+  "name": "새 매크로",
+  "nodes": [
+    {
+      "config": {
+        "event": "enter",
+        "screen_id": "reservation_home"
+      },
+      "id": "event-home-enter",
+      "label": "스터디룸 예약 메인 / 화면 진입",
+      "position": {
+        "x": 80.0,
+        "y": 60.0
+      },
+      "type": "screen_enter"
+    },
+    {
+      "config": {
+        "event": "update",
+        "interval_ms": 1000,
+        "screen_id": "reservation_home",
+        "skip_if_running": true
+      },
+      "id": "event-home-update",
+      "label": "스터디룸 예약 메인 / 화면 업데이트",
+      "position": {
+        "x": 340.0,
+        "y": 60.0
+      },
+      "type": "screen_update"
+    },
+    {
+      "config": {
+        "event": "exit",
+        "screen_id": "reservation_home"
+      },
+      "id": "event-home-exit",
+      "label": "스터디룸 예약 메인 / 화면 이탈",
+      "position": {
+        "x": 600.0,
+        "y": 60.0
+      },
+      "type": "screen_exit"
+    },
+    {
+      "config": {
+        "event": "enter",
+        "screen_id": "reservation_detail"
+      },
+      "id": "event-detail-enter",
+      "label": "스터디룸 예약 상세 / 화면 진입",
+      "position": {
+        "x": 80.0,
+        "y": 60.0
+      },
+      "type": "screen_enter"
+    },
+    {
+      "config": {
+        "event": "update",
+        "interval_ms": 1000,
+        "screen_id": "reservation_detail",
+        "skip_if_running": true
+      },
+      "id": "event-detail-update",
+      "label": "스터디룸 예약 상세 / 화면 업데이트",
+      "position": {
+        "x": 340.0,
+        "y": 60.0
+      },
+      "type": "screen_update"
+    },
+    {
+      "config": {
+        "event": "exit",
+        "screen_id": "reservation_detail"
+      },
+      "id": "event-detail-exit",
+      "label": "스터디룸 예약 상세 / 화면 이탈",
+      "position": {
+        "x": 600.0,
+        "y": 60.0
+      },
+      "type": "screen_exit"
+    }
+  ],
+  "screen_event_entry_node_ids": {
+    "reservation_detail": {
+      "enter": "event-detail-enter",
+      "exit": "event-detail-exit",
+      "update": "event-detail-update"
+    },
+    "reservation_home": {
+      "enter": "event-home-enter",
+      "exit": "event-home-exit",
+      "update": "event-home-update"
+    }
+  },
+  "version": 1
+}

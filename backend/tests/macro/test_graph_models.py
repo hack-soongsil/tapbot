@@ -8,6 +8,7 @@ from tapbot.macro import (
     MacroDefinition,
     MacroEdge,
     MacroNode,
+    MacroVariableDefinition,
     NodePosition,
 )
 
@@ -36,6 +37,29 @@ def test_macro_definition_json_round_trip_preserves_editor_metadata() -> None:
     assert restored == definition
     assert restored.nodes[0].position == NodePosition(125.5, 80)
     assert json.loads(restored.to_json())["nodes"][0]["label"] == "Tap login"
+
+
+def test_external_variable_input_metadata_round_trips() -> None:
+    variable = MacroVariableDefinition(
+        "room",
+        "string",
+        "A101",
+        input=True,
+        description="예약할 강의실",
+        options=("A101", "B202"),
+    )
+
+    restored = MacroVariableDefinition.from_dict(variable.to_dict())
+
+    assert restored == variable
+    assert restored.to_dict() == {
+        "name": "room",
+        "type": "string",
+        "default": "A101",
+        "input": True,
+        "description": "예약할 강의실",
+        "options": ["A101", "B202"],
+    }
 
 
 def test_snapshot_detaches_mutable_node_config() -> None:

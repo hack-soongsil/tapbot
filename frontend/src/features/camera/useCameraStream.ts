@@ -9,6 +9,7 @@ import {
   fetchCameraSources,
   fetchCameraStatus,
   reconnectCameraSource,
+  releaseCameraSource,
   selectCameraSource,
 } from './camera-api'
 
@@ -183,6 +184,7 @@ export function useCameraStream() {
       currentUrl.current = null
       currentBlob.current = null
       lastFrameId.current = null
+      void releaseCameraSource().catch(() => undefined)
     }
   }, [])
 

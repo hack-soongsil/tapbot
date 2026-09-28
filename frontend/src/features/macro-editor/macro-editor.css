@@ -188,15 +188,191 @@
 .macro-palette__block.is-utility { border-left-color: #aa7ee8; }
 
 .macro-canvas {
+  position: relative;
+  isolation: isolate;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
   background: #10151a;
 }
 
-.macro-canvas .react-flow {
+.macro-sidebar {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-rows: 34px minmax(0, 1fr);
+  overflow: hidden;
+  border-right: 1px solid #383e47;
+  background: #181d23;
+}
+
+.macro-sidebar__tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  border-bottom: 1px solid #303640;
+}
+
+.macro-sidebar__tabs button {
+  border: 0;
+  border-right: 1px solid #303640;
+  color: #929daa;
+  background: #151a20;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.macro-sidebar__tabs button[aria-selected='true'] {
+  color: #eef3f8;
+  box-shadow: inset 0 -2px #e4bd61;
+  background: #222930;
+}
+
+.macro-sidebar__panel,
+.macro-sidebar__panel > * {
   width: 100%;
   height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.macro-sidebar__panel[hidden] { display: none; }
+
+.my-blueprint {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background: #181d23;
+}
+
+.my-blueprint__heading { min-height: 48px; padding: 5px 7px 5px 10px; }
+.my-blueprint__heading > div { display: flex; min-width: 0; gap: 1px; }
+.my-blueprint__heading .bp6-button { padding-inline: 5px; font-size: 10px; }
+
+.my-blueprint__body {
+  min-height: 0;
+  padding: 6px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.my-blueprint__group + .my-blueprint__group { margin-top: 10px; }
+
+.my-blueprint__group h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 0 4px 4px;
+  color: #aab4c0;
+  font-size: 11px;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+
+.my-blueprint__group h2 small {
+  color: #697582;
+  font-size: 10px;
+}
+
+.my-blueprint__item {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  color: #dce3ea;
+  background: transparent;
+  text-align: left;
+  cursor: grab;
+}
+
+.my-blueprint__item:hover { border-color: #3d4651; background: #222932; }
+.my-blueprint__item.is-selected { border-color: #907a48; background: rgb(228 189 97 / 11%); }
+.my-blueprint__item strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.my-blueprint__item code { color: #8f9aa7; font-size: 10px; }
+.my-blueprint__function-icon { color: #e4bd61; font-size: 16px; font-weight: 700; text-align: center; }
+.my-blueprint__empty { padding: 8px; color: #707b88; font-size: 11px; }
+
+.blueprint-type-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid color-mix(in srgb, var(--blueprint-type-color) 76%, white);
+  border-radius: 50%;
+  background: var(--blueprint-type-color);
+}
+
+.blueprint-type--bool { --blueprint-type-color: #d77fe8; }
+.blueprint-type--int { --blueprint-type-color: #69c6a3; }
+.blueprint-type--float { --blueprint-type-color: #77b9e8; }
+.blueprint-type--string { --blueprint-type-color: #e7b968; }
+.blueprint-type--position { --blueprint-type-color: #ef8f69; }
+.blueprint-type--rect { --blueprint-type-color: #b49af2; }
+.blueprint-type--element { --blueprint-type-color: #f0779d; }
+
+.my-blueprint__context-menu,
+.macro-canvas-context-menu {
+  position: fixed;
+  z-index: 1410;
+  display: grid;
+  min-width: 150px;
+  padding: 4px;
+  border: 1px solid #4b5664;
+  border-radius: 5px;
+  background: #171c22;
+  box-shadow: 0 12px 32px rgb(0 0 0 / 48%);
+}
+
+.my-blueprint__context-menu button,
+.macro-canvas-context-menu button {
+  min-height: 28px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 3px;
+  color: #dce3ea;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.macro-canvas-context-menu strong { padding: 5px 8px; color: #e4bd61; font-size: 11px; }
+.my-blueprint__context-menu button:hover,
+.macro-canvas-context-menu button:hover { background: #2a333d; }
+.my-blueprint__context-menu button.is-danger { color: #ff999c; }
+
+.blueprint-inspector__form { display: grid; gap: 10px; }
+.blueprint-inspector__form textarea { resize: vertical; }
+.blueprint-inspector__hint { margin: 0; color: #7f8a97; font-size: 11px; line-height: 1.45; }
+
+.blueprint-signature { display: grid; gap: 5px; padding-top: 8px; border-top: 1px solid #303842; }
+.blueprint-signature > header { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.blueprint-signature__row { display: grid; grid-template-columns: 12px minmax(0, 1fr) 84px 26px; align-items: center; gap: 5px; }
+.blueprint-signature__row input,
+.blueprint-signature__row select { min-width: 0; }
+
+.macro-canvas > .react-flow {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.macro-canvas .react-flow__background,
+.macro-canvas .react-flow__connection {
+  pointer-events: none;
+}
+
+.macro-canvas .react-flow__controls,
+.macro-canvas .react-flow__minimap {
+  z-index: 5;
 }
 
 .macro-canvas .react-flow__controls,
@@ -218,63 +394,85 @@
 }
 
 .macro-node {
+  --node-accent: #7d8998;
+  --node-accent-soft: rgb(125 137 152 / 20%);
   position: relative;
-  width: 230px;
+  width: 250px;
   min-width: 220px;
-  min-height: 112px;
-  padding: 0 0 12px;
-  border: 1px solid #48515e;
-  border-left: 3px solid #637083;
-  border-radius: 6px;
+  min-height: 0;
+  overflow: visible;
+  border: 1px solid #46515e;
+  border-top: 3px solid var(--node-accent);
+  border-radius: 5px;
   color: #ecf0f5;
-  background: linear-gradient(145deg, #222933, #1b2129);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 24%);
+  background: #1a2027;
+  box-shadow: 0 8px 20px rgb(0 0 0 / 28%);
+  transition: border-color 120ms ease, box-shadow 120ms ease, filter 120ms ease;
 }
 
 .macro-node__header {
-  position: relative;
-  min-height: 78px;
-  padding: 13px 16px 10px;
-  border-bottom: 1px solid rgb(255 255 255 / 7%);
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 7px 11px 9px;
+  border-bottom: 1px solid color-mix(in srgb, var(--node-accent) 34%, #313944);
+  border-radius: 3px 3px 0 0;
+  background:
+    linear-gradient(90deg, var(--node-accent-soft), transparent 82%),
+    #252c35;
 }
 
-.macro-node--action { border-left-color: #4c90f0; }
-.macro-node--event { border-left-color: #f06a8a; background: color-mix(in srgb, #f06a8a 9%, var(--surface)); }
-.macro-node--ui { border-left-color: #7ecf9b; }
-.macro-node--condition { border-left-color: #58c7d8; }
-.macro-node--control { border-left-color: #b38df4; }
-.macro-node--validation { border-left-color: #f0b45a; }
+.macro-node--kind-event { --node-accent: #ef6a91; --node-accent-soft: rgb(239 106 145 / 23%); }
+.macro-node--kind-control { --node-accent: #a887ef; --node-accent-soft: rgb(168 135 239 / 22%); }
+.macro-node--kind-ui { --node-accent: #5b9fea; --node-accent-soft: rgb(91 159 234 / 22%); }
+.macro-node--kind-action { --node-accent: #52bf9a; --node-accent-soft: rgb(82 191 154 / 21%); }
+.macro-node--kind-condition { --node-accent: #55bfd1; --node-accent-soft: rgb(85 191 209 / 21%); }
+.macro-node--kind-variable,
+.macro-node--kind-function { --node-accent: #e4bd61; --node-accent-soft: rgb(228 189 97 / 22%); }
+
+.macro-node[data-node-type='get_variable'] {
+  width: 180px;
+  min-width: 160px;
+}
+
+.macro-node[data-node-type='get_variable'] .macro-node__header {
+  padding-block: 6px;
+}
+
+.macro-node[data-node-type='get_variable'] .macro-node__eyebrow { display: none; }
+.macro-node[data-node-type='get_variable'] .macro-node__ports { grid-template-columns: 1fr; padding-block: 3px 6px; }
+.macro-node[data-node-type='get_variable'] .macro-node__port-column--input { display: none; }
+.macro-node[data-node-type='function_entry'] { --node-accent: #ef6a91; --node-accent-soft: rgb(239 106 145 / 20%); }
+.macro-node[data-node-type='function_return'] { --node-accent: #a887ef; --node-accent-soft: rgb(168 135 239 / 20%); }
+.macro-node--kind-validation { --node-accent: #ed9e50; --node-accent-soft: rgb(237 158 80 / 22%); }
+.macro-node--kind-utility { --node-accent: #c98adf; --node-accent-soft: rgb(201 138 223 / 20%); }
+
+.macro-node:hover {
+  border-color: color-mix(in srgb, var(--node-accent) 65%, #66717e);
+  box-shadow: 0 0 14px color-mix(in srgb, var(--node-accent) 18%, transparent), 0 9px 22px rgb(0 0 0 / 32%);
+}
 
 .macro-node.is-selected {
-  border-color: #78aef8;
-  box-shadow: 0 0 0 1px #4c90f0, 0 10px 28px rgb(0 0 0 / 28%);
+  border-color: var(--node-accent);
+  box-shadow:
+    0 0 0 2px color-mix(in srgb, var(--node-accent) 72%, transparent),
+    0 0 20px color-mix(in srgb, var(--node-accent) 24%, transparent),
+    0 10px 26px rgb(0 0 0 / 34%);
+  filter: brightness(1.06);
 }
 
 .macro-node.has-error {
-  border-color: #fa777a;
+  outline: 1px solid #fa777a;
+  outline-offset: 1px;
 }
 
 .macro-node.runtime-running {
-  border-color: #4c90f0;
-  background: linear-gradient(145deg, #243e5b, #1b2938);
-  box-shadow: 0 0 0 2px rgb(76 144 240 / 25%), 0 8px 24px rgb(0 0 0 / 24%);
+  box-shadow: 0 0 0 2px rgb(76 144 240 / 30%), 0 0 18px rgb(76 144 240 / 18%);
 }
 
 .macro-node.runtime-success { border-color: #52b788; }
 .macro-node.runtime-failure { border-color: #fa777a; }
 .macro-node.runtime-skipped { opacity: 0.55; }
-
-.macro-node__runtime {
-  position: absolute;
-  top: 7px;
-  right: 7px;
-  color: #a9c9f8;
-  font-family: var(--font-ui);
-  font-size: 11px;
-  text-transform: uppercase;
-}
-
-.macro-node__entry + .macro-node__runtime { top: 20px; }
 
 .macro-canvas .runtime-current-edge .react-flow__edge-path {
   stroke: #4c90f0;
@@ -353,60 +551,71 @@
 .macro-event-log pre { margin: 0; padding: 8px 20px; overflow: auto; }
 
 .macro-node__eyebrow {
-  color: #7f8a98;
+  color: color-mix(in srgb, var(--node-accent) 88%, white);
   font-family: var(--font-ui);
-  font-size: 11px;
-  font-weight: 600;
-  overflow-wrap: anywhere;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
 }
 
-.macro-node__type {
-  color: #7f8a98;
-  font-family: var(--mono);
-  font-size: 11px;
-  overflow-wrap: anywhere;
-  text-transform: uppercase;
+.macro-node__heading-row {
+  display: flex;
+  min-width: 0;
+  min-height: 15px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
 }
 
 .macro-node__title {
-  margin: 5px 52px 5px 0;
-  font-size: 14px;
+  min-width: 0;
+  color: #f4f6f8;
+  font-size: 15px;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.3;
   overflow-wrap: anywhere;
 }
 
-.macro-node__entry,
-.macro-node__error {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  color: #7ecf9b;
-  font-family: var(--font-ui);
-  font-size: 11px;
-  letter-spacing: normal;
+.macro-node__badges {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
 }
 
-.macro-node__error {
-  top: auto;
-  right: 7px;
-  bottom: 5px;
-  color: #fa777a;
+.macro-node__badge {
+  max-width: 76px;
+  padding: 1px 4px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, currentcolor 38%, transparent);
+  border-radius: 3px;
+  color: #adc8eb;
+  background: rgb(10 14 18 / 45%);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
+
+.macro-node__badge.is-entry { color: #8fd8ab; }
+.macro-node__badge.is-error { color: #ff999c; }
 
 .macro-node__ports {
   display: grid;
   min-width: 0;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 10px;
-  padding-top: 7px;
+  gap: 8px;
+  padding: 7px 0 8px;
 }
 
 .macro-node__port-column {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 2px;
+  align-self: start;
+  gap: 0;
 }
 
 .macro-node__port {
@@ -414,28 +623,28 @@
   position: relative;
   display: flex;
   min-width: 0;
-  min-height: 38px;
-  flex-direction: column;
+  min-height: 31px;
+  flex-direction: row;
+  align-items: center;
   justify-content: center;
-  gap: 2px;
   color: #d8dee7;
-  font-size: 12px;
-  line-height: 1.15;
+  font-size: 12.5px;
+  line-height: 1.2;
 }
 
 .macro-node__port--input {
-  align-items: flex-start;
-  padding: 3px 4px 3px 20px;
+  justify-content: flex-start;
+  padding: 2px 4px 2px 19px;
   text-align: left;
 }
 
 .macro-node__port--output {
-  align-items: flex-end;
-  padding: 3px 20px 3px 4px;
+  justify-content: flex-end;
+  padding: 2px 19px 2px 4px;
   text-align: right;
 }
 
-.macro-node__port--exec { --port-color: #e5eaf1; min-height: 32px; }
+.macro-node__port--exec { --port-color: #f2f4f7; }
 .macro-node__port--bool { --port-color: #d77fe8; }
 .macro-node__port--int { --port-color: #69c6a3; }
 .macro-node__port--float { --port-color: #77b9e8; }
@@ -447,24 +656,20 @@
 
 .macro-node__port-label {
   max-width: 100%;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 12.5px;
+  font-weight: 500;
   overflow-wrap: anywhere;
 }
 
-.macro-node__port-type {
-  color: var(--port-color);
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+.macro-node__port--exec .macro-node__port-label {
+  color: #f2f4f7;
+  font-weight: 700;
 }
 
 .macro-node__port-handle.react-flow__handle {
   z-index: 6;
-  width: 24px;
-  height: 24px;
+  width: 26px;
+  height: 26px;
   border: 0;
   background: transparent;
 }
@@ -481,7 +686,7 @@
   border: 2px solid #eff3f8;
   border-radius: 50%;
   background: var(--port-color);
-  box-shadow: 0 0 0 1px rgb(0 0 0 / 45%);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 60%);
   content: '';
   transform: translate(-50%, -50%);
   transition: filter 120ms ease, transform 120ms ease, opacity 120ms ease;
@@ -493,7 +698,7 @@
   border: 0;
   border-radius: 0;
   clip-path: polygon(0 0, 100% 50%, 0 100%);
-  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #000);
+  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 1px 1px #000);
 }
 
 .macro-node__port-handle:hover::after,
@@ -526,6 +731,14 @@
   stroke: #d77fe8;
   stroke-dasharray: 5 3;
 }
+
+.macro-edge--type-bool .react-flow__edge-path { stroke: #d77fe8; }
+.macro-edge--type-int .react-flow__edge-path { stroke: #69c6a3; }
+.macro-edge--type-float .react-flow__edge-path { stroke: #77b9e8; }
+.macro-edge--type-string .react-flow__edge-path { stroke: #e7b968; }
+.macro-edge--type-position .react-flow__edge-path { stroke: #ef8f69; }
+.macro-edge--type-rect .react-flow__edge-path { stroke: #b49af2; }
+.macro-edge--type-element .react-flow__edge-path { stroke: #f0779d; }
 
 .macro-inspector__body {
   display: grid;
@@ -618,7 +831,7 @@
 
 .quick-block-search {
   position: fixed;
-  z-index: 1000;
+  z-index: 1400;
   display: grid;
   width: min(360px, calc(100vw - 16px));
   max-height: min(70vh, 600px, calc(100vh - 16px));

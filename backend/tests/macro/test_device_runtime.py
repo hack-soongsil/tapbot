@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import time
 
+import pytest
+
 from tapbot.macro.binding import DeviceMacroBinding, DeviceMacroBindingRepository
 from tapbot.macro.graph_engine import GraphEngine
 from tapbot.macro.graph_models import (
@@ -11,6 +13,7 @@ from tapbot.macro.graph_models import (
     MacroDefinition,
     MacroEdge,
     MacroNode,
+    MacroVariableDefinition,
     NodeResult,
     ScreenDefinition,
 )
@@ -130,6 +133,32 @@ def test_same_definition_has_isolated_device_runtimes(tmp_path: Path) -> None:
     manager.stop("a")
     assert manager.current("b").state is DeviceRuntimeStatus.PAUSED
     manager.stop("b")
+
+
+def test_start_injects_only_declared_typed_external_variables(tmp_path: Path) -> None:
+    repository, _bindings, manager = setup(tmp_path)
+    base = definition()
+    repository.save(MacroDefinition(
+        base.id,
+        base.name,
+        base.version,
+        base.nodes,
+        base.edges,
+        base.entry_node_id,
+        variables=(
+            MacroVariableDefinition("count", "int", 1, input=True),
+            MacroVariableDefinition("internal", "string", "kept-private"),
+        ),
+    ))
+
+    started = manager.start("a", initial_variables={"count": 7})
+
+    assert started.variables["count"] == 7
+    with pytest.raises(ValueError, match="not declared external"):
+        manager.start("b", initial_variables={"internal": "override"})
+    with pytest.raises(ValueError, match="must match type int"):
+        manager.start("b", initial_variables={"count": "seven"})
+    manager.close()
 
 
 def test_debug_print_is_published_as_structured_user_event(tmp_path: Path) -> None:

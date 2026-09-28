@@ -139,11 +139,13 @@ def test_status_and_camera_frame_endpoints() -> None:
     with client:
         status = client.get("/api/status")
         frame_response = wait_for_camera(client)
+        released = client.post("/api/camera/release")
 
     assert status.status_code == 200
     assert status.json()["robot"] == "FakeRobotController"
     assert status.json()["robot_mode"] == "REAL"
     assert status.json()["robot_connected"] is True
+    assert status.json()["camera_opened"] is False
     assert status.json()["calibration_profile"] is None
     assert frame_response.headers["content-type"] == "image/jpeg"
     assert int(frame_response.headers["x-frame-id"]) >= 1
@@ -151,8 +153,32 @@ def test_status_and_camera_frame_endpoints() -> None:
     assert frame_response.headers["x-frame-height"] == "8"
     assert frame_response.headers["cache-control"] == "no-store"
     assert "X-Frame-Id" in frame_response.headers["access-control-expose-headers"]
+    assert released.status_code == 200
+    assert released.json()["opened"] is False
+    assert released.json()["state"] == "disconnected"
     decoded = cv2.imdecode(np.frombuffer(frame_response.content, np.uint8), cv2.IMREAD_COLOR)
     assert decoded.shape == (8, 12, 3)
+
+
+def test_camera_capture_starts_on_demand_and_stops_after_inactivity() -> None:
+    camera = FakeCamera()
+    app = create_app(camera=camera, camera_fps=20)
+    app.state.vision_service._camera_idle_timeout_sec = 0.05
+
+    with TestClient(app) as client:
+        assert client.get("/api/status").json()["camera_opened"] is False
+
+        response = wait_for_camera(client)
+        assert response.status_code == 200
+        assert camera.opened is True
+
+        for _ in range(50):
+            if not camera.opened:
+                break
+            time.sleep(0.01)
+
+        assert camera.opened is False
+        assert client.get("/api/camera/status").json()["state"] == "disconnected"
 
 
 def test_event_log_contains_user_action_and_execution_result() -> None:

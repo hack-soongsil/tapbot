@@ -6,8 +6,8 @@ from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 import itertools
 import math
-from threading import Event, Lock, Thread
-from time import perf_counter
+from threading import Event, Lock, Thread, Timer, current_thread
+from time import perf_counter, sleep
 
 import cv2
 import numpy as np
@@ -57,6 +57,7 @@ class CameraFrameWorker:
         self._encoder = encoder
         self._stop = Event()
         self._lock = Lock()
+        self._lifecycle_lock = Lock()
         self._thread: Thread | None = None
         self._frame: NDArray[np.uint8] | None = None
         self._snapshot: CameraFrameSnapshot | None = None
@@ -64,19 +65,36 @@ class CameraFrameWorker:
         self._frozen_frames: dict[int, NDArray[np.uint8]] = {}
         self._error: str | None = None
 
-    def start(self) -> None:
-        if self._thread is not None and self._thread.is_alive():
-            return
-        self._stop.clear()
-        self._thread = Thread(target=self._run, name="tapbot-camera-capture", daemon=True)
-        self._thread.start()
+    def start(self) -> bool:
+        with self._lifecycle_lock:
+            if self._thread is not None and self._thread.is_alive():
+                return False
+            self._stop.clear()
+            self.clear_latest()
+            thread = Thread(
+                target=self._run,
+                name="tapbot-camera-capture",
+                daemon=True,
+            )
+            self._thread = thread
+            thread.start()
+            return True
 
     def stop(self, *, timeout: float = 2.0) -> None:
-        self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout)
+        with self._lifecycle_lock:
+            thread = self._thread
+            self._stop.set()
+        if thread is not None and thread is not current_thread():
+            thread.join(timeout)
         self.camera.close()
-        self._thread = None
+        with self._lifecycle_lock:
+            if self._thread is thread:
+                self._thread = None
+
+    @property
+    def is_running(self) -> bool:
+        with self._lifecycle_lock:
+            return self._thread is not None and self._thread.is_alive()
 
     def latest_frame(self) -> CameraFrameSnapshot | None:
         with self._lock:
@@ -106,6 +124,14 @@ class CameraFrameWorker:
             self._frame = None
             self._snapshot = None
             self._frozen_frames.clear()
+            self._error = None
+
+    def clear_latest(self) -> None:
+        """Discard the live preview without removing explicitly frozen frames."""
+
+        with self._lock:
+            self._frame = None
+            self._snapshot = None
             self._error = None
 
     def _run(self) -> None:
@@ -160,6 +186,9 @@ class CameraFrameWorker:
             self._event_log.add(f"Camera open error: {error}", level="error")
         finally:
             self.camera.close()
+            with self._lifecycle_lock:
+                if self._thread is current_thread():
+                    self._thread = None
 
     def _source_id(self) -> str:
         return str(getattr(self.camera, "id", getattr(self.camera, "source", type(self.camera).__name__)))
@@ -178,7 +207,13 @@ class VisionService:
         bounds: WorkspaceBounds,
         *,
         camera_manager: CameraManager | None = None,
+        camera_idle_timeout_sec: float = 5.0,
+        camera_start_timeout_sec: float = 4.0,
     ) -> None:
+        if camera_idle_timeout_sec <= 0:
+            raise ValueError("camera_idle_timeout_sec must be positive")
+        if camera_start_timeout_sec <= 0:
+            raise ValueError("camera_start_timeout_sec must be positive")
         self.camera = camera
         self.camera_manager = camera_manager
         self.event_log = event_log
@@ -186,6 +221,11 @@ class VisionService:
         self.calibration_store = calibration_store
         self.bounds = bounds
         self.worker = worker
+        self._camera_idle_timeout_sec = camera_idle_timeout_sec
+        self._camera_start_timeout_sec = camera_start_timeout_sec
+        self._camera_lifecycle_lock = Lock()
+        self._camera_idle_timer: Timer | None = None
+        self._camera_generation = 0
         self._calibration_lock = Lock()
         self._frame_lock = Lock()
         self._result_lock = Lock()
@@ -201,11 +241,8 @@ class VisionService:
             self._active_calibration = None
             event_log.add(f"Calibration load error: {error}", level="error")
 
-    def start(self) -> None:
-        self.worker.start()
-
     def stop(self) -> None:
-        self.worker.stop()
+        self._stop_camera_capture()
 
     @property
     def active_calibration_name(self) -> str | None:
@@ -240,36 +277,49 @@ class VisionService:
     def select_camera_source(self, source_id: str) -> dict[str, object]:
         if self.camera_manager is None:
             raise CameraSwitchUnsupportedError("The injected camera source cannot be switched")
-        self.worker.stop()
-        self.worker.clear()
+        self._stop_camera_capture(clear=True)
         try:
             self.camera_manager.select(source_id)
         except Exception:
-            self.worker.start()
             raise
-        self.worker.start()
+        self._request_camera_capture()
         self.event_log.add(f"Camera source selected: {source_id}", event_type="camera.source", category="camera", status="success", payload={"source_id": source_id})
         return {"active_id": self.camera_manager.active_source_id, "metadata": self.camera_manager.get_metadata()}
 
     def reconnect_camera(self) -> dict[str, object]:
         if self.camera_manager is None:
             raise CameraSwitchUnsupportedError("The injected camera source cannot be reconnected")
-        self.worker.stop()
-        self.worker.clear()
+        self._stop_camera_capture(clear=True)
         try:
             self.camera_manager.reconnect()
         except Exception:
-            self.worker.start()
             raise
-        self.worker.start()
+        self._request_camera_capture()
         self.event_log.add(f"Camera source reconnected: {self.camera_manager.active_source_id}", event_type="camera.reconnect", category="camera", status="success", payload={"source_id": self.camera_manager.active_source_id})
         return self.camera_manager.status()
 
     def camera_frame(self, *, freeze: bool = False) -> CameraFrameSnapshot:
-        snapshot = self.worker.freeze_latest_frame() if freeze else self.worker.latest_frame()
+        self._request_camera_capture()
+        deadline = perf_counter() + self._camera_start_timeout_sec
+        snapshot = self.worker.latest_frame()
+        while snapshot is None and self.worker.error is None and perf_counter() < deadline:
+            sleep(0.01)
+            snapshot = self.worker.latest_frame()
+        if freeze and snapshot is not None:
+            snapshot = self.worker.freeze_latest_frame()
         if snapshot is None:
             raise CameraUnavailableError(self.worker.error or "Camera frame is not available yet")
         return snapshot
+
+    def release_camera(self) -> dict[str, object]:
+        self._stop_camera_capture()
+        self.event_log.add(
+            "Camera released",
+            event_type="camera.release",
+            category="camera",
+            status="success",
+        )
+        return self.camera_status()
 
     def calibration_profiles(self) -> dict[str, object]:
         return {"profiles": self.calibration_store.list_profiles(), "active_profile": self.active_calibration_name}
@@ -370,6 +420,45 @@ class VisionService:
         if image is None:
             raise VisionResourceNotFoundError("Vision result not found")
         return image
+
+    def _request_camera_capture(self) -> None:
+        with self._camera_lifecycle_lock:
+            self._camera_generation += 1
+            generation = self._camera_generation
+            if self._camera_idle_timer is not None:
+                self._camera_idle_timer.cancel()
+            self.worker.start()
+            timer = Timer(
+                self._camera_idle_timeout_sec,
+                self._release_idle_camera,
+                args=(generation,),
+            )
+            timer.daemon = True
+            self._camera_idle_timer = timer
+            timer.start()
+
+    def _release_idle_camera(self, generation: int) -> None:
+        with self._camera_lifecycle_lock:
+            if generation != self._camera_generation:
+                return
+            self._camera_idle_timer = None
+            self.worker.stop()
+            self.event_log.add(
+                "Camera released after inactivity",
+                event_type="camera.release",
+                category="camera",
+                status="success",
+            )
+
+    def _stop_camera_capture(self, *, clear: bool = False) -> None:
+        with self._camera_lifecycle_lock:
+            self._camera_generation += 1
+            if self._camera_idle_timer is not None:
+                self._camera_idle_timer.cancel()
+                self._camera_idle_timer = None
+            self.worker.stop()
+            if clear:
+                self.worker.clear()
 
     def _current_calibration(self) -> Calibration:
         with self._calibration_lock:

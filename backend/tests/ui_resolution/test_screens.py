@@ -9,6 +9,8 @@ def node(
     bounds: tuple[int, int, int, int] = (0, 0, 100, 50),
     class_name: str = "android.widget.Button",
     enabled: bool = True,
+    clickable: bool = True,
+    visible: bool = True,
     parent_id: str | None = None,
 ):
     return {
@@ -19,9 +21,9 @@ def node(
         "content_description": description,
         "view_id_resource_name": None,
         "bounds": dict(zip(("left", "top", "right", "bottom"), bounds, strict=True)),
-        "clickable": True,
+        "clickable": clickable,
         "enabled": enabled,
-        "visible_to_user": True,
+        "visible_to_user": visible,
     }
 
 
@@ -45,9 +47,20 @@ def detail_tree(cta: str = "시간을 선택하세요"):
         node("picker", text="2026년 9월 27일(일)", bounds=(200, 120, 900, 210)),
         node("reset", text="초기화", bounds=(820, 300, 1020, 380)),
         node("cta", text=cta, bounds=(80, 1700, 1000, 1820), enabled=cta != "시간을 선택하세요"),
+        node("decoration", bounds=(10, 420, 30, 440), clickable=False),
     ]
     nodes.extend(
-        node(f"slot-{index}", bounds=(50 + (index % 4) * 240, 500 + (index // 4) * 100, 220 + (index % 4) * 240, 570 + (index // 4) * 100), enabled=index % 2 == 0)
+        node(
+            f"slot-{index}",
+            bounds=(
+                50 + (index % 4) * 240,
+                500 + (index // 4) * 100,
+                220 + (index % 4) * 240,
+                570 + (index // 4) * 100,
+            ),
+            enabled=index % 2 == 0,
+            visible=index != 3,
+        )
         for index in range(32)
     )
     return {"nodes": nodes}
@@ -81,5 +94,15 @@ def test_detail_slots_remain_semantic_when_disabled_and_cta_text_changes() -> No
     slots = [item for item in before.elements if item.semantic_id.startswith("time_slot")]
     assert len(slots) == 32
     assert any(not slot.enabled and not slot.tappable for slot in slots)
+    assert slots[3].metadata == {
+        "enabled": False,
+        "visible": False,
+        "family": "time_slot",
+        "index": 3,
+        "time": "07:30",
+    }
+    assert slots[6].metadata["index"] == 6
+    assert slots[6].metadata["enabled"] is True
+    assert slots[6].metadata["visible"] is True
     assert next(item for item in before.elements if item.semantic_id == "reserve_cta").enabled is False
     assert next(item for item in after.elements if item.semantic_id == "reserve_cta").semantic_id == "reserve_cta"

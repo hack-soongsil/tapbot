@@ -39,6 +39,18 @@ npm run dev
 npm run dev:dry-run
 ```
 
+실제 Android 기기 없이 대시보드의 디바이스 연결, 화면 스트림, UI tree와 입력을
+확인하려면 3화면 로컬 Android Agent mock을 함께 실행합니다.
+
+```powershell
+npm run dev:mock
+```
+
+mock 화면은 `예약 목록 -> 시간 선택 -> 예약 완료` 순서로 이동하며 Tap, Back,
+Home 입력에 반응합니다. 기본 mock agent 포트는 `28765`이고 필요하면
+`npm run dev -- --dry-run --mock-android --mock-android-port 28766`처럼 변경할 수
+있습니다.
+
 Backend만 실행하려면 editable install 후 `tapbot-api --dry-run`을 사용할 수 있습니다.
 Android token과 model token은 backend 환경변수 또는 루트의 ignored `.env.local`에만
 두고, `frontend/` 환경변수에는 넣지 않습니다.

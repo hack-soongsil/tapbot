@@ -135,6 +135,48 @@ def test_for_index_drives_find_screen_element_collection_index() -> None:
     assert len(actions.taps) == 0
 
 
+def test_for_index_overrides_time_slot_literal_index() -> None:
+    class SlotUi(Ui):
+        def resolve_screen_element(self, screen_id, element_id, params):
+            assert screen_id == "reservation_detail"
+            assert element_id == "time_slot"
+            self.screen_indexes.append(params["index"])
+            return GraphElement(
+                f"time_slot[{params['index']}]",
+                TapBounds(10, 20, 30, 40),
+                metadata={"index": params["index"], "enabled": True, "visible": True},
+            )
+
+    ui = SlotUi()
+    graph = definition(
+        (
+            MacroNode("start", "for_loop", {
+                "start": 6, "end": 8, "step": 1,
+                "inclusive_end": False, "index_variable": "i",
+            }),
+            MacroNode("find", "find_screen_element", {
+                "screen_id": "reservation_detail",
+                "element_id": "time_slot",
+                "params": {"index": 99},
+            }),
+            MacroNode("done", "stop"),
+        ),
+        (
+            exec_edge("loop", "start", "find", "loop"),
+            data_edge("index", "start", "index", "find", "index"),
+            exec_edge("completed", "start", "done", "completed"),
+        ),
+    )
+
+    result = GraphEngine(create_default_node_registry()).run(
+        graph,
+        context=GraphExecutionContext(ui=ui),
+    )
+
+    assert result.runtime.state is GraphRuntimeStatus.STOPPED
+    assert ui.screen_indexes == [6, 7]
+
+
 def test_find_element_reference_drives_click_element_without_selector() -> None:
     element = GraphElement("stable", TapBounds(100, 200, 300, 400), "Reserve")
     ui = Ui(element)
@@ -186,6 +228,48 @@ def test_find_screen_element_reference_drives_click_element() -> None:
 
     assert ui.screen_indexes == [2]
     assert actions.taps == [(20.0, 30.0, 70)]
+
+
+def test_disabled_screen_element_is_found_with_metadata_but_click_fails() -> None:
+    class DisabledSlotUi(Ui):
+        def resolve_screen_element(self, screen_id, element_id, params):
+            assert screen_id == "reservation_detail"
+            assert element_id == "time_slot"
+            assert params["index"] == 6
+            return GraphElement(
+                "time_slot[6]",
+                TapBounds(10, 20, 30, 40),
+                metadata={"index": 6, "enabled": False, "visible": True},
+            )
+
+    ui = DisabledSlotUi()
+    actions = Actions()
+    graph = definition(
+        (
+            MacroNode("start", "find_screen_element", {
+                "screen_id": "reservation_detail",
+                "element_id": "time_slot",
+                "params": {"index": 6},
+            }),
+            MacroNode("click", "click_element", {"sampling_mode": "center"}),
+        ),
+        (
+            exec_edge("next", "start", "click"),
+            data_edge("element", "start", "element", "click", "element"),
+        ),
+    )
+    context = GraphExecutionContext(ui=ui, actions=actions)
+
+    result = GraphEngine(create_default_node_registry()).run(graph, context=context)
+
+    assert context.node_outputs["start"]["found"] is True
+    element = context.node_outputs["start"]["element"]
+    assert isinstance(element, GraphElement)
+    assert element.metadata == {"index": 6, "enabled": False, "visible": True}
+    assert result.runtime.variables["start"]["metadata"] == element.metadata
+    assert result.runtime.state is GraphRuntimeStatus.ERROR
+    assert result.runtime.error == "click element target 'time_slot[6]' is disabled"
+    assert actions.taps == []
 
 
 def test_find_screen_element_found_output_drives_branch() -> None:

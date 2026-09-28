@@ -255,8 +255,16 @@ class MacroManagementService:
             ),
         }
 
-    def start(self, device_id: str) -> dict[str, object]:
-        return self.runtimes.start(device_id).to_dict()
+    def start(
+        self,
+        device_id: str,
+        *,
+        initial_variables: dict[str, object] | None = None,
+    ) -> dict[str, object]:
+        return self.runtimes.start(
+            device_id,
+            initial_variables=initial_variables,
+        ).to_dict()
 
     def pause(self, device_id: str) -> dict[str, object]:
         return self.runtimes.pause(device_id).to_dict()

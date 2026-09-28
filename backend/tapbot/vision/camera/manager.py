@@ -85,7 +85,7 @@ class CameraManager(CameraSource):
         )
         source_id = manager._register_configured_source(initial_source)
         try:
-            manager.select(source_id)
+            manager.select(source_id, open_source=False)
         except CameraError:
             pass
         return manager
@@ -297,8 +297,13 @@ class CameraManager(CameraSource):
             )
         return sorted(descriptors, key=_descriptor_sort_key)
 
-    def select(self, source_id: str) -> CameraSource:
-        """Atomically close the previous source and open the selected source."""
+    def select(
+        self,
+        source_id: str,
+        *,
+        open_source: bool = True,
+    ) -> CameraSource:
+        """Select a source and optionally open it while holding the switch lock."""
 
         with self._lock:
             registration = self._registrations.get(source_id)
@@ -307,7 +312,7 @@ class CameraManager(CameraSource):
                 raise CameraSourceNotFoundError(self._last_error)
 
             if self._active is not None and self._active.id == source_id:
-                if not self._active.is_opened():
+                if open_source and not self._active.is_opened():
                     self._open_active()
                 return self._active
 
@@ -316,7 +321,8 @@ class CameraManager(CameraSource):
 
             self._active = registration.factory()
             self._last_error = None
-            self._open_active()
+            if open_source:
+                self._open_active()
             return self._active
 
     def current_source(self) -> CameraSource:

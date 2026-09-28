@@ -3,7 +3,6 @@
 import { act, fireEvent, render, renderHook } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AndroidProxyStatus } from '../../types/android-debug'
-import type { AndroidDeviceSummary } from '../devices/types'
 import { AndroidDebugWorkspace } from './AndroidDebugWorkspace'
 import { androidApi } from './android-api'
 import { useAndroidDebug } from './useAndroidDebug'
@@ -43,39 +42,6 @@ const offlineStatus = (deviceId: string): AndroidProxyStatus => ({
   stream: null,
   macro_status: 'IDLE',
 })
-
-const devices: AndroidDeviceSummary[] = [
-  {
-    id: 'device-a',
-    name: 'Note10',
-    endpoint: 'http://device-a.test:8765',
-    source: 'manual',
-    connected: true,
-    connection_state: 'online',
-    last_seen_at: null,
-    capture_ready: true,
-    stream_running: true,
-    accessibility_enabled: true,
-    remote_control_enabled: true,
-    macro_status: 'RUNNING',
-    last_error: null,
-  },
-  {
-    id: 'device-b',
-    name: 'S20',
-    endpoint: 'http://device-b.test:8765',
-    source: 'tailscale',
-    connected: false,
-    connection_state: 'offline',
-    last_seen_at: null,
-    capture_ready: false,
-    stream_running: false,
-    accessibility_enabled: false,
-    remote_control_enabled: false,
-    macro_status: 'IDLE',
-    last_error: 'offline',
-  },
-]
 
 beforeEach(() => {
   vi.mocked(androidApi.status).mockImplementation((deviceId) =>
@@ -221,11 +187,7 @@ describe('multi-device Android debug UI', () => {
       }) as unknown as ReturnType<typeof useAndroidDebug>
 
     const view = render(
-      <AndroidDebugWorkspace
-        controller={makeController()}
-        devices={devices}
-        onDeviceChange={vi.fn()}
-      />,
+      <AndroidDebugWorkspace controller={makeController()} />,
     )
     let stage = view.container.querySelector('.android-live-stage') as HTMLDivElement
     expect(view.queryByRole('button', { name: /Manual Control/ })).toBeNull()
@@ -265,22 +227,14 @@ describe('multi-device Android debug UI', () => {
 
     fireEvent.pointerDown(stage, { pointerId: 4, button: 0, clientX: 20, clientY: 80 })
     view.rerender(
-      <AndroidDebugWorkspace
-        controller={makeController({ deviceId: 'device-b' })}
-        devices={devices}
-        onDeviceChange={vi.fn()}
-      />,
+      <AndroidDebugWorkspace controller={makeController({ deviceId: 'device-b' })} />,
     )
     stage = view.container.querySelector('.android-live-stage') as HTMLDivElement
     fireEvent.pointerUp(stage, { pointerId: 4, button: 0, clientX: 40, clientY: 20 })
     expect(gesture).toHaveBeenCalledTimes(1)
 
     view.rerender(
-      <AndroidDebugWorkspace
-        controller={makeController()}
-        devices={devices}
-        onDeviceChange={vi.fn()}
-      />,
+      <AndroidDebugWorkspace controller={makeController()} />,
     )
     stage = view.container.querySelector('.android-live-stage') as HTMLDivElement
     vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue({
@@ -296,11 +250,7 @@ describe('multi-device Android debug UI', () => {
     })
     fireEvent.pointerDown(stage, { pointerId: 5, button: 0, clientX: 20, clientY: 80 })
     view.rerender(
-      <AndroidDebugWorkspace
-        controller={makeController({ streamFailed: true })}
-        devices={devices}
-        onDeviceChange={vi.fn()}
-      />,
+      <AndroidDebugWorkspace controller={makeController({ streamFailed: true })} />,
     )
     stage = view.container.querySelector('.android-live-stage') as HTMLDivElement
     fireEvent.pointerUp(stage, { pointerId: 5, button: 0, clientX: 40, clientY: 20 })

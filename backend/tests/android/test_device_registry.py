@@ -232,6 +232,12 @@ def test_device_routes_isolate_actions_frames_macros_and_failures(tmp_path: Path
         "device-a",
         "device-b",
     }
+    listed_a = next(
+        item for item in devices.json()["devices"] if item["id"] == "device-a"
+    )
+    assert listed_a["screen_width"] == 200
+    assert listed_a["screen_height"] == 100
+    assert listed_a["stream_fps"] == 20.0
     assert len(device_a.taps) == 2
     assert device_b.taps == []
     assert b_state["device_id"] == "device-b"

@@ -20,6 +20,7 @@ from tapbot.macro.graph_models import (
     GraphNodeTrace,
     GraphRuntime,
     GraphRuntimeStatus,
+    MacroVariableDefinition,
     JsonObject,
     JsonValue,
     MacroDefinition,
@@ -27,6 +28,8 @@ from tapbot.macro.graph_models import (
     MacroNode,
     NodeStatus,
 )
+from tapbot.macro.nodes.variable import default_matches_type
+from tapbot.macro.tap_point import TapBounds
 from tapbot.macro.repository import MacroRepository
 from tapbot.macro.screen_lifecycle import ScreenLifecycleDispatcher, ScreenLifecycleEvent
 
@@ -125,8 +128,17 @@ class RuntimeManager:
         self._sessions: dict[str, _Session] = {}
         self._lock = RLock()
 
-    def start(self, device_id: str) -> DeviceRuntimeSnapshot:
-        return self._start(device_id, step_budget=None)
+    def start(
+        self,
+        device_id: str,
+        *,
+        initial_variables: JsonObject | None = None,
+    ) -> DeviceRuntimeSnapshot:
+        return self._start(
+            device_id,
+            step_budget=None,
+            initial_variables=initial_variables,
+        )
 
     def pause(self, device_id: str) -> DeviceRuntimeSnapshot:
         session = self._require_session(device_id)
@@ -260,6 +272,7 @@ class RuntimeManager:
         *,
         step_budget: int | None,
         wait_for_step: float | None = None,
+        initial_variables: JsonObject | None = None,
     ) -> DeviceRuntimeSnapshot:
         binding = self.bindings.get(device_id)
         if binding is None or not binding.enabled:
@@ -267,6 +280,12 @@ class RuntimeManager:
         if not self.device_online(device_id):
             raise RuntimeError("device is offline")
         definition = self.repository.get(binding.macro_definition_id).snapshot()
+        context = self.context_factory(device_id, binding)
+        if initial_variables is not None:
+            context.variables.update(_validated_initial_variables(
+                definition.variables,
+                initial_variables,
+            ))
         with self._lock:
             prior = self._sessions.get(device_id)
             if prior is not None and prior.state in {
@@ -277,7 +296,7 @@ class RuntimeManager:
             session = _Session(
                 device_id,
                 definition,
-                self.context_factory(device_id, binding),
+                context,
                 step_budget=step_budget,
             )
             self._sessions[device_id] = session
@@ -598,6 +617,59 @@ class RuntimeManager:
 
 def _snapshot_variables(variables: dict[str, object]) -> JsonObject:
     return {name: _snapshot_variable_value(value) for name, value in variables.items()}
+
+
+def _validated_initial_variables(
+    definitions: tuple[MacroVariableDefinition, ...],
+    values: JsonObject,
+) -> dict[str, object]:
+    declared = {variable.name: variable for variable in definitions if variable.input}
+    unknown = sorted(set(values) - set(declared))
+    if unknown:
+        raise ValueError(
+            "runtime inputs are not declared external variables: " + ", ".join(unknown)
+        )
+    result: dict[str, object] = {}
+    for name, value in values.items():
+        variable = declared[name]
+        result[name] = _runtime_input_value(variable, value)
+    return result
+
+
+def _runtime_input_value(variable: MacroVariableDefinition, value: JsonValue) -> object:
+    if variable.type == "element":
+        if not isinstance(value, dict):
+            raise ValueError(f"runtime input {variable.name!r} must match type element")
+        element_id = value.get("id")
+        bounds = value.get("bounds")
+        if not isinstance(element_id, str) or not isinstance(bounds, dict):
+            raise ValueError(f"runtime input {variable.name!r} must match type element")
+        required = ("left", "top", "right", "bottom")
+        if any(
+            isinstance(bounds.get(key), bool)
+            or not isinstance(bounds.get(key), int | float)
+            for key in required
+        ):
+            raise ValueError(f"runtime input {variable.name!r} must match type element")
+        text = value.get("text")
+        metadata = value.get("metadata", {})
+        if text is not None and not isinstance(text, str):
+            raise ValueError(f"runtime input {variable.name!r} element text must be a string")
+        if not isinstance(metadata, dict):
+            raise ValueError(f"runtime input {variable.name!r} element metadata must be an object")
+        return GraphElement(
+            element_id,
+            TapBounds(*(float(bounds[key]) for key in required)),
+            text,
+            metadata,
+        )
+    if not default_matches_type(value, variable.type):
+        raise ValueError(
+            f"runtime input {variable.name!r} must match type {variable.type}"
+        )
+    if variable.options and value not in variable.options:
+        raise ValueError(f"runtime input {variable.name!r} is not an allowed option")
+    return float(value) if variable.type == "float" and isinstance(value, int) else value
 
 
 def _snapshot_variable_value(value: object) -> JsonValue:

@@ -1,6 +1,7 @@
 import { apiClient } from '../../lib/api-client'
 import type {
   BackendValidationResponse,
+  JsonValue,
   MacroDefinition,
   MacroBindingResponse,
   MacroRunResponse,
@@ -17,6 +18,7 @@ export const macroEditorApi = {
     apiClient.post<MacroDefinition>('macros', definition),
   duplicate: (id: string, input: { id?: string; name?: string } = {}) =>
     apiClient.post<MacroDefinition>(`${path(id)}/duplicate`, input),
+  delete: (id: string) => apiClient.delete<void>(path(id)),
   validate: (definition: MacroDefinition) =>
     apiClient.post<BackendValidationResponse>('macros/validate', definition),
   // Transitional methods kept for callers compiled against the 10B editor API.
@@ -36,6 +38,12 @@ export const macroEditorApi = {
     apiClient.delete<void>(`android/${encodeURIComponent(deviceId)}/macro-binding`),
   runtime: (deviceId: string) =>
     apiClient.get<MacroRunResponse>(`android/${encodeURIComponent(deviceId)}/macro/runtime`),
-  command: (deviceId: string, command: 'start' | 'pause' | 'resume' | 'stop' | 'reset' | 'step') =>
-    apiClient.post<MacroRunResponse>(`android/${encodeURIComponent(deviceId)}/macro/${command}`),
+  command: (
+    deviceId: string,
+    command: 'start' | 'pause' | 'resume' | 'stop' | 'reset' | 'step',
+    input?: { variables: Record<string, JsonValue> },
+  ) => apiClient.post<MacroRunResponse>(
+    `android/${encodeURIComponent(deviceId)}/macro/${command}`,
+    input,
+  ),
 }

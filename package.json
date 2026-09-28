@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "node scripts/run-python.cjs scripts/dev.py",
     "dev:dry-run": "node scripts/run-python.cjs scripts/dev.py --dry-run",
+    "dev:mock": "node scripts/run-python.cjs scripts/dev.py --dry-run --mock-android",
     "android:publish": "node scripts/run-python.cjs infra/scripts/publish_android.py",
     "setup": "node scripts/run-python.cjs -m pip install -e . && npm --prefix frontend ci"
   }

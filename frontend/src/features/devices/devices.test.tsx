@@ -9,7 +9,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { devicesApi } from './api'
 import { relativeLastSeen } from './format'
-import { chooseInitialDevice, useDevices } from './hooks'
+import { useDevices } from './hooks'
 import type { AndroidDeviceSummary, AndroidDiscoveryStatus } from './types'
 
 vi.mock('./api', () => ({
@@ -31,6 +31,9 @@ const onlineDevice = (id = 'galaxy-s21'): AndroidDeviceSummary => ({
   last_seen_at: '2026-09-27T03:00:00Z',
   capture_ready: true,
   stream_running: true,
+  screen_width: 1080,
+  screen_height: 2280,
+  stream_fps: 8,
   accessibility_enabled: true,
   remote_control_enabled: true,
   macro_status: 'IDLE',
@@ -69,26 +72,6 @@ beforeEach(() => {
 afterEach(() => {
   cleanup()
   vi.clearAllMocks()
-})
-
-describe('device selection policy', () => {
-  it('auto-selects the first online device', () => {
-    expect(chooseInitialDevice([onlineDevice()], undefined, null)).toBe('galaxy-s21')
-    expect(
-      chooseInitialDevice(
-        [onlineDevice(), onlineDevice('galaxy-s22')],
-        undefined,
-        null,
-      ),
-    ).toBe('galaxy-s21')
-    expect(chooseInitialDevice([offlineDevice()], undefined, null)).toBeNull()
-  })
-
-  it('restores a remembered device even when it is offline', () => {
-    const devices = [onlineDevice(), offlineDevice()]
-    expect(chooseInitialDevice(devices, undefined, 'note10')).toBe('note10')
-    expect(chooseInitialDevice(devices, 'note10', null)).toBe('note10')
-  })
 })
 
 describe('useDevices', () => {

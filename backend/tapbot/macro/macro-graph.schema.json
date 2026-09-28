@@ -79,7 +79,10 @@
           "type": "string",
           "enum": ["bool", "int", "float", "string", "position", "rect", "element"]
         },
-        "default": {}
+        "default": {},
+        "input": {"type": "boolean", "default": false},
+        "description": {"type": "string"},
+        "options": {"type": "array", "items": {}}
       }
     },
     "functionPort": {

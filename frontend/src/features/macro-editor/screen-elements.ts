@@ -16,7 +16,7 @@ export const SCREEN_ELEMENTS: Record<string, ScreenElementOption[]> = {
   reservation_detail: [
     { id: 'back', label: '뒤로가기' },
     { id: 'date_picker', label: '날짜 선택' },
-    { id: 'time_slot', label: '30분 시간 슬롯', collection: true },
+    { id: 'time_slot', label: '시간 슬롯', collection: true },
     { id: 'reset_selection', label: '선택 초기화' },
     { id: 'reserve_cta', label: '예약 CTA' },
   ],

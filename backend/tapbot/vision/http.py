@@ -104,6 +104,8 @@ def create_vision_router(service: VisionService) -> APIRouter:
             raise HTTPException(422, str(error)) from error
     @router.post("/api/camera/reconnect")
     async def reconnect_camera() -> dict[str, object]: return await call(service.reconnect_camera)
+    @router.post("/api/camera/release")
+    async def release_camera() -> dict[str, object]: return await call(service.release_camera)
     @router.get("/api/camera/frame")
     async def camera_frame() -> Response: return _frame_response(await call(service.camera_frame))
     @router.post("/api/camera/freeze")

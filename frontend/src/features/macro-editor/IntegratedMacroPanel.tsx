@@ -17,12 +17,21 @@ import {
   useRef,
   useState,
   type Dispatch,
+  type PointerEvent as ReactPointerEvent,
   type SetStateAction,
 } from 'react'
 import type { useMacroRuntime } from '../macro-runtime/useMacroRuntime'
+import { ConfirmDialog } from '../../components/AppDialog'
 import { macroEditorApi } from './api'
 import { BlockPalette } from './BlockPalette'
-import { BLOCK_BY_TYPE, cloneDefaultConfig } from './blocks'
+import { BlueprintInspector } from './BlueprintInspector'
+import {
+  BLOCKS,
+  BLOCK_BY_TYPE,
+  cloneDefaultConfig,
+  getNodePorts,
+  type BlockDefinition,
+} from './blocks'
 import {
   createEmptyMacroDefinition,
   MACRO_DRAFT_STORAGE_KEY,
@@ -34,8 +43,21 @@ import {
   macroDefinitionToFlow,
   migrateLegacyEntry,
 } from './graph-converters'
-import { MacroCanvas } from './MacroCanvas'
+import {
+  MacroCanvas,
+  type PromoteVariablePort,
+} from './MacroCanvas'
+import {
+  MyBlueprintPanel,
+  type BlueprintSelection,
+} from './MyBlueprintPanel'
+import type { BlueprintDragItem } from './blueprint-dnd'
 import { NodeInspector } from './NodeInspector'
+import {
+  FunctionPortDialog,
+  NameEditorDialog,
+  VariableEditorDialog,
+} from './MacroEditorDialogs'
 import { SCREEN_OPTIONS } from './screen-elements'
 import type {
   JsonValue,
@@ -67,10 +89,36 @@ interface IntegratedMacroPanelProps {
 
 const DEFAULT_SCREEN_ID = SCREEN_OPTIONS[0].id
 const DEVICE_DRAFT_STORAGE_PREFIX = 'tapbot.macro.deviceDraft.'
+const EXPANDED_PALETTE_WIDTH = 220
+const EXPANDED_INSPECTOR_WIDTH = 320
 
 interface DeviceMacroDraft {
   definition: MacroDefinition
   isNew: boolean
+}
+type VariableDialogState =
+  | { mode: 'create' }
+  | { mode: 'edit'; variable: MacroVariableDefinition }
+  | {
+      mode: 'promote'
+      suggestedName: string
+      suggestedType: MacroVariableDefinition['type']
+      port: PromoteVariablePort
+      position: { x: number; y: number }
+    }
+
+type NameDialogState =
+  | { kind: 'macro-create'; initialValue: string }
+  | { kind: 'macro-rename'; initialValue: string; macro: MacroDefinition }
+  | { kind: 'function-create'; initialValue: string }
+  | { kind: 'function-rename'; initialValue: string; functionId: string }
+
+interface ConfirmDialogState {
+  title: string
+  description: string
+  confirmLabel?: string
+  danger?: boolean
+  onConfirm: () => void | Promise<void>
 }
 
 function deviceDraftStorageKey(deviceId: string): string {
@@ -113,6 +161,8 @@ export const IntegratedMacroPanel = forwardRef<
   const [functionFlows, setFunctionFlows] = useState<Record<string, { nodes: MacroFlowNode[]; edges: MacroFlowEdge[] }>>({})
   const [activeFunctionId, setActiveFunctionId] = useState<string | null>(null)
   const [selectedVariableName, setSelectedVariableName] = useState('')
+  const [selectedBlueprint, setSelectedBlueprint] = useState<BlueprintSelection | null>(null)
+  const [sidebarTab, setSidebarTab] = useState<'blueprint' | 'blocks'>('blocks')
   const [selectedScreenId, setSelectedScreenId] = useState<string>(DEFAULT_SCREEN_ID)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [issues, setIssues] = useState<ValidationIssue[]>([])
@@ -121,16 +171,79 @@ export const IntegratedMacroPanel = forwardRef<
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [messageIntent, setMessageIntent] = useState<'primary' | 'success' | 'warning' | 'danger'>('primary')
-  const [panelTab, setPanelTab] = useState<'canvas' | 'execution'>('canvas')
+  const [panelTab, setPanelTab] = useState<'canvas' | 'execution'>('execution')
+  const [boundMacroId, setBoundMacroId] = useState<string | null>(null)
+  const [runtimeDetailOpen, setRuntimeDetailOpen] = useState(false)
+  const [runSetupMacro, setRunSetupMacro] = useState<MacroDefinition | null>(null)
+  const [variableDialog, setVariableDialog] = useState<VariableDialogState | null>(null)
+  const [nameDialog, setNameDialog] = useState<NameDialogState | null>(null)
+  const [portDialog, setPortDialog] = useState<{ functionId: string; kind: 'inputs' | 'outputs' } | null>(null)
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null)
+  const [canvasExpanded, setCanvasExpanded] = useState(false)
+  const [expandedPaletteWidth, setExpandedPaletteWidth] = useState(EXPANDED_PALETTE_WIDTH)
+  const [expandedInspectorWidth, setExpandedInspectorWidth] = useState(EXPANDED_INSPECTOR_WIDTH)
   const flowRef = useRef<ReactFlowInstance<MacroFlowNode, MacroFlowEdge> | null>(null)
   const editorRef = useRef<HTMLDivElement>(null)
+
+  const setCanvasExpansion = useCallback((expanded: boolean) => {
+    const viewport = flowRef.current?.getViewport()
+    setCanvasExpanded(expanded)
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (viewport) void flowRef.current?.setViewport(viewport, { duration: 0 })
+      })
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!canvasExpanded) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setCanvasExpansion(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [canvasExpanded, setCanvasExpansion])
+
+  const beginExpandedResize = (
+    side: 'palette' | 'inspector',
+    event: ReactPointerEvent<HTMLDivElement>,
+  ) => {
+    event.preventDefault()
+    event.currentTarget.setPointerCapture(event.pointerId)
+    const startX = event.clientX
+    const startWidth = side === 'palette' ? expandedPaletteWidth : expandedInspectorWidth
+    const move = (pointerEvent: PointerEvent) => {
+      const modalWidth = window.innerWidth * 0.95
+      const delta = pointerEvent.clientX - startX
+      const requested = side === 'palette' ? startWidth + delta : startWidth - delta
+      const minimum = side === 'palette' ? 150 : 240
+      const next = Math.round(Math.max(minimum, Math.min(modalWidth * 0.4, requested)))
+      if (side === 'palette') setExpandedPaletteWidth(next)
+      else setExpandedInspectorWidth(next)
+    }
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+      document.body.classList.remove('macro-canvas-is-resizing')
+    }
+    document.body.classList.add('macro-canvas-is-resizing')
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop, { once: true })
+    window.addEventListener('pointercancel', stop, { once: true })
+  }
 
   useEffect(() => {
     onAvailabilityChange?.(Boolean(definition))
   }, [definition, onAvailabilityChange])
 
   const loadDefinition = useCallback((source: MacroDefinition, newDefinition = false) => {
-    const next = synchronizeVariableNodes(migrateLegacyEntry(source))
+    const next = synchronizeVariableNodes(synchronizeFunctionCalls(migrateLegacyEntry(source)))
     const flow = macroDefinitionToFlow(next)
     setDefinition(next)
     setNodes(flow.nodes)
@@ -141,6 +254,7 @@ export const IntegratedMacroPanel = forwardRef<
     ])))
     setActiveFunctionId(null)
     setSelectedVariableName(next.variables?.[0]?.name ?? '')
+    setSelectedBlueprint(null)
     setNodeScreens(deriveNodeScreens(next, flow.nodes, flow.edges))
     setSelectedNodeId(null)
     setIssues([])
@@ -154,6 +268,7 @@ export const IntegratedMacroPanel = forwardRef<
       .then(async ([listed, binding]) => {
         if (!active) return
         setDefinitions(listed.macros)
+        setBoundMacroId(binding.binding?.macro_definition_id ?? null)
         const draft = readDeviceDraft(deviceId)
         const draftMatchesBinding = draft && (
           (draft.isNew && !binding.binding) ||
@@ -224,10 +339,18 @@ export const IntegratedMacroPanel = forwardRef<
       },
     })), [activeFunctionId, functionFlows, issues, nodes, runtime.nodeState, visibleNodeIds])
 
-  const shownEdges = useMemo(() => (activeFunctionId
-    ? functionFlows[activeFunctionId]?.edges ?? []
-    : edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target)))
-    .map((edge) => ({
+  const shownEdges = useMemo(() => {
+    const graphNodes = activeFunctionId ? functionFlows[activeFunctionId]?.nodes ?? [] : nodes
+    const graphEdges = activeFunctionId
+      ? functionFlows[activeFunctionId]?.edges ?? []
+      : edges.filter((edge) => visibleNodeIds.has(edge.source) && visibleNodeIds.has(edge.target))
+    return graphEdges.map((edge) => {
+      const source = graphNodes.find((node) => node.id === edge.source)
+      const portType = edge.data?.kind === 'data' && source
+        ? getNodePorts(source.data.nodeType, source.data.config).outputs
+            .find((port) => port.id === edge.sourceHandle)?.type
+        : undefined
+      return {
       ...edge,
       data: {
         ...edge.data,
@@ -235,12 +358,19 @@ export const IntegratedMacroPanel = forwardRef<
       },
       className: [
         edge.data?.kind === 'data' ? 'macro-edge--data' : '',
+        portType ? `macro-edge--type-${portType}` : '',
         edge.id === runtime.currentEdgeId ? 'runtime-current-edge' : '',
       ].filter(Boolean).join(' ') || undefined,
       animated: edge.id === runtime.currentEdgeId,
-    })), [activeFunctionId, edges, functionFlows, issues, runtime.currentEdgeId, visibleNodeIds])
+      }
+    })
+  }, [activeFunctionId, edges, functionFlows, issues, nodes, runtime.currentEdgeId, visibleNodeIds])
 
   const selectedNode = shownNodes.find((node) => node.id === selectedNodeId) ?? null
+  const quickSearchBlocks = useMemo(
+    () => contextualQuickSearchBlocks(definition),
+    [definition],
+  )
 
   const markChanged = () => {
     setDirty(true)
@@ -280,7 +410,7 @@ export const IntegratedMacroPanel = forwardRef<
       data: {
         nodeType: type,
         category: block.category,
-        label: labelOverride ?? block.label,
+        label: labelOverride ?? contextualNodeLabel(type, configured, definition, block.label),
         definitionLabel: labelOverride,
         config: configured,
         isEntry: false,
@@ -301,6 +431,61 @@ export const IntegratedMacroPanel = forwardRef<
     markChanged()
     return { id, type, config: configured }
   }, [activeFunctionId, definition, functionFlows, nodeScreens, nodes, selectedScreenId])
+
+  const addConnection = useCallback((
+    connection: Connection,
+    kind: 'exec' | 'data' = 'exec',
+  ) => {
+    const connect = (current: MacroFlowEdge[]) => addEdge({
+      ...connection,
+      id: uniqueEdgeId(connection, current),
+      data: { errors: [], kind },
+    }, current)
+    if (activeFunctionId) {
+      setFunctionFlows((current) => {
+        const flow = current[activeFunctionId]
+        return flow ? {
+          ...current,
+          [activeFunctionId]: { ...flow, edges: connect(flow.edges) },
+        } : current
+      })
+    } else {
+      setEdges(connect)
+    }
+    markChanged()
+  }, [activeFunctionId])
+
+  const dropBlueprintItem = useCallback((
+    item: BlueprintDragItem,
+    position: { x: number; y: number },
+  ) => {
+    if (!definition) return
+    if (item.kind === 'function') {
+      const target = definition.functions?.find((candidate) => candidate.id === item.id)
+      if (!target) return
+      addNode('call_function', position, functionCallConfig(target), target.name)
+      return
+    }
+    const variable = definition.variables?.find((candidate) => candidate.name === item.id)
+    if (!variable || !item.mode) return
+    const type = item.mode === 'get' ? 'get_variable' : 'set_variable'
+    addNode(type, position, variableNodeConfig(type, variable), variableNodeLabel(item.mode, variable.name))
+  }, [addNode, definition])
+
+  const promoteToVariable = useCallback((
+    port: PromoteVariablePort,
+    position: { x: number; y: number },
+  ) => {
+    if (!definition) return
+    const suggested = uniqueVariableName(port.portId || 'value', definition.variables ?? [])
+    setVariableDialog({
+      mode: 'promote',
+      suggestedName: suggested,
+      suggestedType: port.portType,
+      port,
+      position,
+    })
+  }, [definition])
 
   useImperativeHandle(ref, () => ({
     addFindElement(selector, label) {
@@ -359,6 +544,7 @@ export const IntegratedMacroPanel = forwardRef<
         ? await macroEditorApi.create(definitionForSave)
         : await macroEditorApi.save(definitionForSave)
       await macroEditorApi.bind(deviceId, saved.id)
+      setBoundMacroId(saved.id)
       setDefinitions((current) => [
         ...current.filter((item) => item.id !== saved.id),
         saved,
@@ -376,27 +562,50 @@ export const IntegratedMacroPanel = forwardRef<
     }
   }
 
-  const command = async (name: 'start' | 'pause' | 'resume' | 'step' | 'stop' | 'reset') => {
-    if (!definition) return
+  const command = async (
+    name: 'start' | 'pause' | 'resume' | 'step' | 'stop' | 'reset',
+    inputVariables?: Record<string, JsonValue>,
+  ): Promise<boolean> => {
+    if ((name === 'start' || name === 'step') && !definition) return false
     setBusy(true)
     setMessage(null)
     try {
-      if ((name === 'start' || name === 'step') && (dirty || isNew) && !(await save())) return
-      await macroEditorApi.command(deviceId, name)
+      if ((name === 'start' || name === 'step') && (dirty || isNew) && !(await save())) return false
+      await macroEditorApi.command(
+        deviceId,
+        name,
+        name === 'start' ? { variables: inputVariables ?? {} } : undefined,
+      )
       await runtime.refresh()
+      return true
     } catch (error) {
       showError(error, '매크로 명령을 실행하지 못했습니다.', setMessage, setMessageIntent)
+      return false
     } finally {
       setBusy(false)
     }
   }
 
-  const selectMacro = async (macroId: string) => {
-    if ((dirty || isNew) && !window.confirm('저장하지 않은 매크로 변경 사항을 버릴까요?')) return
+  const discardOrRun = (action: () => void | Promise<void>) => {
+    if (!(dirty || isNew)) {
+      void action()
+      return
+    }
+    setConfirmDialog({
+      title: '변경사항 버리기',
+      description: '저장하지 않은 매크로 변경 사항을 버릴까요?',
+      confirmLabel: '버리기',
+      danger: true,
+      onConfirm: action,
+    })
+  }
+
+  const selectMacroNow = async (macroId: string) => {
     setBusy(true)
     try {
       if (!macroId) {
         await macroEditorApi.unbind(deviceId)
+        setBoundMacroId(null)
         clearDeviceDraft(deviceId)
         setDefinition(null)
         setNodes([])
@@ -408,6 +617,7 @@ export const IntegratedMacroPanel = forwardRef<
         setSelectedNodeId(null)
       } else {
         await macroEditorApi.bind(deviceId, macroId)
+        setBoundMacroId(macroId)
         const selected = await macroEditorApi.get(macroId)
         clearDeviceDraft(deviceId)
         loadDefinition(selected)
@@ -420,53 +630,130 @@ export const IntegratedMacroPanel = forwardRef<
   }
 
   const createNew = () => {
-    if ((dirty || isNew) && !window.confirm('저장하지 않은 매크로 변경 사항을 버릴까요?')) return
-    clearDeviceDraft(deviceId)
-    const suffix = Date.now().toString(36)
-    loadDefinition(createEmptyMacroDefinition(`macro-${suffix}`, '새 매크로'), true)
-    setMessage('새 매크로를 만들었습니다. 저장하면 이 기기에 연결됩니다.')
-    setMessageIntent('primary')
+    discardOrRun(() => setNameDialog({ kind: 'macro-create', initialValue: '새 매크로' }))
   }
 
-  const loadDraft = () => {
-    if ((dirty || isNew) && !window.confirm('저장하지 않은 매크로 변경 사항을 버릴까요?')) return
+  const createNewNamed = async (name: string) => {
+    const suffix = Date.now().toString(36)
+    setBusy(true)
+    setMessage(null)
     try {
-      const raw = window.localStorage.getItem(MACRO_DRAFT_STORAGE_KEY)
-      if (!raw) throw new Error('로컬 매크로 초안이 없습니다.')
-      const draft = JSON.parse(raw) as MacroDefinition
+      const created = await macroEditorApi.create(
+        createEmptyMacroDefinition(`macro-${suffix}`, name),
+      )
+      await macroEditorApi.bind(deviceId, created.id)
+      setDefinitions((current) => [...current, created])
+      setBoundMacroId(created.id)
       clearDeviceDraft(deviceId)
-      loadDefinition(draft, !definitions.some((item) => item.id === draft.id))
-      setMessage('로컬 초안을 불러왔습니다.')
+      loadDefinition(created)
+      setPanelTab('canvas')
+      setMessage(`${created.name} 매크로를 만들었습니다.`)
       setMessageIntent('success')
     } catch (error) {
-      showError(error, '초안을 불러오지 못했습니다.', setMessage, setMessageIntent)
+      showError(error, '매크로를 만들지 못했습니다.', setMessage, setMessageIntent)
+    } finally {
+      setBusy(false)
     }
   }
 
-  const duplicate = async () => {
-    if (!definitionForSave) return
+  const renameMacro = (macro: MacroDefinition) => {
+    setNameDialog({ kind: 'macro-rename', initialValue: macro.name, macro })
+  }
+
+  const renameMacroNamed = async (macro: MacroDefinition, name: string) => {
+    if (name === macro.name) {
+      setNameDialog(null)
+      return
+    }
     setBusy(true)
+    setMessage(null)
     try {
-      if (isNew) {
-        const suffix = Date.now().toString(36)
-        clearDeviceDraft(deviceId)
-        loadDefinition({
-          ...definitionForSave,
-          id: `macro-${suffix}`,
-          name: `${definitionForSave.name} Copy`,
-          version: 1,
-        }, true)
-      } else {
-        const copy = await macroEditorApi.duplicate(definitionForSave.id, {
-          name: `${definitionForSave.name} — ${deviceId}`,
-        })
-        await macroEditorApi.bind(deviceId, copy.id)
-        setDefinitions((current) => [...current, copy])
-        clearDeviceDraft(deviceId)
-        loadDefinition(copy)
+      const saved = await macroEditorApi.save({ ...macro, name })
+      setDefinitions((current) => current.map((item) => item.id === saved.id ? saved : item))
+      if (definition?.id === saved.id) {
+        if (dirty) {
+          setDefinition((current) => current ? { ...current, name: saved.name, version: saved.version } : current)
+        } else {
+          loadDefinition(saved)
+        }
       }
+      setMessage(`${macro.name}의 이름을 ${saved.name}(으)로 변경했습니다.`)
+      setMessageIntent('success')
+    } catch (error) {
+      showError(error, '매크로 이름을 변경하지 못했습니다.', setMessage, setMessageIntent)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const duplicateMacro = async (macro: MacroDefinition) => {
+    setBusy(true)
+    setMessage(null)
+    try {
+      const copy = await macroEditorApi.duplicate(macro.id, {
+        name: `${macro.name} 복사본`,
+      })
+      setDefinitions((current) => [...current, copy])
+      setMessage(`${macro.name} 매크로를 복제했습니다.`)
+      setMessageIntent('success')
     } catch (error) {
       showError(error, '매크로를 복제하지 못했습니다.', setMessage, setMessageIntent)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const deleteMacro = (macro: MacroDefinition) => {
+    const isRuntimeMacro = runtime.runtime?.macro_definition_id === macro.id
+    if (isRuntimeMacro && runtimeActive) {
+      setMessage('실행 중인 매크로는 삭제할 수 없습니다. 먼저 중지하세요.')
+      setMessageIntent('warning')
+      return
+    }
+    setConfirmDialog({
+      title: '매크로 삭제',
+      description: `${macro.name} 매크로를 삭제하시겠습니까? 이 작업은 되돌릴 수 없습니다.`,
+      confirmLabel: '삭제',
+      danger: true,
+      onConfirm: () => deleteMacroNow(macro),
+    })
+  }
+
+  const deleteMacroNow = async (macro: MacroDefinition) => {
+    setBusy(true)
+    setMessage(null)
+    let releasedCurrentBinding = false
+    try {
+      if (boundMacroId === macro.id) {
+        await macroEditorApi.unbind(deviceId)
+        setBoundMacroId(null)
+        releasedCurrentBinding = true
+      }
+      await macroEditorApi.delete(macro.id)
+      setDefinitions((current) => current.filter((item) => item.id !== macro.id))
+      if (definition?.id === macro.id) {
+        clearDeviceDraft(deviceId)
+        setDefinition(null)
+        setNodes([])
+        setEdges([])
+        setNodeScreens({})
+        setFunctionFlows({})
+        setActiveFunctionId(null)
+        setSelectedVariableName('')
+        setSelectedNodeId(null)
+      }
+      setMessage(`${macro.name} 매크로를 삭제했습니다.`)
+      setMessageIntent('success')
+    } catch (error) {
+      if (releasedCurrentBinding) {
+        try {
+          await macroEditorApi.bind(deviceId, macro.id)
+          setBoundMacroId(macro.id)
+        } catch {
+          // Keep the original deletion error as the actionable message.
+        }
+      }
+      showError(error, '매크로를 삭제하지 못했습니다.', setMessage, setMessageIntent)
     } finally {
       setBusy(false)
     }
@@ -521,49 +808,80 @@ export const IntegratedMacroPanel = forwardRef<
   const createFunction = () => {
     if (!definition) return
     const index = (definition.functions?.length ?? 0) + 1
+    const fallbackName = `Function ${index}`
+    setNameDialog({ kind: 'function-create', initialValue: fallbackName })
+  }
+
+  const createFunctionNamed = (requestedName: string) => {
+    if (!definition) return
+    const index = (definition.functions?.length ?? 0) + 1
     const id = uniqueFunctionId(`function-${index}`, definition.functions ?? [])
-    const item = createFunctionDefinition(id, `Function ${index}`)
+    const item = createFunctionDefinition(id, requestedName)
     setDefinition({ ...definition, functions: [...(definition.functions ?? []), item] })
     setFunctionFlows((current) => ({ ...current, [id]: macroFunctionToFlow(item) }))
     setActiveFunctionId(id)
+    setSelectedBlueprint({ kind: 'function', id })
     setSelectedNodeId(null)
     markChanged()
   }
 
-  const renameFunction = () => {
-    if (!definition || !activeFunctionId) return
-    const current = definition.functions?.find((item) => item.id === activeFunctionId)
+  const renameFunction = (functionId = activeFunctionId) => {
+    if (!definition || !functionId) return
+    const current = definition.functions?.find((item) => item.id === functionId)
     if (!current) return
-    const name = window.prompt('함수 이름', current.name)?.trim()
-    if (!name || name === current.name) return
-    setDefinition({
-      ...definition,
-      functions: (definition.functions ?? []).map((item) => item.id === activeFunctionId
-        ? { ...item, name }
-        : item),
+    setNameDialog({
+      kind: 'function-rename',
+      initialValue: current.name,
+      functionId,
     })
-    markChanged()
   }
 
-  const deleteFunction = () => {
-    if (!definition || !activeFunctionId) return
-    const references = countFunctionReferences(activeFunctionId, nodes, functionFlows)
-    const warning = references > 0
-      ? `이 함수는 함수 호출 노드 ${references}개에서 사용 중입니다. 그래도 삭제할까요?`
-      : '이 함수를 삭제할까요?'
-    if (!window.confirm(warning)) return
+  const deleteFunction = (functionId = activeFunctionId) => {
+    if (!definition || !functionId) return
+    const references = countFunctionReferences(functionId, nodes, functionFlows)
+    const current = definition.functions?.find((item) => item.id === functionId)
+    setConfirmDialog({
+      title: '함수 삭제',
+      description: references > 0
+        ? `${current?.name ?? '이 함수'}는 함수 호출 노드 ${references}개에서 사용 중입니다. 삭제하면 참조 노드도 더 이상 유효하지 않습니다.`
+        : `${current?.name ?? '이 함수'}를 삭제하시겠습니까?`,
+      confirmLabel: '삭제',
+      danger: true,
+      onConfirm: () => deleteFunctionNow(functionId),
+    })
+  }
+
+  const deleteFunctionNow = (functionId: string) => {
+    if (!definition) return
     setDefinition({
       ...definition,
-      functions: (definition.functions ?? []).filter((item) => item.id !== activeFunctionId),
+      functions: (definition.functions ?? []).filter((item) => item.id !== functionId),
     })
     setFunctionFlows((current) => {
       const next = { ...current }
-      delete next[activeFunctionId]
+      delete next[functionId]
       return next
     })
-        setActiveFunctionId(null)
-        setSelectedVariableName('')
+    if (activeFunctionId === functionId) setActiveFunctionId(null)
+    if (selectedBlueprint?.kind === 'function' && selectedBlueprint.id === functionId) {
+      setSelectedBlueprint(null)
+    }
     setSelectedNodeId(null)
+    markChanged()
+  }
+
+  const duplicateFunction = (functionId: string) => {
+    if (!definition) return
+    const source = definition.functions?.find((item) => item.id === functionId)
+    if (!source) return
+    const liveSource = functionFlows[functionId]
+      ? flowToMacroFunction(source, functionFlows[functionId].nodes, functionFlows[functionId].edges)
+      : source
+    const id = uniqueFunctionId(`${source.id}-copy`, definition.functions ?? [])
+    const copy = duplicateFunctionDefinition(liveSource, id, `${source.name} 복사본`)
+    setDefinition({ ...definition, functions: [...(definition.functions ?? []), copy] })
+    setFunctionFlows((current) => ({ ...current, [copy.id]: macroFunctionToFlow(copy) }))
+    setSelectedBlueprint({ kind: 'function', id: copy.id })
     markChanged()
   }
 
@@ -571,33 +889,30 @@ export const IntegratedMacroPanel = forwardRef<
     if (!definition || !activeFunctionId) return
     const functionDefinition = definition.functions?.find((item) => item.id === activeFunctionId)
     if (!functionDefinition) return
-    const id = window.prompt(`${kind === 'inputs' ? '입력' : '출력'} 포트 ID`)?.trim()
-    if (!id) return
-    if (functionDefinition[kind].some((port) => port.id === id)) {
-      setMessage(`${id} 포트가 이미 있습니다.`)
-      setMessageIntent('warning')
-      return
-    }
-    const requested = window.prompt('포트 타입: any, bool, int, float, string, position, rect, element', 'string')?.trim()
-    if (!isFunctionPortType(requested)) {
-      setMessage('지원하지 않는 함수 포트 타입입니다.')
-      setMessageIntent('warning')
-      return
-    }
-    updateFunctionPorts(kind, [...functionDefinition[kind], { id, type: requested }])
+    setPortDialog({ functionId: activeFunctionId, kind })
   }
 
   const removeFunctionPort = (kind: 'inputs' | 'outputs') => {
     if (!definition || !activeFunctionId) return
     const functionDefinition = definition.functions?.find((item) => item.id === activeFunctionId)
     if (!functionDefinition || functionDefinition[kind].length === 0) return
-    updateFunctionPorts(kind, functionDefinition[kind].slice(0, -1))
+    updateFunctionPorts(activeFunctionId, kind, functionDefinition[kind].slice(0, -1))
   }
 
-  const updateFunctionPorts = (kind: 'inputs' | 'outputs', ports: MacroFunctionPort[]) => {
-    if (!definition || !activeFunctionId) return
-    const functions = (definition.functions ?? []).map((item) => item.id === activeFunctionId
-      ? { ...item, [kind]: ports }
+  const updateFunctionPorts = (
+    functionId: string,
+    kind: 'inputs' | 'outputs',
+    ports: MacroFunctionPort[],
+  ) => {
+    if (!definition) return
+    const normalized = normalizeFunctionPorts(ports)
+    if (!normalized) {
+      setMessage('함수 포트 이름은 비어 있거나 중복될 수 없습니다.')
+      setMessageIntent('warning')
+      return
+    }
+    const functions = (definition.functions ?? []).map((item) => item.id === functionId
+      ? { ...item, [kind]: normalized }
       : item)
     const updatedDefinition = synchronizeFunctionCalls({ ...definition, functions })
     setDefinition(updatedDefinition)
@@ -605,7 +920,7 @@ export const IntegratedMacroPanel = forwardRef<
     setFunctionFlows((current) => Object.fromEntries(functions.map((item) => {
       const flow = current[item.id] ?? macroFunctionToFlow(item)
       const next = synchronizeFlowFunctionCalls(flow, functions)
-      if (item.id === activeFunctionId) {
+      if (item.id === functionId) {
         next.nodes = next.nodes.map((node) => node.id === item.entry_node_id
           ? { ...node, data: { ...node.data, config: { ...node.data.config, inputs: item.inputs } } }
           : node.id === item.return_node_id
@@ -619,78 +934,73 @@ export const IntegratedMacroPanel = forwardRef<
 
   const addVariable = () => {
     if (!definition) return
-    const name = window.prompt('변수 이름')?.trim()
-    if (!name) return
-    if ((definition.variables ?? []).some((item) => item.name === name)) {
-      setMessage(`${name} 변수가 이미 있습니다.`)
-      setMessageIntent('warning')
-      return
-    }
-    const requested = window.prompt(
-      '변수 타입: bool, int, float, string, position, rect, element',
-      'int',
-    )?.trim()
-    if (!isVariableType(requested)) {
-      setMessage('지원하지 않는 변수 타입입니다.')
-      setMessageIntent('warning')
-      return
-    }
-    try {
-      const variable = createVariableFromPrompts(name, requested)
-      setDefinition(synchronizeVariableNodes({
-        ...definition,
-        variables: [...(definition.variables ?? []), variable],
-      }))
-      setSelectedVariableName(name)
-      markChanged()
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '기본값이 올바르지 않습니다.')
-      setMessageIntent('warning')
-    }
+    setVariableDialog({ mode: 'create' })
   }
 
-  const editVariable = () => {
-    if (!definition || !selectedVariableName) return
-    const current = definition.variables?.find((item) => item.name === selectedVariableName)
+  const editVariable = (variableName = selectedVariableName) => {
+    if (!definition || !variableName) return
+    const current = definition.variables?.find((item) => item.name === variableName)
     if (!current) return
-    const name = window.prompt('변수 이름', current.name)?.trim()
-    if (!name) return
-    if (name !== current.name && (definition.variables ?? []).some((item) => item.name === name)) {
-      setMessage(`${name} 변수가 이미 있습니다.`)
-      setMessageIntent('warning')
-      return
-    }
-    const requested = window.prompt(
-      '변수 타입: bool, int, float, string, position, rect, element',
-      current.type,
-    )?.trim()
-    if (!isVariableType(requested)) {
-      setMessage('지원하지 않는 변수 타입입니다.')
-      setMessageIntent('warning')
-      return
-    }
-    try {
-      const replacement = createVariableFromPrompts(name, requested, current.default)
-      updateVariableDefinition(current.name, replacement)
-      setSelectedVariableName(name)
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '기본값이 올바르지 않습니다.')
-      setMessageIntent('warning')
-    }
+    setVariableDialog({ mode: 'edit', variable: current })
   }
 
-  const deleteVariable = () => {
-    if (!definition || !selectedVariableName) return
-    const references = countVariableReferences(selectedVariableName, nodes, functionFlows)
-    const warning = references > 0
-      ? `이 변수는 변수 설정/가져오기 노드 ${references}개에서 사용 중입니다. 그래도 삭제할까요?`
-      : '이 변수를 삭제할까요?'
-    if (!window.confirm(warning)) return
+  const deleteVariable = (variableName = selectedVariableName) => {
+    if (!definition || !variableName) return
+    const references = countVariableReferences(variableName, nodes, functionFlows)
+    setConfirmDialog({
+      title: '변수 삭제',
+      description: references > 0
+        ? `변수 ${variableName}는 변수 설정/가져오기 노드 ${references}개에서 사용 중입니다. 삭제하면 참조 노드도 더 이상 유효하지 않습니다.`
+        : `변수 ${variableName}를 삭제하시겠습니까?`,
+      confirmLabel: '삭제',
+      danger: true,
+      onConfirm: () => deleteVariableNow(variableName),
+    })
+  }
+
+  const deleteVariableNow = (variableName: string) => {
+    if (!definition) return
     setDefinition({
       ...definition,
-      variables: (definition.variables ?? []).filter((item) => item.name !== selectedVariableName),
+      variables: (definition.variables ?? []).filter((item) => item.name !== variableName),
     })
-    setSelectedVariableName('')
+    if (selectedVariableName === variableName) setSelectedVariableName('')
+    if (selectedBlueprint?.kind === 'variable' && selectedBlueprint.id === variableName) {
+      setSelectedBlueprint(null)
+    }
+    markChanged()
+  }
+
+  const updateFunctionName = (functionId: string, name: string) => {
+    if (!definition || !name) return
+    const functions = (definition.functions ?? []).map((item) => item.id === functionId
+      ? renameFunctionDefinition(item, name)
+      : item)
+    setDefinition(synchronizeFunctionCalls({ ...definition, functions }))
+    setNodes((current) => synchronizeFlowFunctionCalls({ nodes: current, edges: [] }, functions).nodes)
+    setFunctionFlows((current) => Object.fromEntries(functions.map((item) => {
+      const flow = current[item.id] ?? macroFunctionToFlow(item)
+      const synchronized = synchronizeFlowFunctionCalls(flow, functions)
+      return [item.id, item.id === functionId ? {
+        ...synchronized,
+        nodes: synchronized.nodes.map((node) => node.id === item.entry_node_id
+          ? { ...node, data: { ...node.data, label: `${name} / 시작`, definitionLabel: `${name} / 시작` } }
+          : node.id === item.return_node_id
+            ? { ...node, data: { ...node.data, label: `${name} / 반환`, definitionLabel: `${name} / 반환` } }
+            : node),
+      } : synchronized]
+    })))
+    markChanged()
+  }
+
+  const toggleVariableInput = () => {
+    if (!definition || !selectedVariableName) return
+    setDefinition({
+      ...definition,
+      variables: (definition.variables ?? []).map((item) => item.name === selectedVariableName
+        ? { ...item, input: item.input !== true }
+        : item),
+    })
     markChanged()
   }
 
@@ -721,29 +1031,143 @@ export const IntegratedMacroPanel = forwardRef<
     markChanged()
   }
 
+  const submitVariableDialog = (variable: MacroVariableDefinition) => {
+    if (!definition || !variableDialog) return
+    if (variableDialog.mode === 'edit') {
+      updateVariableDefinition(variableDialog.variable.name, variable)
+      setSelectedVariableName(variable.name)
+      setSelectedBlueprint({ kind: 'variable', id: variable.name })
+      setVariableDialog(null)
+      return
+    }
+
+    setDefinition(synchronizeVariableNodes({
+      ...definition,
+      variables: [...(definition.variables ?? []), variable],
+    }))
+    setSelectedVariableName(variable.name)
+    setSelectedBlueprint({ kind: 'variable', id: variable.name })
+    markChanged()
+
+    if (variableDialog.mode === 'promote') {
+      const { port, position } = variableDialog
+      const mode = port.direction === 'input' ? 'get' : 'set'
+      const nodeType = mode === 'get' ? 'get_variable' : 'set_variable'
+      const created = addNode(
+        nodeType,
+        position,
+        variableNodeConfig(nodeType, variable),
+        variableNodeLabel(mode, variable.name),
+      )
+      if (created) {
+        addConnection(port.direction === 'input' ? {
+          source: created.id,
+          sourceHandle: 'value',
+          target: port.nodeId,
+          targetHandle: port.portId,
+        } : {
+          source: port.nodeId,
+          sourceHandle: port.portId,
+          target: created.id,
+          targetHandle: 'value',
+        }, 'data')
+      }
+    }
+    setVariableDialog(null)
+  }
+
+  const submitNameDialog = async (name: string) => {
+    if (!nameDialog) return
+    if (nameDialog.kind === 'macro-create') await createNewNamed(name)
+    else if (nameDialog.kind === 'macro-rename') await renameMacroNamed(nameDialog.macro, name)
+    else if (nameDialog.kind === 'function-create') createFunctionNamed(name)
+    else updateFunctionName(nameDialog.functionId, name)
+    setNameDialog(null)
+  }
+
   const state = runtime.runtime?.state ?? 'idle'
   const runtimeActive = state === 'running' || state === 'paused'
+
+  const runMacro = async (
+    macro: MacroDefinition,
+    inputVariables: Record<string, JsonValue>,
+  ): Promise<boolean> => {
+    if (runtimeActive) return false
+    if (macro.id === definition?.id && (dirty || isNew)) {
+      return command('start', inputVariables)
+    }
+    if (dirty || isNew) {
+      setConfirmDialog({
+        title: '변경사항 버리기',
+        description: '저장하지 않은 매크로 변경 사항을 버리고 다른 매크로를 실행할까요?',
+        confirmLabel: '버리고 실행',
+        danger: true,
+        onConfirm: async () => {
+          const started = await runMacroNow(macro, inputVariables)
+          if (started) setRunSetupMacro(null)
+        },
+      })
+      return false
+    }
+    return runMacroNow(macro, inputVariables)
+  }
+
+  const runMacroNow = async (
+    macro: MacroDefinition,
+    inputVariables: Record<string, JsonValue>,
+  ): Promise<boolean> => {
+    setBusy(true)
+    setMessage(null)
+    try {
+      await macroEditorApi.bind(deviceId, macro.id)
+      setBoundMacroId(macro.id)
+      clearDeviceDraft(deviceId)
+      loadDefinition(macro)
+      await macroEditorApi.command(deviceId, 'start', { variables: inputVariables })
+      await runtime.refresh()
+      return true
+    } catch (error) {
+      showError(error, '매크로를 실행하지 못했습니다.', setMessage, setMessageIntent)
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const editMacro = (macro: MacroDefinition) => {
+    discardOrRun(async () => {
+      await selectMacroNow(macro.id)
+      setPanelTab('canvas')
+    })
+  }
+
   return (
-    <section className="integrated-macro-panel" aria-label={ko.panels.macroCanvas} data-editor-pane="macro">
+    <section className={`integrated-macro-panel${canvasExpanded ? ' is-canvas-expanded' : ''}`} aria-label={ko.panels.macroCanvas} data-editor-pane="macro">
       <header className="integrated-macro-toolbar">
         <div className="integrated-macro-toolbar__selectors">
-          <strong>{ko.panels.macroCanvas}</strong>
+          <strong title={panelTab === 'canvas' ? definition?.name : undefined}>
+            {panelTab === 'execution' ? '매크로 실행' : definition?.name ?? ko.panels.macroCanvas}
+          </strong>
           <Tag minimal title={deviceId}>
             기기 · {deviceId.length > 18 ? `${deviceId.slice(0, 18)}…` : deviceId}
           </Tag>
-          <select
-            aria-label="작업공간 매크로"
-            value={definition?.id ?? ''}
-            disabled={busy}
-            onChange={(event) => void selectMacro(event.target.value)}
-          >
-            <option value="">매크로 선택…</option>
-            {isNew && definition && <option value={definition.id}>{definition.name} (저장되지 않음)</option>}
-            {definitions.map((item) => (
-              <option key={item.id} value={item.id}>{item.name} v{item.version}</option>
-            ))}
-          </select>
-          <select
+          {panelTab === 'canvas' && (
+            <nav className="macro-graph-breadcrumb" aria-label="매크로 그래프 경로">
+              <button type="button" onClick={() => {
+                setActiveFunctionId(null)
+                setSelectedNodeId(null)
+              }}>Main</button>
+              {activeFunctionId && (
+                <>
+                  <span aria-hidden="true">›</span>
+                  <button type="button" aria-current="page">
+                    {definition?.functions?.find((item) => item.id === activeFunctionId)?.name ?? activeFunctionId}
+                  </button>
+                </>
+              )}
+            </nav>
+          )}
+          {panelTab === 'canvas' && <select
             aria-label="매크로 화면"
             value={selectedScreenId}
             disabled={!definition || Boolean(activeFunctionId)}
@@ -756,10 +1180,22 @@ export const IntegratedMacroPanel = forwardRef<
             {SCREEN_OPTIONS.map((screen) => (
               <option key={screen.id} value={screen.id}>{screen.label}</option>
             ))}
-          </select>
-          {dirty && <Tag intent="warning" minimal>편집 중</Tag>}
+          </select>}
+          {panelTab === 'canvas' && dirty && <Tag intent="warning" minimal>편집 중</Tag>}
         </div>
         <div className="integrated-macro-tabs" role="tablist" aria-label="매크로 작업 모드">
+          <Button
+            minimal
+            small
+            role="tab"
+            aria-selected={panelTab === 'execution'}
+            active={panelTab === 'execution'}
+            text="실행"
+            onClick={() => {
+              setRuntimeDetailOpen(false)
+              setPanelTab('execution')
+            }}
+          />
           <Button
             minimal
             small
@@ -769,24 +1205,21 @@ export const IntegratedMacroPanel = forwardRef<
             text="캔버스"
             onClick={() => setPanelTab('canvas')}
           />
-          <Button
-            minimal
-            small
-            role="tab"
-            aria-selected={panelTab === 'execution'}
-            active={panelTab === 'execution'}
-            text="실행"
-            onClick={() => setPanelTab('execution')}
-          />
         </div>
         {panelTab === 'canvas' ? (
           <ButtonGroup className="integrated-macro-toolbar__actions" minimal>
-            <Button small disabled={busy} onClick={createNew}>{ko.actions.newMacro}</Button>
-            <Button small disabled={busy} onClick={loadDraft}>{ko.actions.loadDraft}</Button>
-            <Button small disabled={!definition || busy} onClick={() => void duplicate()}>{ko.actions.duplicate}</Button>
             <Button small disabled={!definition || busy} onClick={() => void validate()}>{ko.actions.validate}</Button>
             <Button small disabled={!definition} onClick={() => void flowRef.current?.fitView({ duration: 200, padding: 0.2 })}>{ko.actions.fitView}</Button>
             <Button small intent="primary" disabled={!definition || busy} onClick={() => void save()}>{ko.actions.save}</Button>
+            <Button
+              small
+              icon="maximize"
+              disabled={!definition}
+              title="매크로 캔버스 확대"
+              onClick={() => setCanvasExpansion(true)}
+            >
+              확대
+            </Button>
             <select
               aria-label="매크로 그래프"
               value={activeFunctionId ?? '__main__'}
@@ -814,28 +1247,102 @@ export const IntegratedMacroPanel = forwardRef<
               ))}
             </select>
             <Button small disabled={!definition || busy} onClick={addVariable}>+ 변수</Button>
-            <Button small disabled={!selectedVariableName || busy} onClick={editVariable}>변수 수정</Button>
-            <Button small intent="danger" disabled={!selectedVariableName || busy} onClick={deleteVariable}>변수 삭제</Button>
+            <Button small disabled={!selectedVariableName || busy} onClick={() => editVariable()}>변수 수정</Button>
+            <Button
+              small
+              disabled={!selectedVariableName || busy}
+              onClick={() => {
+                const variable = definition?.variables?.find((item) => item.name === selectedVariableName)
+                if (variable) addNode('set_variable', undefined, variableNodeConfig('set_variable', variable), variableNodeLabel('set', variable.name))
+              }}
+            >변수 설정 추가</Button>
+            <Button
+              small
+              disabled={!selectedVariableName || busy}
+              onClick={() => {
+                const variable = definition?.variables?.find((item) => item.name === selectedVariableName)
+                if (variable) addNode('get_variable', undefined, variableNodeConfig('get_variable', variable), variableNodeLabel('get', variable.name))
+              }}
+            >변수 가져오기 추가</Button>
+            <Button
+              small
+              active={definition?.variables?.find((item) => item.name === selectedVariableName)?.input === true}
+              disabled={!selectedVariableName || busy}
+              title="실행 팝업에서 값을 입력받습니다"
+              onClick={toggleVariableInput}
+            >
+              실행 입력
+            </Button>
+            <Button small intent="danger" disabled={!selectedVariableName || busy} onClick={() => deleteVariable()}>변수 삭제</Button>
             <Button small disabled={!definition || busy} onClick={createFunction}>새 함수</Button>
-            <Button small disabled={!activeFunctionId || busy} onClick={renameFunction}>함수 이름 변경</Button>
+            <Button
+              small
+              disabled={(definition?.functions?.length ?? 0) === 0 || busy}
+              onClick={() => {
+                const target = definition?.functions?.find((item) => item.id === activeFunctionId)
+                  ?? definition?.functions?.[0]
+                if (!target) return
+                addNode('call_function', undefined, functionCallConfig(target), target.name)
+              }}
+            >함수 호출 추가</Button>
+            <Button small disabled={!activeFunctionId || busy} onClick={() => renameFunction()}>함수 이름 변경</Button>
             <Button small disabled={!activeFunctionId || busy} onClick={() => addFunctionPort('inputs')}>+ 입력</Button>
             <Button small disabled={!activeFunctionId || busy} onClick={() => removeFunctionPort('inputs')}>− 입력</Button>
             <Button small disabled={!activeFunctionId || busy} onClick={() => addFunctionPort('outputs')}>+ 출력</Button>
             <Button small disabled={!activeFunctionId || busy} onClick={() => removeFunctionPort('outputs')}>− 출력</Button>
-            <Button small intent="danger" disabled={!activeFunctionId || busy} onClick={deleteFunction}>함수 삭제</Button>
+            <Button small intent="danger" disabled={!activeFunctionId || busy} onClick={() => deleteFunction()}>함수 삭제</Button>
           </ButtonGroup>
         ) : (
           <ButtonGroup className="integrated-macro-toolbar__actions" minimal>
-            <Button small intent="success" disabled={!definition || busy || state !== 'idle'} onClick={() => void command('start')}>{ko.actions.run}</Button>
-            <Button small disabled={busy || state !== 'running'} onClick={() => void command('pause')}>{ko.actions.pause}</Button>
-            <Button small disabled={busy || state !== 'paused'} onClick={() => void command('resume')}>{ko.actions.resume}</Button>
-            <Button small disabled={!definition || busy || state !== 'paused'} onClick={() => void command('step')}>{ko.actions.step}</Button>
-            <Button small intent="danger" disabled={busy || !runtimeActive} onClick={() => void command('stop')}>{ko.actions.stop}</Button>
-            <Button small disabled={busy || !['error', 'stopped', 'completed'].includes(state)} onClick={() => void command('reset')}>{ko.actions.reset}</Button>
+            <Button small intent="primary" icon="plus" disabled={busy} onClick={() => void createNew()}>새 매크로</Button>
           </ButtonGroup>
         )}
       </header>
       {message && <Callout className="integrated-macro-message" compact intent={messageIntent}>{message}</Callout>}
+      {canvasExpanded && (
+        <>
+          <div className="macro-canvas-expanded-backdrop" aria-hidden="true" />
+          <section
+            className="macro-canvas-expanded-shell"
+            role="dialog"
+            aria-modal="true"
+            aria-label="매크로 캔버스 확대"
+            aria-owns="integrated-macro-editor"
+          >
+            <header>
+              <div className="macro-canvas-expanded-shell__identity">
+                <strong>{definition?.name ?? ko.panels.macroCanvas}</strong>
+                {dirty && <Tag intent="warning" minimal>편집 중</Tag>}
+              </div>
+              <select
+                aria-label="확대 화면 매크로 화면"
+                value={selectedScreenId}
+                disabled={!definition || Boolean(activeFunctionId)}
+                onChange={(event) => {
+                  setSelectedScreenId(event.target.value)
+                  setSelectedNodeId(null)
+                  window.setTimeout(() => flowRef.current?.fitView({ duration: 200, padding: 0.2 }), 0)
+                }}
+              >
+                {SCREEN_OPTIONS.map((screen) => (
+                  <option key={screen.id} value={screen.id}>{screen.label}</option>
+                ))}
+              </select>
+              <span />
+              <Button small disabled={!definition || busy} onClick={() => void validate()}>{ko.actions.validate}</Button>
+              <Button small disabled={!definition} onClick={() => void flowRef.current?.fitView({ duration: 200, padding: 0.2 })}>{ko.actions.fitView}</Button>
+              <Button small intent="primary" disabled={!definition || busy} onClick={() => void save()}>{ko.actions.save}</Button>
+              <Button
+                minimal
+                icon="cross"
+                aria-label="확대 화면 닫기"
+                title="닫기"
+                onClick={() => setCanvasExpansion(false)}
+              />
+            </header>
+          </section>
+        </>
+      )}
       <div className="integrated-macro-content">
         {panelTab === 'canvas' && runtimeActive && (
           <Callout className="integrated-macro-running-notice" compact intent="warning">
@@ -843,11 +1350,55 @@ export const IntegratedMacroPanel = forwardRef<
           </Callout>
         )}
         <div
+          id="integrated-macro-editor"
           ref={editorRef}
-          className={`integrated-macro-editor${panelTab === 'canvas' ? '' : ' is-tab-hidden'}`}
+          className={`integrated-macro-editor${panelTab === 'canvas' ? '' : ' is-tab-hidden'}${canvasExpanded ? ' is-expanded' : ''}`}
           aria-hidden={panelTab !== 'canvas'}
+          style={canvasExpanded ? {
+            gridTemplateColumns: `${expandedPaletteWidth}px 8px minmax(0, 1fr) 8px ${expandedInspectorWidth}px`,
+          } : undefined}
         >
-          <BlockPalette onAdd={(type) => addNode(type)} />
+          <div className="macro-sidebar">
+            <div className="macro-sidebar__tabs" role="tablist" aria-label="캔버스 탐색기">
+              <button type="button" role="tab" aria-selected={sidebarTab === 'blueprint'} onClick={() => setSidebarTab('blueprint')}>My Blueprint</button>
+              <button type="button" role="tab" aria-selected={sidebarTab === 'blocks'} onClick={() => setSidebarTab('blocks')}>Blocks</button>
+            </div>
+            <div hidden={sidebarTab !== 'blueprint'} className="macro-sidebar__panel">
+              <MyBlueprintPanel
+                variables={definition?.variables ?? []}
+                functions={definition?.functions ?? []}
+                selection={selectedBlueprint}
+                onSelect={(selection) => {
+                  setSelectedBlueprint(selection)
+                  setSelectedNodeId(null)
+                  if (selection.kind === 'variable') setSelectedVariableName(selection.id)
+                }}
+                onOpenFunction={(functionId) => {
+                  setActiveFunctionId(functionId)
+                  setSelectedBlueprint({ kind: 'function', id: functionId })
+                  setSelectedNodeId(null)
+                }}
+                onAddVariable={addVariable}
+                onAddFunction={createFunction}
+                onRenameFunction={renameFunction}
+                onDuplicateFunction={duplicateFunction}
+                onDeleteFunction={deleteFunction}
+              />
+            </div>
+            <div hidden={sidebarTab !== 'blocks'} className="macro-sidebar__panel">
+              <BlockPalette onAdd={(type) => addNode(type)} />
+            </div>
+          </div>
+          {canvasExpanded && (
+            <div
+              className="macro-canvas-expanded-splitter"
+              role="separator"
+              aria-label="블록과 캔버스 크기 조절"
+              aria-orientation="vertical"
+              onPointerDown={(event) => beginExpandedResize('palette', event)}
+              onDoubleClick={() => setExpandedPaletteWidth(EXPANDED_PALETTE_WIDTH)}
+            />
+          )}
           {definition ? (
             <MacroCanvas
             nodes={shownNodes}
@@ -867,27 +1418,21 @@ export const IntegratedMacroPanel = forwardRef<
               }
               if (changes.some((change) => change.type !== 'select')) markChanged()
             }}
-            onConnect={(connection: Connection, kind: 'exec' | 'data' = 'exec') => {
-              const connect = (current: MacroFlowEdge[]) => addEdge({
-                ...connection,
-                id: uniqueEdgeId(connection, current),
-                data: { errors: [], kind },
-              }, current)
-              if (activeFunctionId) {
-                setFunctionFlows((current) => {
-                  const flow = current[activeFunctionId]
-                  return flow ? {
-                    ...current,
-                    [activeFunctionId]: { ...flow, edges: connect(flow.edges) },
-                  } : current
-                })
-              } else {
-                setEdges(connect)
-              }
-              markChanged()
+            onConnect={addConnection}
+            onSelectNode={(nodeId) => {
+              setSelectedNodeId(nodeId)
+              if (nodeId) setSelectedBlueprint(null)
             }}
-            onSelectNode={setSelectedNodeId}
             onDropBlock={(type, position) => addNode(type, position)}
+            onDropBlueprintItem={dropBlueprintItem}
+            onPromoteToVariable={promoteToVariable}
+            quickSearchBlocks={quickSearchBlocks}
+            onDropQuickBlock={(block, position) => addNode(
+              block.type,
+              position,
+              block.presetConfig,
+              block.presetLabel,
+            )}
             onReady={(instance) => { flowRef.current = instance }}
             />
           ) : (
@@ -896,7 +1441,36 @@ export const IntegratedMacroPanel = forwardRef<
               <span>새 매크로를 만들거나 초안을 불러오거나 기존 매크로를 선택하세요.</span>
             </div>
           )}
-          <NodeInspector
+          {canvasExpanded && (
+            <div
+              className="macro-canvas-expanded-splitter"
+              role="separator"
+              aria-label="캔버스와 인스펙터 크기 조절"
+              aria-orientation="vertical"
+              onPointerDown={(event) => beginExpandedResize('inspector', event)}
+              onDoubleClick={() => setExpandedInspectorWidth(EXPANDED_INSPECTOR_WIDTH)}
+            />
+          )}
+          {selectedBlueprint ? (
+            <BlueprintInspector
+              selection={selectedBlueprint}
+              variable={selectedBlueprint.kind === 'variable'
+                ? definition?.variables?.find((item) => item.name === selectedBlueprint.id)
+                : undefined}
+              functionDefinition={selectedBlueprint.kind === 'function'
+                ? definition?.functions?.find((item) => item.id === selectedBlueprint.id)
+                : undefined}
+              onEditVariable={editVariable}
+              onDeleteVariable={deleteVariable}
+              onRenameFunction={renameFunction}
+              onUpdateFunctionPorts={updateFunctionPorts}
+              onOpenFunction={(functionId) => {
+                setActiveFunctionId(functionId)
+                setSelectedNodeId(null)
+              }}
+              onDeleteFunction={deleteFunction}
+            />
+          ) : <NodeInspector
           node={selectedNode}
           issues={issues.filter((item) => item.nodeId === selectedNodeId)}
           onUpdateConfig={(config) => {
@@ -918,109 +1492,687 @@ export const IntegratedMacroPanel = forwardRef<
           allowLegacyEntry={false}
           functions={definition?.functions ?? []}
             variables={definition?.variables ?? []}
-          />
+          />}
         </div>
         {panelTab === 'execution' && (
-          <MacroExecutionPanel runtime={runtime} state={state} />
+          runtimeDetailOpen ? (
+            <MacroRuntimeDetail
+              macro={definitions.find((item) => item.id === runtime.runtime?.macro_definition_id)}
+              deviceId={deviceId}
+              runtime={runtime}
+              state={state}
+              busy={busy}
+              onBack={() => setRuntimeDetailOpen(false)}
+              onPause={() => void command('pause')}
+              onResume={() => void command('resume')}
+              onStep={() => void command('step')}
+              onStop={() => void command('stop')}
+              onReset={() => void command('reset')}
+            />
+          ) : (
+            <MacroExecutionPanel
+              definitions={definitions}
+              deviceId={deviceId}
+              boundMacroId={boundMacroId}
+              runtime={runtime}
+              busy={busy}
+              onRun={setRunSetupMacro}
+              onPause={() => void command('pause')}
+              onResume={() => void command('resume')}
+              onStop={() => void command('stop')}
+              onDetail={() => setRuntimeDetailOpen(true)}
+              onEdit={(macro) => void editMacro(macro)}
+              onRename={(macro) => void renameMacro(macro)}
+              onDuplicate={(macro) => void duplicateMacro(macro)}
+              onDelete={(macro) => void deleteMacro(macro)}
+              onCreate={() => void createNew()}
+            />
+          )
         )}
       </div>
+      {runSetupMacro && (
+        <MacroRunDialog
+          key={runSetupMacro.id}
+          macro={runSetupMacro}
+          deviceId={deviceId}
+          busy={busy}
+          onCancel={() => setRunSetupMacro(null)}
+          onRun={async (inputVariables) => {
+            const started = await runMacro(runSetupMacro, inputVariables)
+            if (started) setRunSetupMacro(null)
+            return started
+          }}
+        />
+      )}
+      {variableDialog && definition && (
+        <VariableEditorDialog
+          key={variableDialog.mode === 'edit' ? `edit-${variableDialog.variable.name}` : variableDialog.mode}
+          title={variableDialog.mode === 'edit'
+            ? '변수 편집'
+            : variableDialog.mode === 'promote' ? '변수로 승격' : '변수 추가'}
+          submitLabel={variableDialog.mode === 'edit' ? '저장' : '추가'}
+          initial={variableDialog.mode === 'edit' ? variableDialog.variable : undefined}
+          suggestedName={variableDialog.mode === 'promote' ? variableDialog.suggestedName : undefined}
+          suggestedType={variableDialog.mode === 'promote' ? variableDialog.suggestedType : undefined}
+          existingNames={(definition.variables ?? [])
+            .filter((item) => variableDialog.mode !== 'edit' || item.name !== variableDialog.variable.name)
+            .map((item) => item.name)}
+          onCancel={() => setVariableDialog(null)}
+          onSubmit={submitVariableDialog}
+        />
+      )}
+      {nameDialog && (
+        <NameEditorDialog
+          key={`${nameDialog.kind}-${nameDialog.initialValue}`}
+          title={nameDialog.kind === 'macro-create'
+            ? '새 매크로'
+            : nameDialog.kind === 'macro-rename'
+              ? '매크로 이름 변경'
+              : nameDialog.kind === 'function-create' ? '새 함수' : '함수 이름 변경'}
+          label={nameDialog.kind.startsWith('macro') ? '매크로 이름' : '함수 이름'}
+          initialValue={nameDialog.initialValue}
+          submitLabel={nameDialog.kind.endsWith('create') ? '생성' : '저장'}
+          existingNames={nameDialog.kind.startsWith('macro')
+            ? definitions
+                .filter((item) => nameDialog.kind !== 'macro-rename' || item.id !== nameDialog.macro.id)
+                .map((item) => item.name)
+            : (definition?.functions ?? [])
+                .filter((item) => nameDialog.kind !== 'function-rename' || item.id !== nameDialog.functionId)
+                .map((item) => item.name)}
+          busy={busy}
+          onCancel={() => setNameDialog(null)}
+          onSubmit={submitNameDialog}
+        />
+      )}
+      {portDialog && definition && (() => {
+        const owner = definition.functions?.find((item) => item.id === portDialog.functionId)
+        return owner ? (
+          <FunctionPortDialog
+            kind={portDialog.kind}
+            existingIds={owner[portDialog.kind].map((item) => item.id)}
+            onCancel={() => setPortDialog(null)}
+            onSubmit={(port) => {
+              updateFunctionPorts(owner.id, portDialog.kind, [...owner[portDialog.kind], port])
+              setPortDialog(null)
+            }}
+          />
+        ) : null
+      })()}
+      {confirmDialog && (
+        <ConfirmDialog
+          title={confirmDialog.title}
+          description={confirmDialog.description}
+          confirmLabel={confirmDialog.confirmLabel}
+          danger={confirmDialog.danger}
+          busy={busy}
+          onCancel={() => setConfirmDialog(null)}
+          onConfirm={async () => {
+            const action = confirmDialog.onConfirm
+            setConfirmDialog(null)
+            await action()
+          }}
+        />
+      )}
     </section>
   )
 })
 
+type RuntimeInputDraft = string | boolean
+
+function MacroRunDialog({
+  macro,
+  deviceId,
+  busy,
+  onCancel,
+  onRun,
+}: {
+  macro: MacroDefinition
+  deviceId: string
+  busy: boolean
+  onCancel: () => void
+  onRun: (variables: Record<string, JsonValue>) => Promise<boolean>
+}) {
+  const variables = (macro.variables ?? []).filter((variable) => variable.input === true)
+  const defaults = () => Object.fromEntries(variables.map((variable) => [
+    variable.name,
+    runtimeInputDraft(variable),
+  ])) as Record<string, RuntimeInputDraft>
+  const [draft, setDraft] = useState<Record<string, RuntimeInputDraft>>(defaults)
+  const [errors, setErrors] = useState<Record<string, string>>({})
+
+  const submit = async () => {
+    const nextErrors: Record<string, string> = {}
+    const values: Record<string, JsonValue> = {}
+    for (const variable of variables) {
+      const result = parseRuntimeInput(variable, draft[variable.name])
+      if (result.error) nextErrors[variable.name] = result.error
+      else if (result.value !== undefined) values[variable.name] = result.value
+    }
+    setErrors(nextErrors)
+    if (Object.keys(nextErrors).length > 0) return
+    await onRun(values)
+  }
+
+  return (
+    <div className="macro-run-dialog-backdrop" role="presentation">
+      <section
+        className="macro-run-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="macro-run-dialog-title"
+      >
+        <header>
+          <div>
+            <h2 id="macro-run-dialog-title">매크로 실행</h2>
+            <span>{macro.name}</span>
+          </div>
+          <Button minimal icon="cross" aria-label="실행 설정 닫기" disabled={busy} onClick={onCancel} />
+        </header>
+        <div className="macro-run-dialog__body">
+          <dl className="macro-run-dialog__summary">
+            <div><dt>매크로</dt><dd>{macro.name}</dd></div>
+            <div><dt>대상 디바이스</dt><dd>{deviceId}</dd></div>
+          </dl>
+          <section className="macro-run-dialog__inputs" aria-label="실행 입력값">
+            <div className="macro-run-dialog__section-heading">
+              <strong>실행 입력값</strong>
+              <Tag minimal>{variables.length}</Tag>
+            </div>
+            {variables.length === 0 ? (
+              <p className="macro-run-dialog__empty">설정할 외부 입력 변수가 없습니다.</p>
+            ) : variables.map((variable) => (
+              <RuntimeInputField
+                key={variable.name}
+                variable={variable}
+                value={draft[variable.name]}
+                error={errors[variable.name]}
+                disabled={busy}
+                onChange={(value) => {
+                  setDraft((current) => ({ ...current, [variable.name]: value }))
+                  setErrors((current) => {
+                    const next = { ...current }
+                    delete next[variable.name]
+                    return next
+                  })
+                }}
+              />
+            ))}
+          </section>
+        </div>
+        <footer>
+          {variables.length > 0 && (
+            <Button minimal disabled={busy} onClick={() => {
+              setDraft(defaults())
+              setErrors({})
+            }}>
+              기본값으로 초기화
+            </Button>
+          )}
+          <span />
+          <Button disabled={busy} onClick={onCancel}>취소</Button>
+          <Button intent="success" loading={busy} onClick={() => void submit()}>실행</Button>
+        </footer>
+      </section>
+    </div>
+  )
+}
+
+function RuntimeInputField({
+  variable,
+  value,
+  error,
+  disabled,
+  onChange,
+}: {
+  variable: MacroVariableDefinition
+  value: RuntimeInputDraft | undefined
+  error?: string
+  disabled: boolean
+  onChange: (value: RuntimeInputDraft) => void
+}) {
+  const inputId = `macro-run-input-${variable.name.replace(/[^a-zA-Z0-9_-]/g, '-')}`
+  const optionValues = variable.options?.map((option) => JSON.stringify(option)) ?? []
+  return (
+    <label className={`macro-run-field${error ? ' has-error' : ''}`} htmlFor={inputId}>
+      <span className="macro-run-field__label">
+        <strong>{variable.name}</strong>
+        <code>{variable.type}</code>
+      </span>
+      {variable.description && <small>{variable.description}</small>}
+      {optionValues.length > 0 ? (
+        <select
+          id={inputId}
+          disabled={disabled}
+          value={typeof value === 'string' ? value : JSON.stringify(value)}
+          onChange={(event) => onChange(event.target.value)}
+        >
+          {variable.options?.map((option, index) => (
+            <option key={optionValues[index]} value={optionValues[index]}>
+              {formatRuntimeValue(option)}
+            </option>
+          ))}
+        </select>
+      ) : variable.type === 'bool' ? (
+        <input
+          id={inputId}
+          type="checkbox"
+          disabled={disabled}
+          checked={value === true}
+          onChange={(event) => onChange(event.target.checked)}
+        />
+      ) : variable.type === 'int' || variable.type === 'float' ? (
+        <input
+          id={inputId}
+          type="number"
+          step={variable.type === 'int' ? 1 : 'any'}
+          disabled={disabled}
+          value={typeof value === 'string' ? value : ''}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ) : variable.type === 'string' ? (
+        <input
+          id={inputId}
+          type="text"
+          disabled={disabled}
+          value={typeof value === 'string' ? value : ''}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      ) : (
+        <textarea
+          id={inputId}
+          rows={4}
+          disabled={disabled}
+          value={typeof value === 'string' ? value : ''}
+          placeholder={runtimeInputPlaceholder(variable.type)}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+      <span className="macro-run-field__default">
+        기본값: {variable.default === undefined ? '없음' : formatRuntimeValue(variable.default)}
+      </span>
+      {error && <span className="macro-run-field__error" role="alert">{error}</span>}
+    </label>
+  )
+}
+
+function runtimeInputDraft(variable: MacroVariableDefinition): RuntimeInputDraft {
+  const value = variable.default
+  if (variable.options?.length) return JSON.stringify(value ?? variable.options[0])
+  if (variable.type === 'bool') return value === true
+  if (variable.type === 'string') return typeof value === 'string' ? value : ''
+  if (variable.type === 'int' || variable.type === 'float') {
+    return typeof value === 'number' ? String(value) : ''
+  }
+  return value === undefined || value === null ? '' : JSON.stringify(value, null, 2)
+}
+
+function parseRuntimeInput(
+  variable: MacroVariableDefinition,
+  draft: RuntimeInputDraft | undefined,
+): { value?: JsonValue; error?: string } {
+  let value: JsonValue
+  if (variable.options?.length) {
+    try {
+      value = JSON.parse(typeof draft === 'string' ? draft : '') as JsonValue
+    } catch {
+      return { error: '허용된 값을 선택하세요.' }
+    }
+    if (!variable.options.some((option) => JSON.stringify(option) === JSON.stringify(value))) {
+      return { error: '허용된 값을 선택하세요.' }
+    }
+  } else if (variable.type === 'bool') {
+    if (typeof draft !== 'boolean') return { error: '체크 여부를 선택하세요.' }
+    value = draft
+  } else if (variable.type === 'string') {
+    if (typeof draft !== 'string') return { error: '문자열을 입력하세요.' }
+    value = draft
+  } else if (variable.type === 'int' || variable.type === 'float') {
+    if (typeof draft !== 'string' || draft.trim() === '') return { error: '숫자를 입력하세요.' }
+    const number = Number(draft)
+    if (!Number.isFinite(number) || (variable.type === 'int' && !Number.isInteger(number))) {
+      return { error: variable.type === 'int' ? '정수를 입력하세요.' : '유한한 숫자를 입력하세요.' }
+    }
+    value = number
+  } else {
+    try {
+      value = JSON.parse(typeof draft === 'string' ? draft : '') as JsonValue
+    } catch {
+      return { error: '올바른 JSON 객체를 입력하세요.' }
+    }
+    if (!runtimeObjectMatchesType(value, variable.type)) {
+      return { error: `${variable.type} 형식에 맞는 JSON 객체를 입력하세요.` }
+    }
+  }
+  return { value }
+}
+
+function runtimeObjectMatchesType(value: JsonValue, type: MacroVariableDefinition['type']): boolean {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const numeric = (source: Record<string, JsonValue>, keys: string[]) => keys.every(
+    (key) => typeof source[key] === 'number' && Number.isFinite(source[key]),
+  )
+  if (type === 'position') return numeric(value, ['x', 'y'])
+  if (type === 'rect') return numeric(value, ['left', 'top', 'right', 'bottom'])
+  if (type === 'element') {
+    const bounds = value.bounds
+    return typeof value.id === 'string'
+      && bounds !== null
+      && typeof bounds === 'object'
+      && !Array.isArray(bounds)
+      && numeric(bounds, ['left', 'top', 'right', 'bottom'])
+  }
+  return false
+}
+
+function runtimeInputPlaceholder(type: MacroVariableDefinition['type']): string {
+  if (type === 'position') return '{"x": 0, "y": 0}'
+  if (type === 'rect') return '{"left": 0, "top": 0, "right": 100, "bottom": 100}'
+  return '{"id": "element-id", "bounds": {"left": 0, "top": 0, "right": 100, "bottom": 100}}'
+}
+
 function MacroExecutionPanel({
+  definitions,
+  deviceId,
+  boundMacroId,
+  runtime,
+  busy,
+  onRun,
+  onPause,
+  onResume,
+  onStop,
+  onDetail,
+  onEdit,
+  onRename,
+  onDuplicate,
+  onDelete,
+  onCreate,
+}: {
+  definitions: MacroDefinition[]
+  deviceId: string
+  boundMacroId: string | null
+  runtime: ReturnType<typeof useMacroRuntime>
+  busy: boolean
+  onRun: (macro: MacroDefinition) => void
+  onPause: () => void
+  onResume: () => void
+  onStop: () => void
+  onDetail: () => void
+  onEdit: (macro: MacroDefinition) => void
+  onRename: (macro: MacroDefinition) => void
+  onDuplicate: (macro: MacroDefinition) => void
+  onDelete: (macro: MacroDefinition) => void
+  onCreate: () => void
+}) {
+  const snapshot = runtime.runtime
+
+  return (
+    <section className="integrated-macro-execution" aria-label="매크로 목록">
+      {definitions.length === 0 ? (
+        <div className="integrated-macro-execution__empty">
+          <strong>등록된 매크로가 없습니다.</strong>
+          <span>첫 매크로를 만들어 자동화 작업을 시작하세요.</span>
+          <Button intent="primary" icon="plus" onClick={onCreate}>새 매크로 만들기</Button>
+        </div>
+      ) : (
+        <div className="integrated-macro-list">
+          {definitions.map((macro) => {
+            const isRuntimeMacro = snapshot?.macro_definition_id === macro.id
+            const hasRuntime = isRuntimeMacro && Boolean(snapshot?.runtime_id)
+            const state = isRuntimeMacro ? snapshot.state : 'idle'
+            const isRunning = state === 'running'
+            const isPaused = state === 'paused'
+            const isActive = isRunning || isPaused
+            const currentNodeId = runtime.currentNodeId ?? snapshot?.current_node_id
+            const currentNode = macro.nodes.find((node) => node.id === currentNodeId)
+            const currentNodeLabel = currentNode
+              ? currentNode.label ?? BLOCK_BY_TYPE.get(currentNode.type)?.label ?? currentNode.type
+              : currentNodeId
+            const description = macroDescription(macro)
+            return (
+              <article
+                className={`integrated-macro-card${isActive ? ' is-active' : ''}${state === 'error' ? ' is-error' : ''}`}
+                key={macro.id}
+              >
+                <div className="integrated-macro-card__main">
+                  <div className="integrated-macro-card__title">
+                    <strong>{macro.name}</strong>
+                    {boundMacroId === macro.id && <Tag minimal intent="primary">연결됨</Tag>}
+                  </div>
+                  <p>{description}</p>
+                  <div className="integrated-macro-card__meta">
+                    <span className={`macro-status macro-status--${state}`}>
+                      <i aria-hidden="true" />
+                      {runtimeStateLabels[state] ?? state}
+                    </span>
+                    <span title={boundMacroId === macro.id ? deviceId : undefined}>
+                      디바이스 · {boundMacroId === macro.id ? deviceId : '바인딩 없음'}
+                    </span>
+                  </div>
+                  {isActive && (
+                    <div className="integrated-macro-card__progress">
+                      <span>현재 노드: <strong>{currentNodeLabel ?? '—'}</strong></span>
+                      <span>Step: <strong>{snapshot?.step_count ?? 0}</strong></span>
+                    </div>
+                  )}
+                  {state === 'error' && snapshot?.error && (
+                    <div className="integrated-macro-card__error">{snapshot.error}</div>
+                  )}
+                </div>
+                <div className="integrated-macro-card__actions">
+                  {isRunning ? (
+                    <Button small disabled={busy} onClick={onPause}>{ko.actions.pause}</Button>
+                  ) : isPaused ? (
+                    <Button small intent="success" disabled={busy} onClick={onResume}>{ko.actions.resume}</Button>
+                  ) : (
+                    <Button
+                      small
+                      intent="success"
+                      disabled={busy || Boolean(snapshot && ['running', 'paused'].includes(snapshot.state))}
+                      onClick={() => onRun(macro)}
+                    >
+                      {ko.actions.run}
+                    </Button>
+                  )}
+                  {isActive && <Button small intent="danger" disabled={busy} onClick={onStop}>{ko.actions.stop}</Button>}
+                  {hasRuntime && <Button small disabled={busy} onClick={onDetail}>상세</Button>}
+                  <details className="integrated-macro-card__menu">
+                    <summary aria-label={`${macro.name} 더보기`}>⋯</summary>
+                    <div>
+                      <button type="button" onClick={() => onEdit(macro)}>캔버스에서 편집</button>
+                      <button type="button" onClick={() => onRename(macro)}>이름 변경</button>
+                      <button type="button" onClick={() => onDuplicate(macro)}>복제</button>
+                      <button className="is-danger" type="button" onClick={() => onDelete(macro)}>삭제</button>
+                    </div>
+                  </details>
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function MacroRuntimeDetail({
+  macro,
+  deviceId,
   runtime,
   state,
+  busy,
+  onBack,
+  onPause,
+  onResume,
+  onStep,
+  onStop,
+  onReset,
 }: {
+  macro?: MacroDefinition
+  deviceId: string
   runtime: ReturnType<typeof useMacroRuntime>
   state: string
+  busy: boolean
+  onBack: () => void
+  onPause: () => void
+  onResume: () => void
+  onStep: () => void
+  onStop: () => void
+  onReset: () => void
 }) {
+  const [detailTab, setDetailTab] = useState<'variables' | 'trace'>('variables')
   const snapshot = runtime.runtime
   const variableEntries = Object.entries(snapshot?.variables ?? {})
   const trace = snapshot?.trace ?? []
   const activeScreen = snapshot?.active_screen_id
     ? screenLabel(snapshot.active_screen_id)
     : '—'
+  const currentNodeId = runtime.currentNodeId ?? snapshot?.current_node_id
+  const currentNode = macro?.nodes.find((node) => node.id === currentNodeId)
+  const currentNodeLabel = currentNode
+    ? currentNode.label ?? BLOCK_BY_TYPE.get(currentNode.type)?.label ?? currentNode.type
+    : currentNodeId ?? '—'
+  const variableTypes = new Map((macro?.variables ?? []).map((variable) => [
+    variable.name,
+    variable.type,
+  ]))
+  const isRunning = state === 'running'
+  const isPaused = state === 'paused'
+  const canReset = ['completed', 'stopped', 'error'].includes(state)
 
   return (
-    <section className="integrated-macro-runtime" aria-label="매크로 실행 상태">
+    <section className="integrated-macro-runtime" aria-label="매크로 실행 상세">
       <header className="integrated-macro-runtime__heading">
-        <div>
-          <strong>런타임 상태</strong>
-          <small>{snapshot?.runtime_id ?? '활성 런타임 없음'}</small>
+        <Button minimal small icon="arrow-left" onClick={onBack}>매크로 목록</Button>
+        <div className="integrated-macro-runtime__identity">
+          <strong>{macro?.name ?? snapshot?.macro_definition_id ?? '매크로'}</strong>
+          <small>{deviceId} · {snapshot?.runtime_id ?? '활성 런타임 없음'}</small>
         </div>
-        <Tag
-          intent={state === 'running' ? 'success' : state === 'paused' ? 'warning' : 'none'}
-        >
+        <Tag intent={state === 'running' ? 'success' : state === 'paused' ? 'warning' : 'none'}>
           {runtimeStateLabels[state] ?? state}
           {snapshot?.definition_version ? ` v${snapshot.definition_version}` : ''}
         </Tag>
       </header>
-
+      <div className="integrated-macro-runtime__controls" aria-label="런타임 제어">
+        {isRunning && <Button small disabled={busy} onClick={onPause}>{ko.actions.pause}</Button>}
+        {isPaused && <Button small intent="success" disabled={busy} onClick={onResume}>{ko.actions.resume}</Button>}
+        {isPaused && <Button small disabled={busy} onClick={onStep}>{ko.actions.step}</Button>}
+        {(isRunning || isPaused) && (
+          <Button small intent="danger" disabled={busy} onClick={onStop}>{ko.actions.stop}</Button>
+        )}
+        {canReset && <Button small disabled={busy} onClick={onReset}>{ko.actions.reset}</Button>}
+      </div>
       <dl className="integrated-macro-runtime__summary">
-        <div>
-          <dt>Runtime State</dt>
-          <dd>{runtimeStateLabels[state] ?? state}</dd>
-        </div>
-        <div>
-          <dt>Current Node</dt>
-          <dd>{runtime.currentNodeId ?? snapshot?.current_node_id ?? '—'}</dd>
-        </div>
-        <div>
-          <dt>Current Screen</dt>
-          <dd>{activeScreen}</dd>
-        </div>
-        <div>
-          <dt>Step Count</dt>
-          <dd>{snapshot?.step_count ?? 0}</dd>
-        </div>
+        <div><dt>상태</dt><dd>{runtimeStateLabels[state] ?? state}</dd></div>
+        <div><dt>시작 시각</dt><dd>{formatRuntimeTimestamp(snapshot?.started_at)}</dd></div>
+        <div><dt>Current Screen</dt><dd>{activeScreen}</dd></div>
+        <div><dt>Current Node</dt><dd>{currentNodeLabel}</dd></div>
+        <div><dt>Step Count</dt><dd>{snapshot?.step_count ?? 0}</dd></div>
         <div className={`is-error${snapshot?.error ? ' has-error' : ''}`}>
-          <dt>Error</dt>
-          <dd>{snapshot?.error ?? '—'}</dd>
+          <dt>Error</dt><dd>{snapshot?.error ?? '—'}</dd>
         </div>
       </dl>
-
-      <div className="integrated-macro-runtime__details">
-        <section aria-label="런타임 변수">
-          <header>
-            <strong>Variables</strong>
-            <Tag minimal>{variableEntries.length}</Tag>
-          </header>
-          <div className="integrated-macro-runtime__list">
-            {variableEntries.length > 0 ? (
-              variableEntries.map(([name, value]) => (
-                <div className="integrated-macro-runtime__variable" key={name}>
-                  <strong>{name}</strong>
-                  <code>{formatRuntimeValue(value)}</code>
-                </div>
-              ))
-            ) : (
-              <div className="integrated-macro-runtime__empty">런타임 변수가 없습니다.</div>
-            )}
-          </div>
-        </section>
-
-        <section aria-label="런타임 트레이스">
-          <header>
-            <strong>Trace</strong>
-            <Tag minimal>{trace.length}</Tag>
-          </header>
-          <div className="integrated-macro-runtime__list">
-            {trace.length > 0 ? (
-              trace.map((entry, index) => (
-                <div className="integrated-macro-runtime__trace" key={index}>
-                  <span>{index + 1}</span>
-                  <code>{formatRuntimeValue(entry)}</code>
-                </div>
-              ))
-            ) : (
-              <div className="integrated-macro-runtime__empty">실행 트레이스가 없습니다.</div>
-            )}
-          </div>
-        </section>
-      </div>
+      <section className="integrated-macro-runtime__details">
+        <div className="integrated-macro-runtime__tabs" role="tablist" aria-label="런타임 상세 데이터">
+          <Button
+            minimal
+            small
+            role="tab"
+            active={detailTab === 'variables'}
+            aria-selected={detailTab === 'variables'}
+            onClick={() => setDetailTab('variables')}
+          >
+            변수 <Tag minimal>{variableEntries.length}</Tag>
+          </Button>
+          <Button
+            minimal
+            small
+            role="tab"
+            active={detailTab === 'trace'}
+            aria-selected={detailTab === 'trace'}
+            onClick={() => setDetailTab('trace')}
+          >
+            Trace <Tag minimal>{trace.length}</Tag>
+          </Button>
+        </div>
+        <div className="integrated-macro-runtime__table-wrap" role="tabpanel">
+          {detailTab === 'variables' ? (
+            variableEntries.length > 0 ? (
+              <table aria-label="런타임 변수">
+                <thead><tr><th>변수명</th><th>타입</th><th>현재 값</th></tr></thead>
+                <tbody>
+                  {variableEntries.map(([name, value]) => (
+                    <tr key={name}>
+                      <td><strong>{name}</strong></td>
+                      <td><code>{variableTypes.get(name) ?? runtimeValueType(value)}</code></td>
+                      <td><code>{formatRuntimeValue(value)}</code></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : <div className="integrated-macro-runtime__empty">런타임 변수가 없습니다.</div>
+          ) : trace.length > 0 ? (
+            <table aria-label="런타임 트레이스">
+              <thead>
+                <tr><th>Step</th><th>Node</th><th>상태</th><th>시작 시각</th><th>종료 시각</th><th>오류</th></tr>
+              </thead>
+              <tbody>
+                {trace.map((entry, index) => {
+                  const nodeId = runtimeTraceString(entry, 'node_id')
+                  const traceNode = macro?.nodes.find((node) => node.id === nodeId)
+                  const nodeLabel = traceNode
+                    ? traceNode.label ?? BLOCK_BY_TYPE.get(traceNode.type)?.label ?? traceNode.type
+                    : nodeId ?? '—'
+                  const traceState = runtimeTraceString(entry, 'status')
+                  return (
+                    <tr key={`${nodeId ?? 'trace'}-${index}`}>
+                      <td>{index + 1}</td>
+                      <td><strong>{nodeLabel}</strong>{nodeId && <small>{nodeId}</small>}</td>
+                      <td>{traceState ? runtimeStateLabels[traceState] ?? traceState : '—'}</td>
+                      <td>{formatRuntimeTimestamp(runtimeTraceString(entry, 'started_at'))}</td>
+                      <td>{formatRuntimeTimestamp(runtimeTraceString(entry, 'completed_at'))}</td>
+                      <td className={runtimeTraceString(entry, 'error') ? 'has-error' : ''}>
+                        {runtimeTraceString(entry, 'error') ?? '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          ) : <div className="integrated-macro-runtime__empty">실행 트레이스가 없습니다.</div>}
+        </div>
+      </section>
     </section>
   )
+}
+
+function runtimeTraceString(entry: Record<string, JsonValue>, key: string): string | null {
+  const value = entry[key]
+  return typeof value === 'string' && value ? value : null
+}
+
+function formatRuntimeTimestamp(value: string | null | undefined): string {
+  if (!value) return '—'
+  const parsed = new Date(value)
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleString('ko-KR')
+}
+
+function runtimeValueType(value: JsonValue): string {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'array'
+  if (typeof value === 'number') return Number.isInteger(value) ? 'int' : 'float'
+  if (typeof value === 'object' && value.runtime_type === 'element') return 'element'
+  return typeof value
+}
+
+function macroDescription(macro: MacroDefinition): string {
+  const description = macro.metadata.description
+  if (typeof description === 'string' && description.trim()) return description
+  const updatedAt = macro.metadata.updated_at
+  if (typeof updatedAt === 'string' && updatedAt.trim()) {
+    const parsed = new Date(updatedAt)
+    if (!Number.isNaN(parsed.getTime())) return `마지막 수정 ${parsed.toLocaleString('ko-KR')}`
+  }
+  return `버전 ${macro.version} · 노드 ${macro.nodes.length}개`
 }
 
 function formatRuntimeValue(value: JsonValue | Record<string, JsonValue>): string {
@@ -1157,57 +2309,73 @@ function variableNodeConfig(
   }
 }
 
-function createVariableFromPrompts(
-  name: string,
-  type: MacroVariableDefinition['type'],
-  currentDefault?: JsonValue,
-): MacroVariableDefinition {
-  if (type === 'element') return { name, type }
-  const suggested = currentDefault === undefined
-    ? defaultVariableText(type)
-    : typeof currentDefault === 'string' ? currentDefault : JSON.stringify(currentDefault)
-  const raw = window.prompt('기본값', suggested)
-  if (raw === null) throw new Error('변수 편집을 취소했습니다.')
-  return { name, type, default: parseVariableDefault(raw, type) }
+function contextualQuickSearchBlocks(definition: MacroDefinition | null): BlockDefinition[] {
+  const staticBlocks = BLOCKS.filter((block) => ![
+    'get_variable', 'set_variable', 'call_function',
+  ].includes(block.type))
+  if (!definition) return staticBlocks
+  const variableBlocks = (definition.variables ?? []).flatMap((variable): BlockDefinition[] => [
+    {
+      ...BLOCK_BY_TYPE.get('get_variable')!,
+      label: `${variable.name} 가져오기`,
+      keywords: [variable.name, variable.type, 'get', 'variable', '변수', '가져오기'],
+      presetConfig: variableNodeConfig('get_variable', variable),
+      presetLabel: variableNodeLabel('get', variable.name),
+    },
+    {
+      ...BLOCK_BY_TYPE.get('set_variable')!,
+      label: `${variable.name} 설정`,
+      keywords: [variable.name, variable.type, 'set', 'variable', '변수', '설정'],
+      presetConfig: variableNodeConfig('set_variable', variable),
+      presetLabel: variableNodeLabel('set', variable.name),
+    },
+  ])
+  const functionBlocks = (definition.functions ?? []).map((item): BlockDefinition => ({
+    ...BLOCK_BY_TYPE.get('call_function')!,
+    label: item.name,
+    keywords: [item.name, 'call', 'function', '함수', '호출'],
+    presetConfig: functionCallConfig(item),
+    presetLabel: item.name,
+  }))
+  return [...staticBlocks, ...variableBlocks, ...functionBlocks]
 }
 
-function parseVariableDefault(
-  raw: string,
-  type: Exclude<MacroVariableDefinition['type'], 'element'>,
-): JsonValue {
-  if (type === 'string') return raw
-  if (type === 'bool') {
-    if (raw === 'true') return true
-    if (raw === 'false') return false
-    throw new Error('불리언 기본값은 true 또는 false여야 합니다.')
-  }
-  if (type === 'int') {
-    const value = Number(raw)
-    if (!Number.isInteger(value)) throw new Error('정수 기본값은 정수여야 합니다.')
-    return value
-  }
-  if (type === 'float') {
-    const value = Number(raw)
-    if (!Number.isFinite(value)) throw new Error('실수 기본값은 유한한 숫자여야 합니다.')
-    return value
-  }
-  try {
-    const value = JSON.parse(raw) as JsonValue
-    if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error()
-    const keys = type === 'position' ? ['x', 'y'] : ['left', 'top', 'right', 'bottom']
-    if (keys.some((key) => typeof value[key] !== 'number')) throw new Error()
-    return value
-  } catch {
-    throw new Error(`${type} 기본값은 올바른 JSON 객체여야 합니다.`)
+function variableNodeLabel(mode: 'get' | 'set', name: string) {
+  return mode === 'get' ? name : `${name} 설정`
+}
+
+function functionCallConfig(functionDefinition: MacroFunctionDefinition): Record<string, JsonValue> {
+  return {
+    function_id: functionDefinition.id,
+    inputs: structuredClone(functionDefinition.inputs),
+    outputs: structuredClone(functionDefinition.outputs),
   }
 }
 
-function defaultVariableText(type: Exclude<MacroVariableDefinition['type'], 'element'>) {
-  if (type === 'bool') return 'false'
-  if (type === 'int' || type === 'float') return '0'
-  if (type === 'position') return '{"x":0,"y":0}'
-  if (type === 'rect') return '{"left":0,"top":0,"right":100,"bottom":100}'
-  return ''
+function contextualNodeLabel(
+  type: MacroNodeType,
+  config: Record<string, JsonValue>,
+  definition: MacroDefinition,
+  fallback: string,
+) {
+  if (type === 'get_variable' || type === 'set_variable') {
+    const name = typeof config.name === 'string' && config.name ? config.name : fallback
+    return variableNodeLabel(type === 'get_variable' ? 'get' : 'set', name)
+  }
+  if (type === 'call_function') {
+    const functionId = typeof config.function_id === 'string' ? config.function_id : ''
+    return definition.functions?.find((item) => item.id === functionId)?.name ?? fallback
+  }
+  return fallback
+}
+
+function uniqueVariableName(prefix: string, variables: readonly MacroVariableDefinition[]) {
+  const base = prefix.replace(/[^a-zA-Z0-9_가-힣]/g, '_') || 'value'
+  const used = new Set(variables.map((item) => item.name))
+  if (!used.has(base)) return base
+  let index = 2
+  while (used.has(`${base}_${index}`)) index += 1
+  return `${base}_${index}`
 }
 
 function createFunctionDefinition(id: string, name: string): MacroFunctionDefinition {
@@ -1232,6 +2400,62 @@ function createFunctionDefinition(id: string, name: string): MacroFunctionDefini
   }
 }
 
+function renameFunctionDefinition(
+  functionDefinition: MacroFunctionDefinition,
+  name: string,
+): MacroFunctionDefinition {
+  return {
+    ...functionDefinition,
+    name,
+    nodes: functionDefinition.nodes.map((node) => node.id === functionDefinition.entry_node_id
+      ? { ...node, label: `${name} / 시작` }
+      : node.id === functionDefinition.return_node_id
+        ? { ...node, label: `${name} / 반환` }
+        : node),
+  }
+}
+
+function duplicateFunctionDefinition(
+  source: MacroFunctionDefinition,
+  id: string,
+  name: string,
+): MacroFunctionDefinition {
+  const ids = new Map(source.nodes.map((node) => [
+    node.id,
+    node.id === source.entry_node_id
+      ? `${id}-entry`
+      : node.id === source.return_node_id
+        ? `${id}-return`
+        : `${id}-${node.id}`,
+  ]))
+  return {
+    ...structuredClone(source),
+    id,
+    name,
+    entry_node_id: `${id}-entry`,
+    return_node_id: `${id}-return`,
+    nodes: source.nodes.map((node) => ({
+      ...structuredClone(node),
+      id: ids.get(node.id)!,
+      ...(node.id === source.entry_node_id ? { label: `${name} / 시작` } : {}),
+      ...(node.id === source.return_node_id ? { label: `${name} / 반환` } : {}),
+    })),
+    edges: source.edges.map((edge) => ({
+      ...structuredClone(edge),
+      id: `${id}-${edge.id}`,
+      source: ids.get(edge.source) ?? edge.source,
+      target: ids.get(edge.target) ?? edge.target,
+    })),
+  }
+}
+
+function normalizeFunctionPorts(ports: readonly MacroFunctionPort[]): MacroFunctionPort[] | null {
+  const normalized = ports.map((port) => ({ ...port, id: port.id.trim() }))
+  if (normalized.some((port) => !port.id)) return null
+  if (new Set(normalized.map((port) => port.id)).size !== normalized.length) return null
+  return normalized
+}
+
 function synchronizeFunctionCalls(definition: MacroDefinition): MacroDefinition {
   const functions = structuredClone(definition.functions ?? [])
   const signatures = new Map(functions.map((item) => [item.id, item]))
@@ -1251,6 +2475,7 @@ function synchronizeFunctionCalls(definition: MacroDefinition): MacroDefinition 
     if (!target) return node
     return {
       ...node,
+      label: target.name,
       config: {
         ...node.config,
         inputs: structuredClone(target.inputs),
@@ -1283,6 +2508,8 @@ function synchronizeFlowFunctionCalls(
         ...node,
         data: {
           ...node.data,
+          label: target.name,
+          definitionLabel: target.name,
           config: {
             ...node.data.config,
             inputs: structuredClone(target.inputs),
@@ -1350,14 +2577,4 @@ function countVariableReferences(
       && node.data.config.name === name
     ))
     .length
-}
-
-function isFunctionPortType(value: string | undefined): value is MacroFunctionPort['type'] {
-  return !!value && ['any', 'bool', 'int', 'float', 'string', 'position', 'rect', 'element']
-    .includes(value)
-}
-
-function isVariableType(value: string | undefined): value is MacroVariableDefinition['type'] {
-  return !!value && ['bool', 'int', 'float', 'string', 'position', 'rect', 'element']
-    .includes(value)
 }

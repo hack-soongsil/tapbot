@@ -202,7 +202,10 @@ const devices = [
   },
 ]
 
-beforeEach(() => vi.useFakeTimers())
+beforeEach(() => {
+  vi.useFakeTimers()
+  window.localStorage.clear()
+})
 afterEach(() => {
   cleanup()
   vi.useRealTimers()
@@ -210,7 +213,7 @@ afterEach(() => {
 })
 
 describe('Android live viewport layout stability', () => {
-  it('renders live, macro, hierarchy, and inspector as four sibling editor panes', () => {
+  it('renders all editor panes, console, and splitters in one workspace grid', () => {
     const view = render(
       <AndroidDebugWorkspace
         controller={controller({ uiTree: tree(3) })}
@@ -232,13 +235,167 @@ describe('Android live viewport layout stability', () => {
     expect(panes[2]?.contains(panes[3] ?? null)).toBe(false)
     expect(panes[1]?.parentElement).toBe(panes[3]?.parentElement)
     const bottom = view.container.querySelector('[data-workspace-region="bottom"]')
-    expect(grid?.contains(bottom)).toBe(false)
-    expect(bottom?.parentElement).toBe(grid?.parentElement)
+    expect(grid?.contains(bottom)).toBe(true)
+    expect(bottom?.parentElement).toBe(grid)
+    expect(grid?.querySelectorAll('[role="separator"]')).toHaveLength(4)
     expect(
-      (view.getByRole('button', {
-        name: 'UI 트리 JSON 다운로드',
-      }) as HTMLButtonElement).disabled,
+      (
+        view.getByRole('button', {
+          name: 'UI 트리 JSON 다운로드',
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(false)
+  })
+
+  it('resizes with pointer events, clamps minimums, resets, and persists layout', () => {
+    const view = render(
+      <AndroidDebugWorkspace
+        controller={controller({ uiTree: tree(3) })}
+        devices={devices}
+        onDeviceChange={vi.fn()}
+      />,
+    )
+    const grid = view.container.querySelector('.android-debug-grid') as HTMLDivElement
+    vi.spyOn(grid, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 1600,
+      height: 800,
+      right: 1600,
+      bottom: 800,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+    const liveSplitter = view.getByRole('separator', {
+      name: 'Live Screen과 Macro Canvas 크기 조절',
+    }) as HTMLDivElement
+    Object.defineProperties(liveSplitter, {
+      setPointerCapture: { value: vi.fn() },
+      releasePointerCapture: { value: vi.fn() },
+    })
+
+    fireEvent.pointerDown(liveSplitter, {
+      pointerId: 7,
+      button: 0,
+      clientX: 380,
+      clientY: 200,
+    })
+    fireEvent.pointerMove(liveSplitter, {
+      pointerId: 7,
+      clientX: 80,
+      clientY: 200,
+    })
+    fireEvent.pointerUp(liveSplitter, {
+      pointerId: 7,
+      clientX: 80,
+      clientY: 200,
+    })
+
+    expect(grid.style.getPropertyValue('--tapbot-live-screen-width')).toBe('320px')
+    expect(
+      JSON.parse(window.localStorage.getItem('tapbot.workspace.layout.v1') ?? '{}'),
+    ).toMatchObject({ liveScreenWidth: 320 })
+
+    fireEvent.keyDown(liveSplitter, { key: 'ArrowRight' })
+    expect(grid.style.getPropertyValue('--tapbot-live-screen-width')).toBe('336px')
+    fireEvent.doubleClick(liveSplitter)
+    expect(grid.style.getPropertyValue('--tapbot-live-screen-width')).toBe('380px')
+
+    const macroTreeSplitter = view.getByRole('separator', {
+      name: 'Macro Canvas와 UI Tree 크기 조절',
+    }) as HTMLDivElement
+    const treeInspectorSplitter = view.getByRole('separator', {
+      name: 'UI Tree와 Node Inspector 크기 조절',
+    }) as HTMLDivElement
+    const consoleSplitter = view.getByRole('separator', {
+      name: 'Main 영역과 Console 높이 조절',
+    }) as HTMLDivElement
+    for (const splitter of [
+      macroTreeSplitter,
+      treeInspectorSplitter,
+      consoleSplitter,
+    ]) {
+      Object.defineProperties(splitter, {
+        setPointerCapture: { value: vi.fn() },
+        releasePointerCapture: { value: vi.fn() },
+      })
+    }
+
+    fireEvent.pointerDown(macroTreeSplitter, {
+      pointerId: 8,
+      button: 0,
+      clientX: 900,
+      clientY: 200,
+    })
+    fireEvent.pointerMove(macroTreeSplitter, {
+      pointerId: 8,
+      clientX: 930,
+      clientY: 200,
+    })
+    fireEvent.pointerUp(macroTreeSplitter, { pointerId: 8 })
+    expect(grid.style.getPropertyValue('--tapbot-ui-tree-width')).toBe('240px')
+
+    fireEvent.pointerDown(treeInspectorSplitter, {
+      pointerId: 9,
+      button: 0,
+      clientX: 1200,
+      clientY: 200,
+    })
+    fireEvent.pointerMove(treeInspectorSplitter, {
+      pointerId: 9,
+      clientX: 1220,
+      clientY: 200,
+    })
+    fireEvent.pointerUp(treeInspectorSplitter, { pointerId: 9 })
+    expect(grid.style.getPropertyValue('--tapbot-ui-tree-width')).toBe('260px')
+    expect(grid.style.getPropertyValue('--tapbot-inspector-width')).toBe('250px')
+
+    fireEvent.pointerDown(consoleSplitter, {
+      pointerId: 10,
+      button: 0,
+      clientX: 600,
+      clientY: 580,
+    })
+    fireEvent.pointerMove(consoleSplitter, {
+      pointerId: 10,
+      clientX: 600,
+      clientY: 610,
+    })
+    fireEvent.pointerUp(consoleSplitter, { pointerId: 10 })
+    expect(grid.style.getPropertyValue('--tapbot-console-height')).toBe('180px')
+
+    fireEvent.doubleClick(macroTreeSplitter)
+    fireEvent.doubleClick(treeInspectorSplitter)
+    fireEvent.doubleClick(consoleSplitter)
+    expect(grid.style.getPropertyValue('--tapbot-ui-tree-width')).toBe('270px')
+    expect(grid.style.getPropertyValue('--tapbot-inspector-width')).toBe('270px')
+    expect(grid.style.getPropertyValue('--tapbot-console-height')).toBe('210px')
+  })
+
+  it('restores a saved workspace layout without remounting editor panes', () => {
+    window.localStorage.setItem(
+      'tapbot.workspace.layout.v1',
+      JSON.stringify({
+        liveScreenWidth: 440,
+        uiTreeWidth: 250,
+        inspectorWidth: 260,
+        consoleHeight: 180,
+      }),
+    )
+    const view = render(
+      <AndroidDebugWorkspace
+        controller={controller({ uiTree: tree(3) })}
+        devices={devices}
+        onDeviceChange={vi.fn()}
+      />,
+    )
+    const grid = view.container.querySelector('.android-debug-grid') as HTMLDivElement
+
+    expect(grid.style.getPropertyValue('--tapbot-live-screen-width')).toBe('440px')
+    expect(grid.style.getPropertyValue('--tapbot-ui-tree-width')).toBe('250px')
+    expect(grid.style.getPropertyValue('--tapbot-inspector-width')).toBe('260px')
+    expect(grid.style.getPropertyValue('--tapbot-console-height')).toBe('180px')
   })
 
   it('preserves the same viewport through status, message, overlay, and tree updates', async () => {
@@ -668,9 +825,7 @@ describe('Unity-style UI tree inspector', () => {
       target: { value: '' },
     })
     fireEvent.click(
-      view.getByLabelText(
-        '접기 FrameLayout / LinearLayout / FrameLayout / WebView',
-      ),
+      view.getByLabelText('접기 FrameLayout / LinearLayout / FrameLayout / WebView'),
     )
     expect(view.queryByText('“Reserve”')).toBeNull()
     fireEvent.click(
@@ -696,9 +851,11 @@ describe('Unity-style UI tree inspector', () => {
     expect(view.getByText('UI 트리를 사용할 수 없음')).toBeTruthy()
     expect(view.getByText('No active accessibility root.')).toBeTruthy()
     expect(
-      (view.getByRole('button', {
-        name: 'UI 트리 JSON 다운로드',
-      }) as HTMLButtonElement).disabled,
+      (
+        view.getByRole('button', {
+          name: 'UI 트리 JSON 다운로드',
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true)
 
     view.rerender(

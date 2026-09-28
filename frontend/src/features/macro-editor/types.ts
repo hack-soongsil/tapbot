@@ -118,6 +118,9 @@ export interface MacroVariableDefinition {
   name: string
   type: Exclude<PortType, 'exec' | 'any'>
   default?: JsonValue
+  input?: boolean
+  description?: string
+  options?: JsonValue[]
 }
 
 export interface MacroDefinition {

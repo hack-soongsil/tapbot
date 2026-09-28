@@ -10,6 +10,7 @@ import {
 } from '@xyflow/react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ApiError } from '../../lib/api-client'
+import { ConfirmDialog } from '../../components/AppDialog'
 import { BLOCK_BY_TYPE, cloneDefaultConfig } from './blocks'
 import { BlockPalette } from './BlockPalette'
 import { flowToMacroDefinition, macroDefinitionToFlow, migrateLegacyEntry } from './graph-converters'
@@ -32,7 +33,6 @@ import {
   mapBackendValidationErrors,
   validateMacroDefinition,
 } from './validation'
-import '@xyflow/react/dist/style.css'
 import './macro-editor.css'
 
 export { MACRO_DRAFT_STORAGE_KEY } from './definition-factory'
@@ -81,6 +81,7 @@ export function MacroEditorPage() {
   const [message, setMessage] = useState<string | null>(null)
   const [messageIntent, setMessageIntent] = useState<'success' | 'warning' | 'danger'>('success')
   const [runStatus, setRunStatus] = useState<string | null>(null)
+  const [discardAction, setDiscardAction] = useState<(() => void) | null>(null)
   const liveRuntime = useMacroRuntime(runtimeDeviceId)
   const flowRef = useRef<ReactFlowInstance<MacroFlowNode, MacroFlowEdge> | null>(null)
 
@@ -169,10 +170,9 @@ export function MacroEditorPage() {
       if (!anchor || anchor.target === '_blank') return
       const destination = new URL(anchor.href, window.location.href)
       if (destination.origin !== window.location.origin) return
-      if (!window.confirm('저장하지 않은 매크로 변경 사항을 버릴까요?')) {
-        event.preventDefault()
-        event.stopPropagation()
-      }
+      event.preventDefault()
+      event.stopPropagation()
+      setDiscardAction(() => () => window.location.assign(destination.href))
     }
     document.addEventListener('click', warnForInternalLink, true)
     return () => document.removeEventListener('click', warnForInternalLink, true)
@@ -192,6 +192,11 @@ export function MacroEditorPage() {
   const markChanged = () => {
     setDirty(true)
     setMessage(null)
+  }
+
+  const discardOrRun = (action: () => void) => {
+    if (!dirty) action()
+    else setDiscardAction(() => action)
   }
 
   const addNode = useCallback((type: MacroNodeType, position?: { x: number; y: number }) => {
@@ -387,14 +392,14 @@ export function MacroEditorPage() {
   }
 
   const reset = () => {
-    if (dirty && !window.confirm('저장하지 않은 매크로 변경 사항을 버릴까요?')) return
-    loadDefinition(createEmptyMacroDefinition())
+    discardOrRun(() => loadDefinition(createEmptyMacroDefinition()))
   }
 
   const loadSavedDraft = () => {
-    if (dirty && !window.confirm('저장하지 않은 매크로 변경 사항을 버릴까요?')) return
-    loadDefinition(loadDraft())
-    show('최신 로컬 초안을 불러왔습니다.', 'success')
+    discardOrRun(() => {
+      loadDefinition(loadDraft())
+      show('최신 로컬 초안을 불러왔습니다.', 'success')
+    })
   }
 
   const duplicate = () => {
@@ -503,6 +508,20 @@ export function MacroEditorPage() {
             <span key={`${issue.source}-${index}`}>{issue.message}</span>
           ))}
         </div>
+      )}
+      {discardAction && (
+        <ConfirmDialog
+          title="변경사항 버리기"
+          description="저장하지 않은 매크로 변경 사항을 버릴까요?"
+          confirmLabel="버리기"
+          danger
+          onCancel={() => setDiscardAction(null)}
+          onConfirm={() => {
+            const action = discardAction
+            setDiscardAction(null)
+            action()
+          }}
+        />
       )}
     </div>
   )

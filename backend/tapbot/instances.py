@@ -114,7 +114,6 @@ class ApplicationInstances:
             self._started = True
         try:
             await asyncio.to_thread(self.robot_service.start)
-            self.vision_service.start()
             self.android_discovery.start()
             self.event_log.add("TapBot backend services started")
         except BaseException:
@@ -385,10 +384,6 @@ class _AndroidGraphUi:
             raise RuntimeError(
                 f"screen element {screen_id}/{semantic_id} was not found"
             )
-        if not candidate.visible:
-            raise RuntimeError(f"screen element {semantic_id!r} is not visible")
-        if not candidate.enabled:
-            raise RuntimeError(f"screen element {semantic_id!r} is disabled")
         return _semantic_graph_element(candidate)
 
     def find_element(

@@ -309,6 +309,10 @@ class ClickElementNode:
                 element = finder(selector)
         if element is None:
             raise RuntimeError("click element target was not found or was ambiguous")
+        if element.metadata.get("visible") is False:
+            raise RuntimeError(f"click element target {element.id!r} is not visible")
+        if element.metadata.get("enabled") is False:
+            raise RuntimeError(f"click element target {element.id!r} is disabled")
         context.last_resolved_element = element
         click = _object(config, "click", {})
         mode_value = config.get("sampling_mode", click.get("mode", "center"))

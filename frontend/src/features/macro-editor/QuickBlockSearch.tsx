@@ -36,6 +36,7 @@ export interface QuickBlockSearchProps {
   blocks: readonly BlockDefinition[]
   sourcePortContext?: SourcePortContext | null
   onSelect: (type: MacroNodeType, position: { x: number; y: number }) => void
+  onSelectDefinition?: (block: BlockDefinition, position: { x: number; y: number }) => void
   onClose: () => void
 }
 
@@ -65,6 +66,7 @@ function OpenQuickBlockSearch({
   blocks,
   sourcePortContext = null,
   onSelect,
+  onSelectDefinition,
   onClose,
 }: QuickBlockSearchProps) {
   const popupRef = useRef<HTMLDivElement>(null)
@@ -129,7 +131,7 @@ function OpenQuickBlockSearch({
   const navigationItems = useMemo<NavigationItem[]>(() => {
     if (normalizedQuery) {
       return ranked.map((block) => ({
-        id: `search-${block.type}`,
+        id: `search-${block.type}-${block.presetLabel ?? block.label}`,
         kind: 'block',
         block,
         location: 'search',
@@ -137,7 +139,7 @@ function OpenQuickBlockSearch({
     }
     if (activeCategory) {
       return (blocksByCategory.get(activeCategory) ?? []).map((block) => ({
-        id: `category-${activeCategory}-${block.type}`,
+        id: `category-${activeCategory}-${block.type}-${block.presetLabel ?? block.label}`,
         kind: 'block',
         block,
         location: 'category',
@@ -184,14 +186,25 @@ function OpenQuickBlockSearch({
   }, [onClose])
 
   useEffect(() => {
-    if (!sourcePortContext) return
-    const cancelConnectionSearch = (event: MouseEvent) => {
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return
       event.preventDefault()
+      event.stopPropagation()
       onClose()
     }
-    document.addEventListener('contextmenu', cancelConnectionSearch)
-    return () => document.removeEventListener('contextmenu', cancelConnectionSearch)
-  }, [onClose, sourcePortContext])
+    document.addEventListener('keydown', closeOnEscape, true)
+    return () => document.removeEventListener('keydown', closeOnEscape, true)
+  }, [onClose])
+
+  useEffect(() => {
+    const cancelSearch = (event: MouseEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      onClose()
+    }
+    document.addEventListener('contextmenu', cancelSearch, true)
+    return () => document.removeEventListener('contextmenu', cancelSearch, true)
+  }, [onClose])
 
   useEffect(() => {
     optionRefs.current[visibleActiveIndex]?.scrollIntoView?.({ block: 'nearest' })
@@ -201,7 +214,8 @@ function OpenQuickBlockSearch({
     const nextRecent = [block.type, ...validRecent.filter((type) => type !== block.type)].slice(0, MAX_RECENT)
     setRecent(nextRecent)
     writeRecent(nextRecent)
-    onSelect(block.type, flowPosition)
+    if (onSelectDefinition) onSelectDefinition(block, flowPosition)
+    else onSelect(block.type, flowPosition)
     onClose()
   }
 
@@ -223,11 +237,6 @@ function OpenQuickBlockSearch({
   }
 
   const keyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault()
-      onClose()
-      return
-    }
     if (event.key === 'Backspace' && !query && activeCategory) {
       event.preventDefault()
       goBack()

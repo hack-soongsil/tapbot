@@ -13,6 +13,7 @@ if (process.platform === 'win32' && process.env.LOCALAPPDATA) {
   )
   if (existsSync(launcher)) candidates.push([launcher, ['-3.12']])
 }
+if (process.platform === 'win32') candidates.push(['py', ['-3.12']])
 candidates.push(['python3.12', []], ['python3', []], ['python', []])
 
 for (const [command, prefix] of candidates) {

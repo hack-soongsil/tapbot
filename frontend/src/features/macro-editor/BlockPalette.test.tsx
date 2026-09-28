@@ -16,6 +16,9 @@ describe('BlockPalette', () => {
     expect(within(forButton).getByText('인덱스 변수를 갱신하며 흐름을 반복합니다.')).toBeTruthy()
     expect(palette.textContent).not.toContain('for_loop')
     expect(forButton.title).toContain('for_loop')
+    expect(within(palette).queryByRole('button', { name: '변수 가져오기 추가' })).toBeNull()
+    expect(within(palette).queryByRole('button', { name: '변수 설정 추가' })).toBeNull()
+    expect(within(palette).queryByRole('button', { name: '함수 호출 추가' })).toBeNull()
   })
 
   it('keeps click and drag block creation behavior', () => {

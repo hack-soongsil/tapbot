@@ -8,8 +8,8 @@ export const MACRO_BLOCK_MIME = 'application/x-tapbot-macro-node'
 
 const categories: Array<{ id: string; label: string; types: readonly MacroNodeType[] }> = [
   { id: 'input', label: '입력', types: ['click_point', 'drag_point', 'random_click_area', 'random_drag_area'] },
-  { id: 'flow', label: macroCategoryLabels.control, types: ['call_function', 'set_variable', 'for_loop', 'branch', 'sequence', 'wait', 'retry', 'repeat', 'stop'] },
-  { id: 'ui', label: macroCategoryLabels.ui, types: ['get_variable', 'element_exists', 'find_element', 'find_screen_element', 'click_element', 'require_element'] },
+  { id: 'flow', label: macroCategoryLabels.control, types: ['for_loop', 'branch', 'sequence', 'wait', 'retry', 'repeat', 'stop'] },
+  { id: 'ui', label: macroCategoryLabels.ui, types: ['element_exists', 'find_element', 'find_screen_element', 'click_element', 'require_element'] },
   { id: 'validation', label: macroCategoryLabels.validation, types: ['wait_for_element', 'wait_for_state', 'assert_element'] },
   { id: 'utility', label: macroCategoryLabels.utility, types: ['debug_print'] },
 ]

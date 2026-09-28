@@ -53,6 +53,12 @@ def load_local_environment() -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument(
+        "--mock-android",
+        action="store_true",
+        help="start a local three-screen Android Agent mock",
+    )
+    parser.add_argument("--mock-android-port", type=int, default=28765)
     parser.add_argument("--camera-source", default="0")
     parser.add_argument(
         "--serial-port",
@@ -160,6 +166,9 @@ def main() -> int:
                 "multiple processes cannot safely share a camera device."
             )
         frontend_port = available_port(args.frontend_port)
+        mock_android_port = (
+            available_port(args.mock_android_port) if args.mock_android else None
+        )
     except (RuntimeError, subprocess.CalledProcessError) as error:
         print(f"[dev] 준비 실패: {error}", file=sys.stderr)
         return 1
@@ -179,14 +188,48 @@ def main() -> int:
         assert args.serial_port is not None
         backend_command.extend(("--serial-port", args.serial_port))
 
+    backend_environment = os.environ.copy()
+    mock_android: subprocess.Popen[bytes] | None = None
+    if mock_android_port is not None:
+        mock_url = f"http://127.0.0.1:{mock_android_port}"
+        mock_token = "tapbot-local-mock"
+        backend_environment.pop("TAPBOT_ANDROID_DEVICES_CONFIG", None)
+        backend_environment["TAPBOT_ANDROID_AGENT_URL"] = mock_url
+        backend_environment["TAPBOT_ANDROID_AGENT_TOKEN"] = mock_token
+        backend_environment["TAPBOT_ANDROID_DISCOVERY_ENABLED"] = "false"
+
     frontend_url = f"http://localhost:{frontend_port}"
     backend_url = f"http://localhost:{backend_port}"
     print(f"[dev] Dashboard: {frontend_url}/debug", flush=True)
     print(f"[dev] Backend API: {backend_url}/docs", flush=True)
+    if mock_android_port is not None:
+        print(
+            f"[dev] Mock Android: http://127.0.0.1:{mock_android_port} "
+            "(3 screens)",
+            flush=True,
+        )
     print("[dev] 종료하려면 Ctrl+C를 누르세요.\n", flush=True)
 
     options = process_options()
-    backend = subprocess.Popen(backend_command, cwd=ROOT, **options)
+    if mock_android_port is not None:
+        mock_android = subprocess.Popen(
+            [
+                sys.executable,
+                str(ROOT / "scripts" / "mock_android_agent.py"),
+                "--port",
+                str(mock_android_port),
+                "--token",
+                "tapbot-local-mock",
+            ],
+            cwd=ROOT,
+            **options,
+        )
+    backend = subprocess.Popen(
+        backend_command,
+        cwd=ROOT,
+        env=backend_environment,
+        **options,
+    )
     frontend_environment = os.environ.copy()
     frontend_environment["VITE_API_BASE_URL"] = f"{backend_url}/api"
     frontend = subprocess.Popen(
@@ -208,12 +251,16 @@ def main() -> int:
         while True:
             backend_code = backend.poll()
             frontend_code = frontend.poll()
+            mock_android_code = None if mock_android is None else mock_android.poll()
             if backend_code is not None:
                 print(f"[dev] Backend가 종료되었습니다 ({backend_code}).")
                 return backend_code
             if frontend_code is not None:
                 print(f"[dev] Frontend가 종료되었습니다 ({frontend_code}).")
                 return frontend_code
+            if mock_android_code is not None:
+                print(f"[dev] Mock Android가 종료되었습니다 ({mock_android_code}).")
+                return mock_android_code
             time.sleep(0.25)
     except KeyboardInterrupt:
         print("\n[dev] 서버를 종료합니다.")
@@ -221,6 +268,8 @@ def main() -> int:
     finally:
         stop_process_tree(frontend)
         stop_process_tree(backend)
+        if mock_android is not None:
+            stop_process_tree(mock_android)
 
 
 if __name__ == "__main__":

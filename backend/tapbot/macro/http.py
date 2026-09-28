@@ -26,10 +26,26 @@ def create_macro_router(
         service = deps.require_service(device_id)
         return await deps.call(getattr(service, f"{command}_macro"), device_id=service.device_id)
 
-    async def command(command_name: str, device_id: str) -> dict[str, object]:
+    async def command(
+        command_name: str,
+        device_id: str,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, object]:
         if management is not None and management.get_binding(device_id) is not None:
             try:
-                value = await asyncio.to_thread(getattr(management, command_name), device_id)
+                if command_name == "start":
+                    raw_variables = (payload or {}).get("variables", {})
+                    if not isinstance(raw_variables, dict) or not all(
+                        isinstance(key, str) for key in raw_variables
+                    ):
+                        raise ValueError("runtime variables must be an object")
+                    value = await asyncio.to_thread(
+                        management.start,
+                        device_id,
+                        initial_variables=dict(raw_variables),
+                    )
+                else:
+                    value = await asyncio.to_thread(getattr(management, command_name), device_id)
                 return {"runtime": value}
             except Exception as error:
                 raise _http_error(error) from error
@@ -49,8 +65,11 @@ def create_macro_router(
     async def step() -> dict[str, object]: return await legacy("step")
 
     def command_endpoint(operation: str):
-        async def endpoint(device_id: str) -> dict[str, object]:
-            return await command(operation, device_id)
+        async def endpoint(
+            device_id: str,
+            payload: dict[str, Any] | None = None,
+        ) -> dict[str, object]:
+            return await command(operation, device_id, payload)
         return endpoint
 
     for operation in ("start", "pause", "resume", "stop", "reset", "step"):

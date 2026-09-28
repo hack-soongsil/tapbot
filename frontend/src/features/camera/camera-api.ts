@@ -132,3 +132,7 @@ export function selectCameraSource(sourceId: string) {
 export function reconnectCameraSource() {
   return apiClient.post<CameraSourceStatus>('camera/reconnect')
 }
+
+export function releaseCameraSource() {
+  return apiClient.post<CameraSourceStatus>('camera/release')
+}

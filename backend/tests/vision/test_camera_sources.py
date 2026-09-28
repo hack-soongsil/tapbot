@@ -157,6 +157,31 @@ def test_manager_lists_discovered_physical_sources() -> None:
     assert all(probe.released for probe in probes)
 
 
+def test_default_manager_selects_camera_without_opening_it() -> None:
+    captures: list[FakeCapture] = []
+
+    def capture_factory(_index: int) -> FakeCapture:
+        capture = FakeCapture([])
+        captures.append(capture)
+        return capture
+
+    manager = CameraManager.with_defaults(
+        0,
+        discovery_max_index=None,
+        capture_factory=capture_factory,
+    )
+
+    assert manager.active_source_id == "opencv:0"
+    assert manager.status()["state"] == "disconnected"
+    assert captures == []
+
+    manager.open()
+
+    assert len(captures) == 1
+    assert manager.status()["state"] == "connected"
+    manager.close()
+
+
 def test_source_api_refresh_rediscovers_new_physical_camera() -> None:
     available_indexes: set[int] = set()
 
@@ -432,6 +457,7 @@ def test_camera_source_api_lists_and_switches_manager_sources() -> None:
             if frame_response.status_code == 200:
                 break
             time.sleep(0.01)
+        released = client.post("/api/camera/release")
 
     assert listing.status_code == 200
     assert listing.json()["active_id"] == "camera:first"
@@ -448,6 +474,9 @@ def test_camera_source_api_lists_and_switches_manager_sources() -> None:
     assert reconnected.json()["source_id"] == "camera:second"
     assert frame_response is not None
     assert frame_response.status_code == 200
+    assert released.status_code == 200
+    assert released.json()["state"] == "disconnected"
+    assert second.opened is False
     decoded = cv2.imdecode(
         np.frombuffer(frame_response.content, dtype=np.uint8), cv2.IMREAD_COLOR
     )

@@ -128,7 +128,7 @@ SCREEN_ELEMENT_TEMPLATES: dict[str, dict[str, JsonObject]] = {
     "reservation_detail": {
         "back": {"label": "뒤로가기", "kind": "element"},
         "date_picker": {"label": "날짜 선택", "kind": "element"},
-        "time_slot": {"label": "30분 시간 슬롯", "kind": "collection", "required_params": ["index"]},
+        "time_slot": {"label": "시간 슬롯", "kind": "collection", "required_params": ["index"]},
         "reset_selection": {"label": "선택 초기화", "kind": "element"},
         "reserve_cta": {"label": "예약 CTA", "kind": "element"},
     },
@@ -277,6 +277,7 @@ def _detail_elements(nodes: tuple[_Node, ...]) -> tuple[SemanticUiElement, ...]:
         if node.class_name == "android.widget.Button"
         and not node.text
         and not node.content_description
+        and node.clickable
         and node.bounds not in reserved_bounds
         and node.bounds.top >= 200
         and node.bounds.bottom <= slot_bottom
@@ -328,7 +329,11 @@ def _element(
         text=node.text,
         content_description=node.content_description,
         class_name=node.class_name,
-        metadata=metadata or {},
+        metadata={
+            "enabled": node.enabled,
+            "visible": node.visible,
+            **(metadata or {}),
+        },
     )
 
 
