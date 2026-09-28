@@ -204,11 +204,9 @@ class MacroManagementService:
         return self.repository.get(macro_id)
 
     def create_definition(self, definition: MacroDefinition) -> MacroDefinition:
-        self.validator.validate_or_raise(definition)
         return self.repository.create(definition)
 
     def save_definition(self, definition: MacroDefinition) -> MacroDefinition:
-        self.validator.validate_or_raise(definition)
         return self.repository.save(definition)
 
     def delete_definition(self, macro_id: str) -> bool:
@@ -235,7 +233,8 @@ class MacroManagementService:
     def bind(self, binding: DeviceMacroBinding) -> DeviceMacroBinding:
         if not self.device_exists(binding.device_id):
             raise KeyError(f"Android device {binding.device_id!r} was not found")
-        self.repository.get(binding.macro_definition_id)
+        definition = self.repository.get(binding.macro_definition_id)
+        self.validator.validate_or_raise(definition)
         return self.bindings.set(binding)
 
     def unbind(self, device_id: str) -> bool:
@@ -261,6 +260,11 @@ class MacroManagementService:
         *,
         initial_variables: dict[str, object] | None = None,
     ) -> dict[str, object]:
+        binding = self.bindings.get(device_id)
+        if binding is not None and binding.enabled:
+            self.validator.validate_or_raise(
+                self.repository.get(binding.macro_definition_id)
+            )
         return self.runtimes.start(
             device_id,
             initial_variables=initial_variables,

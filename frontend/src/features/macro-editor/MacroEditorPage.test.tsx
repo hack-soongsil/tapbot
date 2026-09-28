@@ -42,6 +42,14 @@ vi.mock('./MacroCanvas', () => ({
       >
         Connect first two
       </button>
+      <button
+        onClick={() => {
+          const first = props.nodes[0]
+          if (first) props.onNodesChange([{ type: 'remove', id: first.id }])
+        }}
+      >
+        Remove entry node
+      </button>
     </div>
   ),
 }))
@@ -65,7 +73,7 @@ describe('MacroEditorPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '대기 추가' }))
     expect(screen.getByTestId('node-count').textContent).toBe('7')
-    expect(screen.getByText('저장되지 않음')).toBeTruthy()
+    expect(screen.getByText('저장 안 됨')).toBeTruthy()
     fireEvent.change(screen.getByLabelText('지속 시간(ms)'), { target: { value: '900' } })
     expect(screen.getByLabelText<HTMLInputElement>('지속 시간(ms)').value).toBe('900')
 
@@ -131,7 +139,7 @@ describe('MacroEditorPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '검증' }))
 
     await waitFor(() => expect(screen.getByText('Backend rejected this node.')).toBeTruthy())
-    expect(screen.getByText('백엔드 검증에서 그래프 오류를 발견했습니다.')).toBeTruthy()
+    expect(screen.getByText('백엔드 그래프 검증 오류 1개를 발견했습니다.')).toBeTruthy()
   })
 
   it('supports the Ctrl+S keyboard shortcut', async () => {
@@ -141,5 +149,32 @@ describe('MacroEditorPage', () => {
     fireEvent.keyDown(window, { key: 's', ctrlKey: true })
 
     await waitFor(() => expect(macroEditorApi.save).toHaveBeenCalledTimes(1))
+  })
+
+  it('saves an invalid graph without calling the validation endpoint', async () => {
+    render(<MacroEditorPage />)
+    fireEvent.click(screen.getByRole('button', { name: 'Remove entry node' }))
+    fireEvent.click(screen.getByRole('button', { name: '검증' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+
+    await waitFor(() => expect(macroEditorApi.save).toHaveBeenCalledTimes(1))
+    expect(macroEditorApi.validate).not.toHaveBeenCalled()
+    expect(screen.getByText(/저장됨 · 검증 오류 \d+개/)).toBeTruthy()
+    expect(screen.getAllByText(/검증 오류 \d+개/).length).toBeGreaterThan(0)
+    expect(window.localStorage.getItem(MACRO_DRAFT_STORAGE_KEY)).not.toBeNull()
+  })
+
+  it('tracks saved and validation status independently', async () => {
+    render(<MacroEditorPage />)
+    expect(screen.getByText('저장됨')).toBeTruthy()
+    expect(screen.getByText('검증 안 됨')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '검증' }))
+    await waitFor(() => expect(screen.getByText('검증됨')).toBeTruthy())
+
+    fireEvent.click(screen.getByRole('button', { name: '대기 추가' }))
+    expect(screen.getByText('저장 안 됨')).toBeTruthy()
+    expect(screen.getByText('검증 결과 오래됨')).toBeTruthy()
   })
 })

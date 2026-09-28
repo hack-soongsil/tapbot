@@ -19,6 +19,23 @@ export interface BlockDefinition {
   outputs?: readonly PortDefinition[]
   presetConfig?: Record<string, JsonValue>
   presetLabel?: string
+  inlineProperties?: readonly InlinePropertyDefinition[]
+}
+
+export interface InlinePropertyOption {
+  value: string
+  label: string
+}
+
+export interface InlinePropertyDefinition {
+  key: string
+  label: string
+  editor: 'text' | 'number' | 'select' | 'screen-element' | 'variable' | 'dynamic-value'
+  inputPortId?: string
+  min?: number
+  step?: number
+  options?: readonly InlinePropertyOption[]
+  visible?: 'screen-element-collection'
 }
 
 const selector = {
@@ -91,6 +108,10 @@ const BLOCK_DEFINITIONS = [
     palette: true,
     keywords: ['set', 'variable', 'assign', 'store', '변수', '저장'],
     description: 'Store a typed value in the current runtime scope',
+    inlineProperties: [
+      { key: 'name', label: '변수', editor: 'variable' },
+      { key: 'default', label: '값', editor: 'dynamic-value', inputPortId: 'value' },
+    ],
   },
   {
     type: 'get_variable',
@@ -109,6 +130,20 @@ const BLOCK_DEFINITIONS = [
     palette: true,
     keywords: ['debug', 'print', 'log', 'message', 'console', '출력', '로그'],
     description: 'Write a value or message to the User Debug console',
+    inlineProperties: [
+      {
+        key: 'level',
+        label: '레벨',
+        editor: 'select',
+        options: [
+          { value: 'debug', label: 'Debug' },
+          { value: 'info', label: 'Info' },
+          { value: 'warning', label: 'Warning' },
+          { value: 'error', label: 'Error' },
+        ],
+      },
+      { key: 'message', label: '메시지', editor: 'text', inputPortId: 'value' },
+    ],
   },
   {
     type: 'click_point',
@@ -174,6 +209,16 @@ const BLOCK_DEFINITIONS = [
     palette: true,
     keywords: ['element', 'selector', 'button', 'tap', '요소', '버튼', '클릭'],
     description: 'Resolve and click a UI tree element',
+    inlineProperties: [{
+      key: 'sampling_mode',
+      label: '샘플링',
+      editor: 'select',
+      options: [
+        { value: 'center', label: '중앙' },
+        { value: 'uniform', label: '균등 분포' },
+        { value: 'normal', label: '정규 분포' },
+      ],
+    }],
   },
   {
     type: 'find_screen_element',
@@ -185,6 +230,18 @@ const BLOCK_DEFINITIONS = [
     palette: true,
     keywords: ['screen', 'semantic', 'element', 'find', '화면', '요소', '찾기'],
     description: 'Resolve a semantic element from the current screen',
+    inlineProperties: [
+      { key: 'element_id', label: '요소', editor: 'screen-element' },
+      {
+        key: 'params.index',
+        label: '인덱스',
+        editor: 'number',
+        inputPortId: 'index',
+        min: 0,
+        step: 1,
+        visible: 'screen-element-collection',
+      },
+    ],
   },
   {
     type: 'for_loop',
@@ -194,6 +251,11 @@ const BLOCK_DEFINITIONS = [
     palette: true,
     keywords: ['for', 'loop', 'index', 'iteration', '반복'],
     description: 'Repeat a branch while updating an index variable',
+    inlineProperties: [
+      { key: 'start', label: '시작', editor: 'number', step: 1 },
+      { key: 'end', label: '끝', editor: 'number', step: 1 },
+      { key: 'step', label: '증가', editor: 'number', step: 1 },
+    ],
   },
   {
     type: 'sequence',
@@ -287,6 +349,9 @@ const BLOCK_DEFINITIONS = [
     category: 'control',
     defaultConfig: { duration_ms: 500 },
     palette: true,
+    inlineProperties: [{
+      key: 'duration_ms', label: '시간(ms)', editor: 'number', min: 0, step: 100,
+    }],
   },
   {
     type: 'branch',

@@ -55,7 +55,6 @@ import {
 import type { BlueprintDragItem } from './blueprint-dnd'
 import { NodeInspector } from './NodeInspector'
 import {
-  FunctionPortDialog,
   NameEditorDialog,
   VariableEditorDialog,
 } from './MacroEditorDialogs'
@@ -92,6 +91,19 @@ const DEFAULT_SCREEN_ID = SCREEN_OPTIONS[0].id
 const DEVICE_DRAFT_STORAGE_PREFIX = 'tapbot.macro.deviceDraft.'
 const EXPANDED_PALETTE_WIDTH = 220
 const EXPANDED_INSPECTOR_WIDTH = 320
+
+function MacroValidationTag({
+  status,
+  errorCount,
+}: {
+  status: 'unknown' | 'valid' | 'invalid' | 'stale'
+  errorCount: number
+}) {
+  if (status === 'valid') return <Tag intent="success" minimal>검증됨</Tag>
+  if (status === 'invalid') return <Tag intent="danger" minimal>검증 오류 {errorCount}개</Tag>
+  if (status === 'stale') return <Tag intent="warning" minimal>검증 결과 오래됨</Tag>
+  return <Tag minimal>검증 안 됨</Tag>
+}
 
 interface DeviceMacroDraft {
   definition: MacroDefinition
@@ -174,6 +186,10 @@ export const IntegratedMacroPanel = forwardRef<
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [issues, setIssues] = useState<ValidationIssue[]>([])
   const [dirty, setDirty] = useState(false)
+  const [validationState, setValidationState] = useState<{
+    status: 'unknown' | 'valid' | 'invalid' | 'stale'
+    errorCount: number
+  }>({ status: 'unknown', errorCount: 0 })
   const [isNew, setIsNew] = useState(false)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
@@ -184,7 +200,6 @@ export const IntegratedMacroPanel = forwardRef<
   const [runSetupMacro, setRunSetupMacro] = useState<MacroDefinition | null>(null)
   const [variableDialog, setVariableDialog] = useState<VariableDialogState | null>(null)
   const [nameDialog, setNameDialog] = useState<NameDialogState | null>(null)
-  const [portDialog, setPortDialog] = useState<{ functionId: string; kind: 'inputs' | 'outputs' } | null>(null)
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null)
   const [canvasExpanded, setCanvasExpanded] = useState(false)
   const [expandedPaletteWidth, setExpandedPaletteWidth] = useState(EXPANDED_PALETTE_WIDTH)
@@ -193,7 +208,7 @@ export const IntegratedMacroPanel = forwardRef<
   const graphViewStates = useRef<Record<string, GraphViewState>>({})
   const editorRef = useRef<HTMLDivElement>(null)
   const editorDialogOpen = Boolean(
-    variableDialog || nameDialog || portDialog || confirmDialog || runSetupMacro,
+    variableDialog || nameDialog || confirmDialog || runSetupMacro,
   )
 
   const navigateToGraphPath = useCallback((nextPath: string[]) => {
@@ -256,7 +271,7 @@ export const IntegratedMacroPanel = forwardRef<
     if (panelTab !== 'canvas' || graphNavigationStack.length === 0) return
     const goToParentGraph = (event: KeyboardEvent) => {
       if (!event.altKey || event.key !== 'ArrowLeft') return
-      if (variableDialog || nameDialog || portDialog || confirmDialog || runSetupMacro) return
+      if (variableDialog || nameDialog || confirmDialog || runSetupMacro) return
       const target = event.target
       if (target instanceof HTMLElement && target.matches('input, textarea, select, [contenteditable="true"]')) return
       event.preventDefault()
@@ -270,7 +285,6 @@ export const IntegratedMacroPanel = forwardRef<
     nameDialog,
     navigateToGraphPath,
     panelTab,
-    portDialog,
     runSetupMacro,
     variableDialog,
   ])
@@ -327,6 +341,7 @@ export const IntegratedMacroPanel = forwardRef<
     setSelectedNodeId(null)
     setIssues([])
     setDirty(false)
+    setValidationState({ status: 'unknown', errorCount: 0 })
     setIsNew(newDefinition)
   }, [])
 
@@ -444,6 +459,9 @@ export const IntegratedMacroPanel = forwardRef<
 
   const markChanged = () => {
     setDirty(true)
+    setValidationState((current) => current.status === 'unknown'
+      ? current
+      : { ...current, status: 'stale' })
     setMessage(null)
   }
 
@@ -576,53 +594,89 @@ export const IntegratedMacroPanel = forwardRef<
     },
   }), [addNode, selectedScreenId])
 
-  const validate = async (showSuccess = true) => {
-    if (!definitionForSave) return false
-    const clientIssues = validateMacroDefinition(definitionForSave)
+  const validateDefinition = async (
+    candidate: MacroDefinition,
+    showSuccess = true,
+  ) => {
+    const clientIssues = validateMacroDefinition(candidate)
     if (clientIssues.length > 0) {
       setIssues(clientIssues)
-      setMessage('저장하거나 실행하기 전에 검증 오류를 수정하세요.')
+      setValidationState({ status: 'invalid', errorCount: clientIssues.length })
+      setMessage(showSuccess
+        ? `그래프 검증 오류 ${clientIssues.length}개를 발견했습니다.`
+        : `검증 오류 ${clientIssues.length}개가 있어 실행할 수 없습니다.`)
       setMessageIntent('danger')
       return false
     }
     try {
-      const response = await macroEditorApi.validate(definitionForSave)
+      const response = await macroEditorApi.validate(candidate)
       const backendIssues = mapBackendValidationErrors(response)
       setIssues(backendIssues)
       if (!response.valid || backendIssues.length > 0) {
-        setMessage('백엔드 검증에서 그래프 오류를 발견했습니다.')
+        const errorCount = Math.max(1, backendIssues.length)
+        setValidationState({ status: 'invalid', errorCount })
+        setMessage(showSuccess
+          ? `백엔드 그래프 검증 오류 ${errorCount}개를 발견했습니다.`
+          : `검증 오류 ${errorCount}개가 있어 실행할 수 없습니다.`)
         setMessageIntent('danger')
         return false
       }
+      setValidationState({ status: 'valid', errorCount: 0 })
       if (showSuccess) {
         setMessage('그래프가 유효합니다.')
         setMessageIntent('success')
       }
       return true
     } catch (error) {
+      setValidationState({ status: 'unknown', errorCount: 0 })
       showError(error, '백엔드 검증을 사용할 수 없습니다.', setMessage, setMessageIntent)
       return false
     }
   }
 
+  const validate = async (showSuccess = true) => {
+    if (!definitionForSave) return false
+    return validateDefinition(definitionForSave, showSuccess)
+  }
+
   const save = async () => {
-    if (!definitionForSave || !(await validate(false))) return null
+    if (!definitionForSave) return null
+    const priorValidation = validationState
+    const priorIssues = issues
     setBusy(true)
     window.localStorage.setItem(MACRO_DRAFT_STORAGE_KEY, JSON.stringify(definitionForSave))
     try {
       const saved = isNew
         ? await macroEditorApi.create(definitionForSave)
         : await macroEditorApi.save(definitionForSave)
-      await macroEditorApi.bind(deviceId, saved.id)
-      setBoundMacroId(saved.id)
+      let bound = false
+      if (priorValidation.status === 'valid') {
+        try {
+          await macroEditorApi.bind(deviceId, saved.id)
+          setBoundMacroId(saved.id)
+          bound = true
+        } catch (error) {
+          showError(error, '저장했지만 기기에 연결하지 못했습니다.', setMessage, setMessageIntent)
+        }
+      }
       setDefinitions((current) => [
         ...current.filter((item) => item.id !== saved.id),
         saved,
       ])
       clearDeviceDraft(deviceId)
       loadDefinition(saved)
-      setMessage('매크로를 저장하고 이 기기에 연결했습니다.')
-      setMessageIntent('success')
+      setIssues(priorIssues)
+      setValidationState(priorValidation)
+      if (priorValidation.status === 'invalid') {
+        setMessage(`저장됨 · 검증 오류 ${priorValidation.errorCount}개 · 기기 연결 차단됨`)
+        setMessageIntent('warning')
+      } else if (priorValidation.status === 'unknown' || priorValidation.status === 'stale') {
+        setMessage('매크로를 저장했습니다. 검증 후 실행하거나 기기에 연결할 수 있습니다.')
+        setMessageIntent('warning')
+      } else if (bound) {
+        setMessage('매크로를 저장하고 이 기기에 연결했습니다.')
+        setMessageIntent('success')
+      }
       return saved
     } catch (error) {
       showError(error, '매크로를 저장하지 못했습니다.', setMessage, setMessageIntent)
@@ -641,6 +695,12 @@ export const IntegratedMacroPanel = forwardRef<
     setMessage(null)
     try {
       if ((name === 'start' || name === 'step') && (dirty || isNew) && !(await save())) return false
+      if ((name === 'start' || name === 'step') && !(await validate(false))) return false
+      if (name === 'start' || name === 'step') {
+        if (!definitionForSave) return false
+        await macroEditorApi.bind(deviceId, definitionForSave.id)
+        setBoundMacroId(definitionForSave.id)
+      }
       await macroEditorApi.command(
         deviceId,
         name,
@@ -963,20 +1023,6 @@ export const IntegratedMacroPanel = forwardRef<
     markChanged()
   }
 
-  const addFunctionPort = (kind: 'inputs' | 'outputs') => {
-    if (!definition || !activeFunctionId) return
-    const functionDefinition = definition.functions?.find((item) => item.id === activeFunctionId)
-    if (!functionDefinition) return
-    setPortDialog({ functionId: activeFunctionId, kind })
-  }
-
-  const removeFunctionPort = (kind: 'inputs' | 'outputs') => {
-    if (!definition || !activeFunctionId) return
-    const functionDefinition = definition.functions?.find((item) => item.id === activeFunctionId)
-    if (!functionDefinition || functionDefinition[kind].length === 0) return
-    updateFunctionPorts(activeFunctionId, kind, functionDefinition[kind].slice(0, -1))
-  }
-
   const updateFunctionPorts = (
     functionId: string,
     kind: 'inputs' | 'outputs',
@@ -1071,11 +1117,11 @@ export const IntegratedMacroPanel = forwardRef<
     markChanged()
   }
 
-  const toggleVariableInput = () => {
-    if (!definition || !selectedVariableName) return
+  const toggleVariableInput = (variableName = selectedVariableName) => {
+    if (!definition || !variableName) return
     setDefinition({
       ...definition,
-      variables: (definition.variables ?? []).map((item) => item.name === selectedVariableName
+      variables: (definition.variables ?? []).map((item) => item.name === variableName
         ? { ...item, input: item.input !== true }
         : item),
     })
@@ -1194,6 +1240,7 @@ export const IntegratedMacroPanel = forwardRef<
     macro: MacroDefinition,
     inputVariables: Record<string, JsonValue>,
   ): Promise<boolean> => {
+    if (!(await validateDefinition(macro, false))) return false
     setBusy(true)
     setMessage(null)
     try {
@@ -1244,7 +1291,17 @@ export const IntegratedMacroPanel = forwardRef<
               <option key={screen.id} value={screen.id}>{screen.label}</option>
             ))}
           </select>}
-          {panelTab === 'canvas' && dirty && <Tag intent="warning" minimal>편집 중</Tag>}
+          {panelTab === 'canvas' && (
+            <>
+              <Tag intent={dirty ? 'warning' : 'success'} minimal>
+                {dirty ? '저장 안 됨' : '저장됨'}
+              </Tag>
+              <MacroValidationTag
+                status={validationState.status}
+                errorCount={validationState.errorCount}
+              />
+            </>
+          )}
         </div>
         <div className="integrated-macro-tabs" role="tablist" aria-label="매크로 작업 모드">
           <Button
@@ -1297,62 +1354,6 @@ export const IntegratedMacroPanel = forwardRef<
                 <option key={item.id} value={item.id}>{item.name}</option>
               ))}
             </select>
-            <select
-              aria-label="매크로 변수"
-              value={selectedVariableName}
-              disabled={!definition || (definition.variables?.length ?? 0) === 0}
-              onChange={(event) => setSelectedVariableName(event.target.value)}
-            >
-              <option value="">변수…</option>
-              {(definition?.variables ?? []).map((item) => (
-                <option key={item.name} value={item.name}>{item.name} · {item.type}</option>
-              ))}
-            </select>
-            <Button small disabled={!definition || busy} onClick={addVariable}>+ 변수</Button>
-            <Button small disabled={!selectedVariableName || busy} onClick={() => editVariable()}>변수 수정</Button>
-            <Button
-              small
-              disabled={!selectedVariableName || busy}
-              onClick={() => {
-                const variable = definition?.variables?.find((item) => item.name === selectedVariableName)
-                if (variable) addNode('set_variable', undefined, variableNodeConfig('set_variable', variable), variableNodeLabel('set', variable.name))
-              }}
-            >변수 설정 추가</Button>
-            <Button
-              small
-              disabled={!selectedVariableName || busy}
-              onClick={() => {
-                const variable = definition?.variables?.find((item) => item.name === selectedVariableName)
-                if (variable) addNode('get_variable', undefined, variableNodeConfig('get_variable', variable), variableNodeLabel('get', variable.name))
-              }}
-            >변수 가져오기 추가</Button>
-            <Button
-              small
-              active={definition?.variables?.find((item) => item.name === selectedVariableName)?.input === true}
-              disabled={!selectedVariableName || busy}
-              title="실행 팝업에서 값을 입력받습니다"
-              onClick={toggleVariableInput}
-            >
-              실행 입력
-            </Button>
-            <Button small intent="danger" disabled={!selectedVariableName || busy} onClick={() => deleteVariable()}>변수 삭제</Button>
-            <Button small disabled={!definition || busy} onClick={createFunction}>새 함수</Button>
-            <Button
-              small
-              disabled={(definition?.functions?.length ?? 0) === 0 || busy}
-              onClick={() => {
-                const target = definition?.functions?.find((item) => item.id === activeFunctionId)
-                  ?? definition?.functions?.[0]
-                if (!target) return
-                addNode('call_function', undefined, functionCallConfig(target), target.name)
-              }}
-            >함수 호출 추가</Button>
-            <Button small disabled={!activeFunctionId || busy} onClick={() => renameFunction()}>함수 이름 변경</Button>
-            <Button small disabled={!activeFunctionId || busy} onClick={() => addFunctionPort('inputs')}>+ 입력</Button>
-            <Button small disabled={!activeFunctionId || busy} onClick={() => removeFunctionPort('inputs')}>− 입력</Button>
-            <Button small disabled={!activeFunctionId || busy} onClick={() => addFunctionPort('outputs')}>+ 출력</Button>
-            <Button small disabled={!activeFunctionId || busy} onClick={() => removeFunctionPort('outputs')}>− 출력</Button>
-            <Button small intent="danger" disabled={!activeFunctionId || busy} onClick={() => deleteFunction()}>함수 삭제</Button>
           </ButtonGroup>
         ) : (
           <ButtonGroup className="integrated-macro-toolbar__actions" minimal>
@@ -1374,7 +1375,13 @@ export const IntegratedMacroPanel = forwardRef<
             <header>
               <div className="macro-canvas-expanded-shell__identity">
                 <strong>{definition?.name ?? ko.panels.macroCanvas}</strong>
-                {dirty && <Tag intent="warning" minimal>편집 중</Tag>}
+                <Tag intent={dirty ? 'warning' : 'success'} minimal>
+                  {dirty ? '저장 안 됨' : '저장됨'}
+                </Tag>
+                <MacroValidationTag
+                  status={validationState.status}
+                  errorCount={validationState.errorCount}
+                />
               </div>
               <select
                 aria-label="확대 화면 매크로 화면"
@@ -1463,6 +1470,15 @@ export const IntegratedMacroPanel = forwardRef<
                 }}
                 onOpenFunction={enterFunctionGraph}
                 onAddVariable={addVariable}
+                onEditVariable={editVariable}
+                onDeleteVariable={deleteVariable}
+                onCreateVariableNode={(variableName, mode) => {
+                  const variable = definition?.variables?.find((item) => item.name === variableName)
+                  if (!variable) return
+                  const type = mode === 'get' ? 'get_variable' : 'set_variable'
+                  addNode(type, undefined, variableNodeConfig(type, variable), variableNodeLabel(mode, variable.name))
+                }}
+                onToggleVariableInput={toggleVariableInput}
                 onAddFunction={createFunction}
                 onRenameFunction={renameFunction}
                 onDuplicateFunction={duplicateFunction}
@@ -1517,6 +1533,13 @@ export const IntegratedMacroPanel = forwardRef<
               block.presetConfig,
               block.presetLabel,
             )}
+            variables={definition.variables ?? []}
+            onUpdateNodeConfig={(nodeId, config) => {
+              updateSelectedFlowNode(activeFunctionId, nodeId, setNodes, setFunctionFlows, (node) => ({
+                ...node, data: { ...node.data, config },
+              }))
+              markChanged()
+            }}
             dialogOpen={editorDialogOpen}
             onReady={(instance) => { flowRef.current = instance }}
             />
@@ -1666,20 +1689,6 @@ export const IntegratedMacroPanel = forwardRef<
           onSubmit={submitNameDialog}
         />
       )}
-      {portDialog && definition && (() => {
-        const owner = definition.functions?.find((item) => item.id === portDialog.functionId)
-        return owner ? (
-          <FunctionPortDialog
-            kind={portDialog.kind}
-            existingIds={owner[portDialog.kind].map((item) => item.id)}
-            onCancel={() => setPortDialog(null)}
-            onSubmit={(port) => {
-              updateFunctionPorts(owner.id, portDialog.kind, [...owner[portDialog.kind], port])
-              setPortDialog(null)
-            }}
-          />
-        ) : null
-      })()}
       {confirmDialog && (
         <ConfirmDialog
           title={confirmDialog.title}

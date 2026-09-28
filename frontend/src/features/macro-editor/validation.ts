@@ -60,7 +60,7 @@ export function validateMacroDefinition(
   const eventEntries = definition.event_entry_node_ids
   const screenEventEntries = definition.screen_event_entry_node_ids
   if (!screenEventEntries && !eventEntries && (!definition.entry_node_id || !nodeIds.has(definition.entry_node_id))) {
-    issues.push(issue('Choose an entry node before saving.'))
+    issues.push(issue('Entry node is required.'))
   }
   if (screenEventEntries) {
     const referenced = new Set<string>()

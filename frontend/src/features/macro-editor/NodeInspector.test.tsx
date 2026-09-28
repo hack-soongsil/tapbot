@@ -67,3 +67,42 @@ describe('NodeInspector semantic screen elements', () => {
     ]))
   })
 })
+
+describe('NodeInspector Debug Print settings', () => {
+  it('edits the fallback message and supported log level', () => {
+    const onUpdateConfig = vi.fn()
+    const debugNode: MacroFlowNode = {
+      id: 'debug-1',
+      type: 'utility',
+      position: { x: 0, y: 0 },
+      data: {
+        nodeType: 'debug_print',
+        category: 'utility',
+        label: 'Debug Print',
+        config: { message: 'fallback', level: 'info' },
+        isEntry: false,
+        errors: [],
+      },
+    }
+    render(
+      <NodeInspector
+        node={debugNode}
+        issues={[]}
+        onUpdateConfig={onUpdateConfig}
+        onUpdateLabel={vi.fn()}
+        onSetEntry={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    )
+
+    const level = screen.getByLabelText<HTMLSelectElement>('레벨')
+    expect([...level.options].map((option) => option.value)).toEqual([
+      'debug', 'info', 'warning', 'error',
+    ])
+    fireEvent.change(level, { target: { value: 'warning' } })
+    expect(onUpdateConfig).toHaveBeenCalledWith({ message: 'fallback', level: 'warning' })
+
+    fireEvent.change(screen.getByLabelText('메시지'), { target: { value: 'connected value fallback' } })
+    expect(onUpdateConfig).toHaveBeenCalledWith({ message: 'connected value fallback', level: 'info' })
+  })
+})

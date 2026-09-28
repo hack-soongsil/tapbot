@@ -1,4 +1,4 @@
-import { FormGroup, HTMLSelect, InputGroup, TextArea } from '@blueprintjs/core'
+import { Checkbox, FormGroup, HTMLSelect, InputGroup, TextArea } from '@blueprintjs/core'
 import { useId, useState } from 'react'
 import { AppDialog } from '../../components/AppDialog'
 import { BLUEPRINT_DATA_TYPES } from './blueprint-dnd'
@@ -102,6 +102,7 @@ export function VariableEditorDialog({
   const [name, setName] = useState(initial?.name ?? suggestedName)
   const [type, setType] = useState<MacroVariableDefinition['type']>(initial?.type ?? suggestedType)
   const [defaultText, setDefaultText] = useState(() => variableDefaultText(initial, suggestedType))
+  const [input, setInput] = useState(initial?.input === true)
   const [errors, setErrors] = useState<{ name?: string; default?: string }>({})
   const nameId = useId()
   const typeId = useId()
@@ -130,6 +131,7 @@ export function VariableEditorDialog({
       ...initial,
       name: normalized,
       type,
+      input,
       ...(type === 'element' ? { default: undefined } : { default: defaultValue }),
     })
   }
@@ -168,6 +170,11 @@ export function VariableEditorDialog({
           onChange={(event) => { setDefaultText(event.target.value); setErrors((current) => ({ ...current, default: undefined })) }}
         />
       </FormGroup>
+      <Checkbox
+        checked={input}
+        label="실행 입력으로 사용"
+        onChange={(event) => setInput(event.currentTarget.checked)}
+      />
     </AppDialog>
   )
 }

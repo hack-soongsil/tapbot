@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">TapBot</title>
+  <desc id="description">A compact robot screen with two eyes and a tap target.</desc>
+  <rect x="16" y="16" width="480" height="480" rx="112" fill="#0d151a"/>
+  <path d="M256 68v48" fill="none" stroke="#59d8c8" stroke-width="28" stroke-linecap="round"/>
+  <circle cx="256" cy="68" r="18" fill="#59d8c8"/>
+  <rect x="96" y="112" width="320" height="304" rx="72" fill="#16242b" stroke="#59d8c8" stroke-width="28"/>
+  <circle cx="190" cy="218" r="24" fill="#f5fbfa"/>
+  <circle cx="322" cy="218" r="24" fill="#f5fbfa"/>
+  <circle cx="256" cy="320" r="48" fill="none" stroke="#f5fbfa" stroke-width="18"/>
+  <circle cx="256" cy="320" r="19" fill="#59d8c8"/>
+</svg>

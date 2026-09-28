@@ -32,8 +32,11 @@ describe('TapBot editor dialogs', () => {
     expect(within(dialog).getByText('정수 기본값은 정수여야 합니다.')).toBeTruthy()
 
     fireEvent.change(within(dialog).getByLabelText('기본값'), { target: { value: '3' } })
+    fireEvent.click(within(dialog).getByLabelText('실행 입력으로 사용'))
     fireEvent.submit(within(dialog).getByLabelText('이름').closest('form')!)
-    expect(submit).toHaveBeenCalledWith({ name: 'retries', type: 'int', default: 3 })
+    expect(submit).toHaveBeenCalledWith({
+      name: 'retries', type: 'int', default: 3, input: true,
+    })
   })
 
   it('validates duplicate names inside the name dialog', () => {

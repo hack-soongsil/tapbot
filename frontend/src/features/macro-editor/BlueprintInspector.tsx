@@ -54,6 +54,7 @@ function VariableEditor({
       <div className="macro-field"><span>Name</span><strong>{variable.name}</strong></div>
       <div className="macro-field"><span>Type</span><code>{variable.type}</code></div>
       <div className="macro-field"><span>Default Value</span><code>{formatDefault(variable) || '—'}</code></div>
+      <div className="macro-field"><span>실행 입력</span><strong>{variable.input === true ? '사용' : '사용 안 함'}</strong></div>
       <div className="macro-inspector__actions">
         <Button small intent="primary" onClick={() => onEditVariable(variable.name)}>편집</Button>
         <Button small intent="danger" onClick={() => onDeleteVariable(variable.name)}>삭제</Button>

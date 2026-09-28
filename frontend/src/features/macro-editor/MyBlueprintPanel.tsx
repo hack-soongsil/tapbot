@@ -22,6 +22,10 @@ interface MyBlueprintPanelProps {
   onSelect: (selection: BlueprintSelection) => void
   onOpenFunction: (functionId: string) => void
   onAddVariable: () => void
+  onEditVariable: (variableName: string) => void
+  onDeleteVariable: (variableName: string) => void
+  onCreateVariableNode: (variableName: string, mode: 'get' | 'set') => void
+  onToggleVariableInput: (variableName: string) => void
   onAddFunction: () => void
   onRenameFunction: (functionId: string) => void
   onDuplicateFunction: (functionId: string) => void
@@ -35,12 +39,16 @@ export function MyBlueprintPanel({
   onSelect,
   onOpenFunction,
   onAddVariable,
+  onEditVariable,
+  onDeleteVariable,
+  onCreateVariableNode,
+  onToggleVariableInput,
   onAddFunction,
   onRenameFunction,
   onDuplicateFunction,
   onDeleteFunction,
 }: MyBlueprintPanelProps) {
-  const [menu, setMenu] = useState<{ functionId: string; x: number; y: number } | null>(null)
+  const [menu, setMenu] = useState<BlueprintContextMenu | null>(null)
 
   useEffect(() => {
     if (!menu) return
@@ -76,6 +84,11 @@ export function MyBlueprintPanel({
               className={`my-blueprint__item${selection?.kind === 'variable' && selection.id === variable.name ? ' is-selected' : ''}`}
               aria-label={`${variable.name} 변수 ${variable.type}`}
               onClick={() => onSelect({ kind: 'variable', id: variable.name })}
+              onContextMenu={(event) => {
+                event.preventDefault()
+                onSelect({ kind: 'variable', id: variable.name })
+                setMenu({ kind: 'variable', variableName: variable.name, x: event.clientX, y: event.clientY })
+              }}
               onDragStart={(event) => startVariableDrag(event, variable)}
             >
               <span className={`blueprint-type-dot blueprint-type--${variable.type}`} aria-hidden="true" />
@@ -110,13 +123,25 @@ export function MyBlueprintPanel({
         <div
           className="my-blueprint__context-menu"
           role="menu"
-          aria-label="함수 메뉴"
+          aria-label={menu.kind === 'variable' ? '변수 메뉴' : '함수 메뉴'}
           style={{ left: menu.x, top: menu.y }}
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <button type="button" role="menuitem" onClick={() => { onRenameFunction(menu.functionId); setMenu(null) }}>이름 변경</button>
-          <button type="button" role="menuitem" onClick={() => { onDuplicateFunction(menu.functionId); setMenu(null) }}>복제</button>
-          <button type="button" role="menuitem" className="is-danger" onClick={() => { onDeleteFunction(menu.functionId); setMenu(null) }}>삭제</button>
+          {menu.kind === 'variable' ? (
+            <>
+              <button type="button" role="menuitem" onClick={() => { onCreateVariableNode(menu.variableName, 'get'); setMenu(null) }}>가져오기 노드 추가</button>
+              <button type="button" role="menuitem" onClick={() => { onCreateVariableNode(menu.variableName, 'set'); setMenu(null) }}>설정 노드 추가</button>
+              <button type="button" role="menuitem" onClick={() => { onEditVariable(menu.variableName); setMenu(null) }}>편집</button>
+              <button type="button" role="menuitem" onClick={() => { onToggleVariableInput(menu.variableName); setMenu(null) }}>실행 입력 전환</button>
+              <button type="button" role="menuitem" className="is-danger" onClick={() => { onDeleteVariable(menu.variableName); setMenu(null) }}>삭제</button>
+            </>
+          ) : (
+            <>
+              <button type="button" role="menuitem" onClick={() => { onRenameFunction(menu.functionId); setMenu(null) }}>이름 변경</button>
+              <button type="button" role="menuitem" onClick={() => { onDuplicateFunction(menu.functionId); setMenu(null) }}>복제</button>
+              <button type="button" role="menuitem" className="is-danger" onClick={() => { onDeleteFunction(menu.functionId); setMenu(null) }}>삭제</button>
+            </>
+          )}
         </div>
       ), getTapbotOverlayRoot())}
     </aside>
@@ -155,8 +180,12 @@ function setBlueprintDragData(
 function openFunctionMenu(
   event: MouseEvent<HTMLButtonElement>,
   functionId: string,
-  setMenu: (menu: { functionId: string; x: number; y: number }) => void,
+  setMenu: (menu: BlueprintContextMenu) => void,
 ) {
   event.preventDefault()
-  setMenu({ functionId, x: event.clientX, y: event.clientY })
+  setMenu({ kind: 'function', functionId, x: event.clientX, y: event.clientY })
 }
+
+type BlueprintContextMenu =
+  | { kind: 'variable'; variableName: string; x: number; y: number }
+  | { kind: 'function'; functionId: string; x: number; y: number }

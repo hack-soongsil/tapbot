@@ -35,7 +35,14 @@ vi.mock('./api', () => ({
 }))
 
 vi.mock('./MacroCanvas', () => ({
-  MacroCanvas: ({ nodes, edges, onReady, onSelectNode }: MacroCanvasProps) => {
+  MacroCanvas: ({
+    nodes,
+    edges,
+    onReady,
+    onSelectNode,
+    onNodesChange,
+    onDropBlueprintItem,
+  }: MacroCanvasProps) => {
     onReady(flowInstance as never)
     return (
       <div data-testid="integrated-canvas">
@@ -50,6 +57,20 @@ vi.mock('./MacroCanvas', () => ({
         {edges.map((edge) => (
           <i key={edge.id} data-current={edge.className === 'runtime-current-edge'}>{edge.id}</i>
         ))}
+        <button
+          type="button"
+          onClick={() => {
+            const first = nodes[0]
+            if (first) onNodesChange([{ type: 'remove', id: first.id }])
+          }}
+        >Remove entry node</button>
+        <button
+          type="button"
+          onClick={() => onDropBlueprintItem?.(
+            { kind: 'function', id: 'function-1' },
+            { x: 40, y: 60 },
+          )}
+        >Drop function-1</button>
       </div>
     )
   },
@@ -223,7 +244,8 @@ describe('IntegratedMacroPanel', () => {
     expect(within(menu).getByRole('button', { name: '이름 변경' })).toBeTruthy()
 
     fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
-    fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
+    fireEvent.click(within(screen.getByLabelText('My Blueprint')).getByRole('button', { name: '새 함수' }))
     fireEvent.click(within(screen.getByRole('dialog', { name: '새 함수' })).getByRole('button', { name: '생성' }))
     expect(screen.getByLabelText<HTMLSelectElement>('매크로 그래프').value).toBe('function-1')
     fireEvent.click(screen.getByRole('tab', { name: '실행' }))
@@ -275,6 +297,28 @@ describe('IntegratedMacroPanel', () => {
         : null
     expect(Array.isArray(homeNodeIds) ? homeNodeIds : []).toContain('find_element-1')
     expect(JSON.stringify(added?.config)).not.toContain('bounds')
+  })
+
+  it('persists an invalid graph while keeping execution validation separate', async () => {
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime('idle')} />)
+    await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove entry node' }))
+    fireEvent.click(screen.getByRole('button', { name: '검증' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+
+    await waitFor(() => expect(macroEditorApi.save).toHaveBeenCalledTimes(1))
+    expect(macroEditorApi.validate).not.toHaveBeenCalled()
+    expect(macroEditorApi.bind).not.toHaveBeenCalled()
+    expect(screen.getByText(/저장됨 · 검증 오류 \d+개 · 기기 연결 차단됨/)).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('tab', { name: '실행' }))
+    fireEvent.click(screen.getByRole('button', { name: '실행' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: '매크로 실행' }))
+      .getByRole('button', { name: '실행' }))
+    expect(await screen.findByText(/검증 오류 \d+개가 있어 실행할 수 없습니다/)).toBeTruthy()
+    expect(macroEditorApi.command).not.toHaveBeenCalled()
   })
 
   it('keeps unsaved drafts isolated per device and restores them on return', async () => {
@@ -367,7 +411,7 @@ describe('IntegratedMacroPanel', () => {
     expect(screen.queryByRole('dialog', { name: '매크로 캔버스 확대' })).toBeNull()
     expect(screen.getByTestId('integrated-canvas')).toBe(canvas)
     expect(canvas.textContent).toContain('wait-1')
-    expect(screen.getByText('편집 중')).toBeTruthy()
+    expect(screen.getByText('저장 안 됨')).toBeTruthy()
 
     fireEvent.click(screen.getByRole('button', { name: '확대' }))
     fireEvent.keyDown(window, { key: 'Escape' })
@@ -382,7 +426,9 @@ describe('IntegratedMacroPanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
     fireEvent.click(screen.getByRole('button', { name: '확대' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '+ 변수' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
+    const blueprint = screen.getByLabelText('My Blueprint')
+    fireEvent.click(within(blueprint).getByRole('button', { name: '새 변수' }))
     const variableDialog = screen.getByRole('dialog', { name: '변수 추가' })
     const dialogPortal = variableDialog.closest('.tapbot-dialog-portal')
     expect(dialogPortal?.parentElement?.id).toBe('tapbot-overlay-root')
@@ -393,7 +439,7 @@ describe('IntegratedMacroPanel', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: '변수 추가' })).toBeNull())
     expect(screen.getByRole('dialog', { name: '매크로 캔버스 확대' })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+    fireEvent.click(within(blueprint).getByRole('button', { name: '새 함수' }))
     const functionDialog = screen.getByRole('dialog', { name: '새 함수' })
     expect(functionDialog.closest('.tapbot-dialog-portal')?.parentElement?.id).toBe('tapbot-overlay-root')
     expect(within(functionDialog).getByLabelText('함수 이름')).toBeTruthy()
@@ -427,12 +473,32 @@ describe('IntegratedMacroPanel', () => {
     expect(onAvailabilityChange).toHaveBeenLastCalledWith(false)
   })
 
+  it('keeps variable and function management out of the canvas toolbar', async () => {
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
+    await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+
+    const toolbar = document.querySelector<HTMLElement>('.integrated-macro-toolbar__actions')!
+    expect(within(toolbar).queryByLabelText('매크로 변수')).toBeNull()
+    for (const name of [
+      '+ 변수', '변수 수정', '변수 설정 추가', '변수 가져오기 추가', '실행 입력',
+      '새 함수', '함수 호출 추가', '함수 이름 변경', '함수 삭제',
+    ]) {
+      expect(within(toolbar).queryByRole('button', { name })).toBeNull()
+    }
+    expect(within(toolbar).getByRole('button', { name: '검증' })).toBeTruthy()
+    expect(within(toolbar).getByRole('button', { name: '화면 맞춤' })).toBeTruthy()
+    expect(within(toolbar).getByRole('button', { name: '저장' })).toBeTruthy()
+    expect(within(toolbar).getByRole('button', { name: '확대' })).toBeTruthy()
+  })
+
   it('creates and switches to an isolated function subgraph', async () => {
     render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
     const canvas = await screen.findByTestId('integrated-canvas')
     fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+    fireEvent.click(within(screen.getByLabelText('My Blueprint')).getByRole('button', { name: '새 함수' }))
     fireEvent.click(within(screen.getByRole('dialog', { name: '새 함수' })).getByRole('button', { name: '생성' }))
 
     expect(screen.getByLabelText<HTMLSelectElement>('매크로 그래프').value).toBe('function-1')
@@ -457,14 +523,16 @@ describe('IntegratedMacroPanel', () => {
     render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
     const canvas = await screen.findByTestId('integrated-canvas')
     fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
+    const blueprint = screen.getByLabelText('My Blueprint')
 
-    fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+    fireEvent.click(within(blueprint).getByRole('button', { name: '새 함수' }))
     let nameDialog = screen.getByRole('dialog', { name: '새 함수' })
     fireEvent.change(within(nameDialog).getByLabelText('함수 이름'), { target: { value: 'Reserve' } })
     fireEvent.click(within(nameDialog).getByRole('button', { name: '생성' }))
     fireEvent.click(within(canvas).getByRole('button', { name: 'function-1-entry' }))
 
-    fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+    fireEvent.click(within(blueprint).getByRole('button', { name: '새 함수' }))
     nameDialog = screen.getByRole('dialog', { name: '새 함수' })
     fireEvent.change(within(nameDialog).getByLabelText('함수 이름'), { target: { value: 'Select Time Slot' } })
     fireEvent.click(within(nameDialog).getByRole('button', { name: '생성' }))
@@ -476,7 +544,7 @@ describe('IntegratedMacroPanel', () => {
     expect(within(breadcrumb).getByText('Select Time Slot').getAttribute('aria-current')).toBe('page')
     expect(within(breadcrumb).queryByRole('button', { name: 'Select Time Slot' })).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: '함수 이름 변경' }))
+    fireEvent.click(within(screen.getByLabelText('My Blueprint 설정')).getByRole('button', { name: '이름 변경' }))
     nameDialog = screen.getByRole('dialog', { name: '함수 이름 변경' })
     fireEvent.change(within(nameDialog).getByLabelText('함수 이름'), { target: { value: 'Slot Finder' } })
     fireEvent.click(within(nameDialog).getByRole('button', { name: '저장' }))
@@ -499,16 +567,16 @@ describe('IntegratedMacroPanel', () => {
     render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
     await screen.findByTestId('integrated-canvas')
     fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
+    const blueprint = screen.getByLabelText('My Blueprint')
 
     for (const name of ['Reserve', 'Select Time Slot']) {
-      fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+      fireEvent.click(within(blueprint).getByRole('button', { name: '새 함수' }))
       const dialog = screen.getByRole('dialog', { name: '새 함수' })
       fireEvent.change(within(dialog).getByLabelText('함수 이름'), { target: { value: name } })
       fireEvent.click(within(dialog).getByRole('button', { name: '생성' }))
     }
 
-    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
-    const blueprint = screen.getByLabelText('My Blueprint')
     fireEvent.click(within(blueprint).getByRole('button', { name: 'Reserve 함수' }))
     fireEvent.click(within(screen.getByLabelText('My Blueprint 설정')).getByRole('button', { name: '삭제' }))
     const confirm = screen.getByRole('alertdialog', { name: '함수 삭제' })
@@ -525,21 +593,20 @@ describe('IntegratedMacroPanel', () => {
     render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
     await screen.findByTestId('integrated-canvas')
     fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
+    const blueprint = screen.getByLabelText('My Blueprint')
 
-    fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+    fireEvent.click(within(blueprint).getByRole('button', { name: '새 함수' }))
     fireEvent.click(within(screen.getByRole('dialog', { name: '새 함수' })).getByRole('button', { name: '생성' }))
-    fireEvent.click(screen.getByRole('button', { name: '+ 입력' }))
-    let portDialog = screen.getByRole('dialog', { name: '입력 포트 추가' })
-    fireEvent.change(within(portDialog).getByLabelText('포트 이름'), { target: { value: 'index' } })
-    fireEvent.change(within(portDialog).getByRole('combobox'), { target: { value: 'int' } })
-    fireEvent.click(within(portDialog).getByRole('button', { name: '추가' }))
-    fireEvent.click(screen.getByRole('button', { name: '+ 출력' }))
-    portDialog = screen.getByRole('dialog', { name: '출력 포트 추가' })
-    fireEvent.change(within(portDialog).getByLabelText('포트 이름'), { target: { value: 'success' } })
-    fireEvent.change(within(portDialog).getByRole('combobox'), { target: { value: 'bool' } })
-    fireEvent.click(within(portDialog).getByRole('button', { name: '추가' }))
+    const inspector = screen.getByLabelText('My Blueprint 설정')
+    fireEvent.click(within(inspector).getByRole('button', { name: '+ Add Input' }))
+    fireEvent.change(within(inspector).getByLabelText('Inputs 1 이름'), { target: { value: 'index' } })
+    fireEvent.change(within(inspector).getByLabelText('Inputs 1 타입'), { target: { value: 'int' } })
+    fireEvent.click(within(inspector).getByRole('button', { name: '+ Add Output' }))
+    fireEvent.change(within(inspector).getByLabelText('Outputs 1 이름'), { target: { value: 'success' } })
+    fireEvent.change(within(inspector).getByLabelText('Outputs 1 타입'), { target: { value: 'bool' } })
     fireEvent.change(screen.getByLabelText('매크로 그래프'), { target: { value: '__main__' } })
-    fireEvent.click(screen.getByRole('button', { name: '함수 호출 추가' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Drop function-1' }))
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     await waitFor(() => expect(macroEditorApi.save).toHaveBeenCalled())
@@ -559,15 +626,19 @@ describe('IntegratedMacroPanel', () => {
     render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
     await screen.findByTestId('integrated-canvas')
     fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
+    const blueprint = screen.getByLabelText('My Blueprint')
 
-    fireEvent.click(screen.getByRole('button', { name: '+ 변수' }))
+    fireEvent.click(within(blueprint).getByRole('button', { name: '새 변수' }))
     const variableDialog = screen.getByRole('dialog', { name: '변수 추가' })
     fireEvent.change(within(variableDialog).getByLabelText('이름'), { target: { value: 'count' } })
+    fireEvent.click(within(variableDialog).getByLabelText('실행 입력으로 사용'))
     fireEvent.click(within(variableDialog).getByRole('button', { name: '추가' }))
-    expect(screen.getByLabelText<HTMLSelectElement>('매크로 변수').value).toBe('count')
-    fireEvent.click(screen.getByRole('button', { name: '실행 입력' }))
-    fireEvent.click(screen.getByRole('button', { name: '변수 설정 추가' }))
-    fireEvent.click(screen.getByRole('button', { name: '변수 가져오기 추가' }))
+    const variable = within(blueprint).getByRole('button', { name: 'count 변수 int' })
+    fireEvent.contextMenu(variable)
+    fireEvent.click(screen.getByRole('menuitem', { name: '설정 노드 추가' }))
+    fireEvent.contextMenu(variable)
+    fireEvent.click(screen.getByRole('menuitem', { name: '가져오기 노드 추가' }))
     fireEvent.click(screen.getByRole('button', { name: '저장' }))
 
     await waitFor(() => expect(macroEditorApi.save).toHaveBeenCalled())

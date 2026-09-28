@@ -252,8 +252,10 @@ def create_instances(
     graph_validator = GraphValidator(create_default_node_registry(
         tap_point_sampler=_tap_point_sampler(config)
     ))
+    # Definitions are editable drafts: persistence must not require a runnable graph.
+    # Explicit validation and runtime startup still use ``graph_validator`` below.
     macro_repository = MacroRepository(FileMacroDefinitionStore(
-        config.paths.macro_definition_dir, validator=graph_validator
+        config.paths.macro_definition_dir
     ))
     macro_bindings = DeviceMacroBindingRepository(config.paths.macro_bindings_file)
 

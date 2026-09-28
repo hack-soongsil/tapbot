@@ -1,8 +1,10 @@
 // @vitest-environment jsdom
 
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useState } from 'react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { MacroCanvas } from './MacroCanvas'
+import { NodeInspector } from './NodeInspector'
 import { MACRO_BLUEPRINT_MIME } from './blueprint-dnd'
 import { BLOCK_BY_TYPE, cloneDefaultConfig } from './blocks'
 import {
@@ -12,7 +14,7 @@ import {
   sourcePortContext,
 } from './port-compatibility'
 import type { ReactFlowInstance } from '@xyflow/react'
-import type { MacroFlowEdge, MacroFlowNode } from './types'
+import type { MacroFlowEdge, MacroFlowNode, MacroVariableDefinition } from './types'
 
 class ResizeObserverStub implements ResizeObserver {
   observe() {}
@@ -201,7 +203,7 @@ describe('MacroCanvas', () => {
     expect(event.querySelectorAll('[data-port-direction="input"]')).toHaveLength(0)
     expect(event.querySelectorAll('[data-port-direction="output"]')).toHaveLength(1)
     expect(event.querySelector('.react-flow__handle-right')).toBeTruthy()
-    expect(event.querySelector('.macro-node__visual-pin--exec')).toBeTruthy()
+    expect(event.querySelector('.macro-node__visual-pin--exec.macro-node__visual-pin--circle')).toBeTruthy()
     expect(event.querySelector('.macro-node__port-hitbox')).toBeTruthy()
 
     const branch = screen.getByLabelText('분기 매크로 노드')
@@ -212,7 +214,7 @@ describe('MacroCanvas', () => {
     expect(branch.querySelectorAll('.react-flow__handle-right')).toHaveLength(2)
     expect(branch.querySelector('[data-port-kind="data"]')).toBeTruthy()
     expect(branch.querySelector('[data-port-kind="exec"]')).toBeTruthy()
-    expect(branch.querySelector('.macro-node__visual-pin--data')).toBeTruthy()
+    expect(branch.querySelector('.macro-node__visual-pin--data.macro-node__visual-pin--circle')).toBeTruthy()
     const inputPort = branch.querySelector<HTMLElement>('[data-port-direction="input"]')!
     const outputPort = branch.querySelector<HTMLElement>('[data-port-direction="output"]')!
     expect(inputPort.firstElementChild?.classList.contains('macro-node__port-hitbox')).toBe(true)
@@ -221,6 +223,44 @@ describe('MacroCanvas', () => {
     expect(outputPort.lastElementChild?.classList.contains('macro-node__visual-pin')).toBe(true)
     expect(container.querySelector('.macro-node__ports')).toBeNull()
     expect(container.querySelector('.macro-node__port-column')).toBeNull()
+  })
+
+  it('renders Debug Print through the shared dark utility node shell', () => {
+    const debugNode = flowNode('debug', 'debug_print')
+    debugNode.type = 'utility'
+    debugNode.data.category = 'utility'
+    debugNode.selected = true
+    debugNode.data.label = 'Debug Print'
+    debugNode.data.config = { message: 'hello', level: 'info' }
+    debugNode.data.runtimeState = 'running'
+
+    const { container } = render(
+      <div style={{ width: 800, height: 600 }}>
+        <MacroCanvas
+          nodes={[debugNode]}
+          edges={[]}
+          onNodesChange={vi.fn()}
+          onEdgesChange={vi.fn()}
+          onConnect={vi.fn()}
+          onSelectNode={vi.fn()}
+          onDropBlock={vi.fn()}
+          onReady={vi.fn()}
+        />
+      </div>,
+    )
+
+    const debug = screen.getByLabelText('디버그 출력 매크로 노드')
+    expect(debug.classList.contains('macro-node')).toBe(true)
+    expect(debug.classList.contains('macro-node--utility')).toBe(true)
+    expect(debug.classList.contains('is-selected')).toBe(true)
+    expect(debug.classList.contains('runtime-running')).toBe(true)
+    expect(within(debug).getByText('유틸리티')).toBeTruthy()
+    expect(within(debug).getByText('디버그 출력')).toBeTruthy()
+    expect(debug.querySelectorAll('[data-port-direction="input"]')).toHaveLength(2)
+    expect(debug.querySelectorAll('[data-port-direction="output"]')).toHaveLength(1)
+    expect(debug.querySelector('[data-port-type="any"] .macro-node__visual-pin--circle')).toBeTruthy()
+    expect(debug.querySelectorAll('[data-port-type="exec"] .macro-node__visual-pin--circle')).toHaveLength(2)
+    expect(container.querySelector('.react-flow__node-default')).toBeNull()
   })
 
   it('converts palette drops from screen coordinates into flow coordinates', async () => {
@@ -343,7 +383,7 @@ describe('MacroCanvas', () => {
 
     const renderedVariable = screen.getByLabelText('변수 설정 매크로 노드')
     expect(renderedVariable.classList.contains('macro-node--kind-variable')).toBe(true)
-    expect(within(renderedVariable).getByText('변수')).toBeTruthy()
+    expect(renderedVariable.querySelector('.macro-node__eyebrow')?.textContent).toBe('변수')
     const renderedFunction = screen.getByLabelText('함수 호출 매크로 노드')
     expect(renderedFunction.classList.contains('macro-node--kind-function')).toBe(true)
     expect(within(renderedFunction).getByText('함수')).toBeTruthy()
@@ -557,13 +597,135 @@ describe('MacroCanvas', () => {
     expect(onDropQuickBlock).toHaveBeenCalledWith(variableBlock, { x: 45, y: 55 })
   })
 
+  it('edits a key property inline and keeps the Inspector synchronized', () => {
+    const waitNode = flowNode('wait-inline', 'wait')
+    waitNode.data.config = { duration_ms: 500 }
+    render(<InlineEditingHarness initialNodes={[waitNode]} showInspector />)
+
+    const inline = screen.getByLabelText<HTMLInputElement>('시간(ms) 인라인 설정')
+    expect(inline.classList.contains('nodrag')).toBe(true)
+    expect(inline.classList.contains('nowheel')).toBe(true)
+
+    fireEvent.change(inline, { target: { value: '1200' } })
+    expect(screen.getByLabelText<HTMLInputElement>('지속 시간(ms)').value).toBe('1200')
+
+    fireEvent.change(screen.getByLabelText('지속 시간(ms)'), { target: { value: '700' } })
+    expect(screen.getByLabelText<HTMLInputElement>('시간(ms) 인라인 설정').value).toBe('700')
+  })
+
+  it('replaces a wired literal editor with its connection source', () => {
+    const source = flowNode('loop-source', 'for_loop')
+    source.data.config = { start: 0, end: 3, step: 1 }
+    const debug = flowNode('debug-wired', 'debug_print')
+    debug.data.label = 'Debug Print'
+    debug.data.config = { message: 'fallback', level: 'info' }
+    const edge: MacroFlowEdge = {
+      id: 'loop-debug',
+      source: source.id,
+      sourceHandle: 'index',
+      target: debug.id,
+      targetHandle: 'value',
+      data: { errors: [], kind: 'data' },
+    }
+    render(<InlineEditingHarness initialNodes={[source, debug]} edges={[edge]} />)
+
+    const renderedDebug = screen.getByLabelText('디버그 출력 매크로 노드')
+    expect(within(renderedDebug).getByText('연결됨')).toBeTruthy()
+    expect(within(renderedDebug).getByText('index')).toBeTruthy()
+    expect(within(renderedDebug).queryByLabelText('메시지 인라인 설정')).toBeNull()
+    expect(within(renderedDebug).getByLabelText('레벨 인라인 설정')).toBeTruthy()
+  })
+
+  it('shows collection index inline only for collection screen elements', () => {
+    const semantic = flowNode('semantic-inline', 'find_screen_element')
+    semantic.data.config = {
+      screen_id: 'reservation_detail',
+      element_id: 'time_slot',
+      params: { index: 6 },
+    }
+    render(<InlineEditingHarness initialNodes={[semantic]} />)
+
+    expect(screen.getByLabelText<HTMLInputElement>('인덱스 인라인 설정').value).toBe('6')
+    fireEvent.change(screen.getByLabelText('요소 인라인 설정'), { target: { value: 'back' } })
+    expect(screen.queryByLabelText('인덱스 인라인 설정')).toBeNull()
+  })
+
+  it('uses the selected variable type for its compact inline value editor', () => {
+    const setVariable = flowNode('set-enabled', 'set_variable')
+    setVariable.data.config = { name: 'enabled', type: 'bool', default: false }
+    render(
+      <InlineEditingHarness
+        initialNodes={[setVariable]}
+        variables={[{ name: 'enabled', type: 'bool', default: false }]}
+      />,
+    )
+
+    const value = screen.getByLabelText<HTMLInputElement>('값 인라인 설정')
+    expect(value.type).toBe('checkbox')
+    expect(value.checked).toBe(false)
+    fireEvent.click(value)
+    expect(screen.getByLabelText<HTMLInputElement>('값 인라인 설정').checked).toBe(true)
+  })
+
+  it('limits each block definition to at most three inline properties', () => {
+    for (const block of BLOCK_BY_TYPE.values()) {
+      expect(block.inlineProperties?.length ?? 0).toBeLessThanOrEqual(3)
+    }
+  })
+
 })
+
+function InlineEditingHarness({
+  initialNodes,
+  edges = [],
+  showInspector = false,
+  variables = [],
+}: {
+  initialNodes: MacroFlowNode[]
+  edges?: MacroFlowEdge[]
+  showInspector?: boolean
+  variables?: MacroVariableDefinition[]
+}) {
+  const [nodes, setNodes] = useState(initialNodes)
+  const selected = nodes[0] ?? null
+  const updateConfig = (nodeId: string, config: MacroFlowNode['data']['config']) => {
+    setNodes((current) => current.map((item) => item.id === nodeId
+      ? { ...item, data: { ...item.data, config } }
+      : item))
+  }
+  return (
+    <div style={{ width: 800, height: 600 }}>
+      <MacroCanvas
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={vi.fn()}
+        onEdgesChange={vi.fn()}
+        onConnect={vi.fn()}
+        onSelectNode={vi.fn()}
+        onDropBlock={vi.fn()}
+        onReady={vi.fn()}
+        variables={variables}
+        onUpdateNodeConfig={updateConfig}
+      />
+      {showInspector && (
+        <NodeInspector
+          node={selected}
+          issues={[]}
+          onUpdateConfig={(config) => selected && updateConfig(selected.id, config)}
+          onUpdateLabel={vi.fn()}
+          onSetEntry={vi.fn()}
+          onDelete={vi.fn()}
+        />
+      )}
+    </div>
+  )
+}
 
 function flowNode(id: string, nodeType: MacroFlowNode['data']['nodeType']): MacroFlowNode {
   const category = nodeType === 'branch' || nodeType === 'for_loop'
     ? 'control'
     : nodeType === 'debug_print'
-      ? 'validation'
+      ? 'utility'
     : nodeType === 'element_exists'
       ? 'condition'
       : nodeType === 'find_element'

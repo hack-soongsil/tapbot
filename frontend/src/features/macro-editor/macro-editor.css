@@ -675,8 +675,8 @@
   transform: translateY(-50%);
 }
 
-.macro-node__port--input .macro-node__port-hitbox { left: -12px; }
-.macro-node__port--output .macro-node__port-hitbox { right: -12px; left: auto; }
+.macro-node__port--input .macro-node__port-hitbox { left: -6px; }
+.macro-node__port--output .macro-node__port-hitbox { right: -6px; left: auto; }
 
 .macro-node__visual-pin {
   display: block;
@@ -686,19 +686,17 @@
   transition: filter 120ms ease, opacity 120ms ease, transform 120ms ease;
 }
 
-.macro-node__visual-pin--data {
-  width: 13px;
-  height: 13px;
+.macro-node__visual-pin--circle {
+  width: 12px;
+  height: 12px;
   border: 2px solid #eff3f8;
   border-radius: 50%;
   box-shadow: 0 0 0 1px rgb(0 0 0 / 60%);
 }
 
 .macro-node__visual-pin--exec {
-  width: 14px;
-  height: 14px;
-  clip-path: polygon(0 0, 100% 50%, 0 100%);
-  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 1px 1px #000);
+  border-color: #fff;
+  background: #d8dde4;
 }
 
 .macro-node__port-hitbox:hover ~ .macro-node__visual-pin,
@@ -723,8 +721,94 @@
   opacity: 0.28;
 }
 
-.macro-node.is-selected .macro-node__visual-pin--data {
+.macro-node.is-selected .macro-node__visual-pin {
   box-shadow: 0 0 0 2px rgb(120 174 248 / 28%);
+}
+
+.macro-node__inline-properties {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 7px 10px 9px;
+  border-top: 1px solid rgb(111 129 149 / 24%);
+  background: rgb(9 14 19 / 32%);
+}
+
+.macro-node__inline-property {
+  display: grid;
+  min-width: 0;
+  min-height: 26px;
+  grid-template-columns: minmax(48px, auto) minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.macro-node__inline-label {
+  overflow: hidden;
+  color: #9eabb9;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.macro-node__inline-control {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 2px 7px;
+  overflow: hidden;
+  border: 1px solid #3b4652;
+  border-radius: 4px;
+  outline: none;
+  color: #e7edf5;
+  background: #111820;
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.macro-node__inline-control:hover:not(:disabled) { border-color: #60758b; }
+.macro-node__inline-control:focus-visible {
+  border-color: #70a9ee;
+  box-shadow: 0 0 0 1px rgb(112 169 238 / 40%);
+}
+.macro-node__inline-control:disabled { cursor: not-allowed; opacity: 0.58; }
+
+.macro-node__inline-checkbox {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #70a9ee;
+}
+
+.macro-node__inline-connected {
+  display: flex;
+  min-width: 0;
+  height: 26px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 2px 7px;
+  overflow: hidden;
+  border: 1px dashed #4c6175;
+  border-radius: 4px;
+  color: #b9d7f7;
+  background: rgb(44 75 105 / 26%);
+  font-size: 11px;
+}
+
+.macro-node__inline-connected small {
+  min-width: 0;
+  overflow: hidden;
+  color: #8194a8;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .macro-edge--data .react-flow__edge-path {

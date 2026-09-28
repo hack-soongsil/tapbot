@@ -1,7 +1,33 @@
 {
-  "edges": [],
+  "edges": [
+    {
+      "id": "event-home-enter-debug_print-1-1",
+      "kind": "exec",
+      "source": "event-home-enter",
+      "source_handle": "exec_out",
+      "target": "debug_print-1",
+      "target_handle": "exec_in"
+    },
+    {
+      "id": "event-detail-enter-debug_print-2-1",
+      "kind": "exec",
+      "source": "event-detail-enter",
+      "source_handle": "exec_out",
+      "target": "debug_print-2",
+      "target_handle": "exec_in"
+    }
+  ],
   "id": "macro-mukjsthq",
-  "metadata": {},
+  "metadata": {
+    "editor_screen_node_ids": {
+      "reservation_detail": [
+        "debug_print-2"
+      ],
+      "reservation_home": [
+        "debug_print-1"
+      ]
+    }
+  },
   "name": "새 매크로",
   "nodes": [
     {
@@ -10,10 +36,10 @@
         "screen_id": "reservation_home"
       },
       "id": "event-home-enter",
-      "label": "스터디룸 예약 메인 / 화면 진입",
+      "label": "스터디룸 예약 메인 / Enter",
       "position": {
-        "x": 80.0,
-        "y": 60.0
+        "x": 4.501754807931775,
+        "y": -114.06967924819284
       },
       "type": "screen_enter"
     },
@@ -25,10 +51,10 @@
         "skip_if_running": true
       },
       "id": "event-home-update",
-      "label": "스터디룸 예약 메인 / 화면 업데이트",
+      "label": "스터디룸 예약 메인 / Update",
       "position": {
-        "x": 340.0,
-        "y": 60.0
+        "x": 363.4118830947867,
+        "y": -123.294441073927
       },
       "type": "screen_update"
     },
@@ -38,7 +64,7 @@
         "screen_id": "reservation_home"
       },
       "id": "event-home-exit",
-      "label": "스터디룸 예약 메인 / 화면 이탈",
+      "label": "스터디룸 예약 메인 / Exit",
       "position": {
         "x": 600.0,
         "y": 60.0
@@ -51,7 +77,7 @@
         "screen_id": "reservation_detail"
       },
       "id": "event-detail-enter",
-      "label": "스터디룸 예약 상세 / 화면 진입",
+      "label": "스터디룸 예약 상세 / Enter",
       "position": {
         "x": 80.0,
         "y": 60.0
@@ -66,7 +92,7 @@
         "skip_if_running": true
       },
       "id": "event-detail-update",
-      "label": "스터디룸 예약 상세 / 화면 업데이트",
+      "label": "스터디룸 예약 상세 / Update",
       "position": {
         "x": 340.0,
         "y": 60.0
@@ -79,12 +105,36 @@
         "screen_id": "reservation_detail"
       },
       "id": "event-detail-exit",
-      "label": "스터디룸 예약 상세 / 화면 이탈",
+      "label": "스터디룸 예약 상세 / Exit",
       "position": {
         "x": 600.0,
         "y": 60.0
       },
       "type": "screen_exit"
+    },
+    {
+      "config": {
+        "level": "info",
+        "message": "메인 화면 입장"
+      },
+      "id": "debug_print-1",
+      "position": {
+        "x": 201.9861136024117,
+        "y": 220.0134588561478
+      },
+      "type": "debug_print"
+    },
+    {
+      "config": {
+        "level": "info",
+        "message": "예약 상세 들어오기"
+      },
+      "id": "debug_print-2",
+      "position": {
+        "x": 321.4736859367604,
+        "y": 289.8163388977851
+      },
+      "type": "debug_print"
     }
   ],
   "screen_event_entry_node_ids": {
@@ -99,5 +149,5 @@
       "update": "event-home-update"
     }
   },
-  "version": 1
+  "version": 4
 }

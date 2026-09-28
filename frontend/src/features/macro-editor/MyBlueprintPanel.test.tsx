@@ -30,6 +30,10 @@ function setup() {
     onSelect: vi.fn(),
     onOpenFunction: vi.fn(),
     onAddVariable: vi.fn(),
+    onEditVariable: vi.fn(),
+    onDeleteVariable: vi.fn(),
+    onCreateVariableNode: vi.fn(),
+    onToggleVariableInput: vi.fn(),
     onAddFunction: vi.fn(),
     onRenameFunction: vi.fn(),
     onDuplicateFunction: vi.fn(),
@@ -88,6 +92,21 @@ describe('MyBlueprintPanel', () => {
 
     fireEvent.click(screen.getByRole('menuitem', { name: '복제' }))
     expect(props.onDuplicateFunction).toHaveBeenCalledWith('reserve')
+  })
+
+  it('provides variable Get, Set, edit, input, and delete actions from its context menu', () => {
+    const props = setup()
+    fireEvent.contextMenu(screen.getByRole('button', { name: 'count 변수 int' }), {
+      clientX: 120,
+      clientY: 90,
+    })
+
+    expect(screen.getByRole('menuitem', { name: '설정 노드 추가' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '편집' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '실행 입력 전환' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '삭제' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: '가져오기 노드 추가' }))
+    expect(props.onCreateVariableNode).toHaveBeenCalledWith('count', 'get')
   })
 })
 

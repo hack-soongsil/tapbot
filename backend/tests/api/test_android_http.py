@@ -230,6 +230,58 @@ def test_device_macro_definition_binding_and_runtime_contract(tmp_path: Path) ->
     assert "/api/android/{device_id}/macro/events" in schema.json()["paths"]
 
 
+def test_invalid_macro_draft_can_be_saved_but_not_started(tmp_path: Path) -> None:
+    client, _android = make_android_client(tmp_path)
+    definition = {
+        "id": "invalid-draft",
+        "name": "Invalid Draft",
+        "version": 1,
+        "entry_node_id": "missing-entry",
+        "nodes": [],
+        "edges": [],
+        "metadata": {},
+    }
+
+    with client:
+        created = client.post("/api/macros", json=definition)
+        updated = client.put(
+            "/api/macros/invalid-draft",
+            json={**definition, "name": "Invalid Draft Saved Again"},
+        )
+        loaded = client.get("/api/macros/invalid-draft")
+        validation = client.post("/api/macros/validate", json=definition)
+        invalid_binding = client.put(
+            "/api/android/default/macro-binding",
+            json={"macro_definition_id": "invalid-draft", "enabled": True},
+        )
+        valid_definition = {
+            **definition,
+            "entry_node_id": "home",
+            "nodes": [{"id": "home", "type": "home", "config": {}}],
+        }
+        made_valid = client.put("/api/macros/invalid-draft", json=valid_definition)
+        binding = client.put(
+            "/api/android/default/macro-binding",
+            json={"macro_definition_id": "invalid-draft", "enabled": True},
+        )
+        made_invalid_again = client.put("/api/macros/invalid-draft", json=definition)
+        started = client.post("/api/android/default/macro/start")
+
+    assert created.status_code == 201
+    assert updated.status_code == 200
+    assert updated.json()["version"] == 2
+    assert loaded.status_code == 200
+    assert loaded.json()["id"] == "invalid-draft"
+    assert loaded.json()["name"] == "Invalid Draft Saved Again"
+    assert validation.status_code == 200
+    assert validation.json()["valid"] is False
+    assert invalid_binding.status_code == 422
+    assert made_valid.status_code == 200
+    assert binding.status_code == 200
+    assert made_invalid_again.status_code == 200
+    assert started.status_code == 422
+
+
 def test_android_vision_macro_step_and_manual_controls(tmp_path: Path) -> None:
     client, android = make_android_client(tmp_path)
 

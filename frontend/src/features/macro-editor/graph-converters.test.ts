@@ -264,7 +264,7 @@ describe('frontend graph validation', () => {
     const messages = validateMacroDefinition(invalid).map((issue) => issue.message)
 
     expect(messages).toContain('Duplicate node id: same')
-    expect(messages).toContain('Choose an entry node before saving.')
+    expect(messages).toContain('Entry node is required.')
     expect(messages).toContain('Edge references a missing node.')
     expect(messages).toContain('Invalid source handle: maybe')
     expect(messages).toContain('Enter at least one selector field.')

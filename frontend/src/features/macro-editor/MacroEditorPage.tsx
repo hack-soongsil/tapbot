@@ -77,6 +77,10 @@ export function MacroEditorPage() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const [issues, setIssues] = useState<ValidationIssue[]>([])
   const [dirty, setDirty] = useState(false)
+  const [validationState, setValidationState] = useState<{
+    status: 'unknown' | 'valid' | 'invalid' | 'stale'
+    errorCount: number
+  }>({ status: 'unknown', errorCount: 0 })
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState<string | null>(null)
   const [messageIntent, setMessageIntent] = useState<'success' | 'warning' | 'danger'>('success')
@@ -107,6 +111,8 @@ export function MacroEditorPage() {
       setNodes(flow.nodes)
       setEdges(flow.edges)
       setDirty(false)
+      setIssues([])
+      setValidationState({ status: 'unknown', errorCount: 0 })
       setMessage(null)
     }).catch((error: unknown) => {
       if (!active) return
@@ -191,6 +197,9 @@ export function MacroEditorPage() {
 
   const markChanged = () => {
     setDirty(true)
+    setValidationState((current) => current.status === 'unknown'
+      ? current
+      : { ...current, status: 'stale' })
     setMessage(null)
   }
 
@@ -273,10 +282,16 @@ export function MacroEditorPage() {
     return next
   }
 
-  const validate = async () => {
+  const validate = async (forExecution = false) => {
     const clientIssues = validateClient()
     if (clientIssues.length > 0) {
-      show('저장하거나 실행하기 전에 검증 오류를 수정하세요.', 'danger')
+      setValidationState({ status: 'invalid', errorCount: clientIssues.length })
+      show(
+        forExecution
+          ? `검증 오류 ${clientIssues.length}개가 있어 실행할 수 없습니다.`
+          : `그래프 검증 오류 ${clientIssues.length}개를 발견했습니다.`,
+        'danger',
+      )
       return false
     }
     try {
@@ -284,47 +299,55 @@ export function MacroEditorPage() {
       const backendIssues = mapBackendValidationErrors(response)
       setIssues(backendIssues)
       if (!response.valid || backendIssues.length > 0) {
-        show('백엔드 검증에서 그래프 오류를 발견했습니다.', 'danger')
+        const errorCount = Math.max(1, backendIssues.length)
+        setValidationState({ status: 'invalid', errorCount })
+        show(
+          forExecution
+            ? `검증 오류 ${errorCount}개가 있어 실행할 수 없습니다.`
+            : `백엔드 그래프 검증 오류 ${errorCount}개를 발견했습니다.`,
+          'danger',
+        )
         return false
       }
+      setValidationState({ status: 'valid', errorCount: 0 })
       show('그래프가 유효합니다.', 'success')
     } catch (error) {
       const backendIssues = issuesFromApiError(error)
       if (backendIssues.length > 0) {
         setIssues(backendIssues)
-        show('백엔드 검증에서 그래프 오류를 발견했습니다.', 'danger')
+        setValidationState({ status: 'invalid', errorCount: backendIssues.length })
+        show(
+          forExecution
+            ? `검증 오류 ${backendIssues.length}개가 있어 실행할 수 없습니다.`
+            : `백엔드 그래프 검증 오류 ${backendIssues.length}개를 발견했습니다.`,
+          'danger',
+        )
         return false
       }
+      setValidationState({ status: 'unknown', errorCount: 0 })
       show('클라이언트 검증은 통과했지만 백엔드 검증을 사용할 수 없습니다.', 'warning')
+      return false
     }
     return true
   }
 
   const save = async () => {
-    const clientIssues = validateClient()
-    if (clientIssues.length > 0) {
-      show('저장하기 전에 검증 오류를 수정하세요.', 'danger')
-      return
-    }
     setBusy(true)
     window.localStorage.setItem(MACRO_DRAFT_STORAGE_KEY, JSON.stringify(definition))
     try {
-      const response = await macroEditorApi.validate(definition)
-      const backendIssues = mapBackendValidationErrors(response)
-      if (!response.valid || backendIssues.length > 0) {
-        setIssues(backendIssues)
-        show('로컬에는 저장했지만 백엔드 검증에서 그래프를 거부했습니다.', 'danger')
-        return
-      }
       const saved = await macroEditorApi.save(definition)
       setMeta((current) => ({ ...current, version: saved.version }))
-      setIssues([])
-      show('매크로를 저장했습니다.', 'success')
+      show(
+        validationState.status === 'invalid'
+          ? `저장됨 · 검증 오류 ${validationState.errorCount}개`
+          : '매크로를 저장했습니다.',
+        validationState.status === 'invalid' ? 'warning' : 'success',
+      )
     } catch (error) {
       const backendIssues = issuesFromApiError(error)
       if (backendIssues.length > 0) {
         setIssues(backendIssues)
-        show('로컬에는 저장했지만 백엔드 검증에서 그래프를 거부했습니다.', 'danger')
+        show('로컬에는 저장했지만 백엔드가 매크로 형식을 거부했습니다.', 'danger')
       } else {
         show('로컬에 저장했습니다. 백엔드 매크로 저장소는 사용할 수 없습니다.', 'warning')
       }
@@ -339,7 +362,7 @@ export function MacroEditorPage() {
       show('실행하려면 기기에서 이 매크로를 여세요.', 'warning')
       return
     }
-    if (!(await validate())) return
+    if (!(await validate(true))) return
     setBusy(true)
     try {
       const saved = await macroEditorApi.save(definition)
@@ -409,7 +432,7 @@ export function MacroEditorPage() {
       name: `${current.name} 복사본`,
       version: 1,
     }))
-    setDirty(true)
+    markChanged()
     show('저장되지 않은 복사본을 만들었습니다.', 'success')
   }
 
@@ -433,6 +456,7 @@ export function MacroEditorPage() {
     setSelectedNodeId(null)
     setIssues([])
     setDirty(false)
+    setValidationState({ status: 'unknown', errorCount: 0 })
     setMessage(null)
   }
 
@@ -446,6 +470,8 @@ export function MacroEditorPage() {
       <MacroToolbar
         name={meta.name}
         dirty={dirty}
+        validationStatus={validationState.status}
+        validationErrorCount={validationState.errorCount}
         busy={busy}
         runStatus={liveRuntime.runtime?.state ?? runStatus}
         runtimeVersion={liveRuntime.runtime?.definition_version}
@@ -477,6 +503,15 @@ export function MacroEditorPage() {
           onConnect={connect}
           onSelectNode={setSelectedNodeId}
           onDropBlock={addNode}
+          variables={meta.variables ?? []}
+          onUpdateNodeConfig={(nodeId, config) => {
+            setNodes((current) => current.map((node) =>
+              node.id === nodeId
+                ? { ...node, data: { ...node.data, config } }
+                : node,
+            ))
+            markChanged()
+          }}
           onReady={(instance) => { flowRef.current = instance }}
         />
         <NodeInspector

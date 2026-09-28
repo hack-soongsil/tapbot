@@ -4,6 +4,8 @@ import { ko, runtimeStateLabels } from '../../i18n/ko'
 export interface MacroToolbarProps {
   name: string
   dirty: boolean
+  validationStatus: 'unknown' | 'valid' | 'invalid' | 'stale'
+  validationErrorCount: number
   busy: boolean
   runStatus: string | null
   runtimeVersion?: number | null
@@ -25,6 +27,8 @@ export interface MacroToolbarProps {
 export function MacroToolbar({
   name,
   dirty,
+  validationStatus,
+  validationErrorCount,
   busy,
   runStatus,
   runtimeVersion,
@@ -51,7 +55,10 @@ export function MacroToolbar({
           value={name}
           onChange={(event) => onNameChange(event.target.value)}
         />
-        {dirty && <Tag intent="warning" minimal>저장되지 않음</Tag>}
+        <Tag intent={dirty ? 'warning' : 'success'} minimal>
+          {dirty ? '저장 안 됨' : '저장됨'}
+        </Tag>
+        <ValidationStatusTag status={validationStatus} errorCount={validationErrorCount} />
         {runStatus && (
           <Tag intent={runStatus === 'running' ? 'success' : 'none'}>
             {runtimeStateLabels[runStatus] ?? runStatus}{runtimeVersion ? ` v${runtimeVersion}` : ''}
@@ -74,4 +81,19 @@ export function MacroToolbar({
       </ButtonGroup>
     </header>
   )
+}
+
+function ValidationStatusTag({
+  status,
+  errorCount,
+}: {
+  status: MacroToolbarProps['validationStatus']
+  errorCount: number
+}) {
+  if (status === 'valid') return <Tag intent="success" minimal>검증됨</Tag>
+  if (status === 'invalid') {
+    return <Tag intent="danger" minimal>검증 오류 {errorCount}개</Tag>
+  }
+  if (status === 'stale') return <Tag intent="warning" minimal>검증 결과 오래됨</Tag>
+  return <Tag minimal>검증 안 됨</Tag>
 }

@@ -20,6 +20,7 @@ import {
   type BlueprintDragItem,
 } from './blueprint-dnd'
 import { BLOCKS, type BlockDefinition } from './blocks'
+import { InlineEditingContext } from './inline-editing'
 import { QuickBlockSearch } from './QuickBlockSearch'
 import {
   connectionForCreatedNode,
@@ -34,7 +35,14 @@ import { ControlNode } from './nodes/ControlNode'
 import { UiNode } from './nodes/UiNode'
 import { ValidationNode } from './nodes/ValidationNode'
 import { EventNode } from './nodes/EventNode'
-import type { MacroFlowEdge, MacroFlowNode, MacroNodeType } from './types'
+import { UtilityNode } from './nodes/UtilityNode'
+import type {
+  JsonValue,
+  MacroFlowEdge,
+  MacroFlowNode,
+  MacroNodeType,
+  MacroVariableDefinition,
+} from './types'
 
 const nodeTypes: NodeTypes = {
   event: EventNode,
@@ -43,6 +51,7 @@ const nodeTypes: NodeTypes = {
   condition: ConditionNode,
   control: ControlNode,
   validation: ValidationNode,
+  utility: UtilityNode,
 }
 
 export interface MacroCanvasProps {
@@ -70,6 +79,8 @@ export interface MacroCanvasProps {
     block: BlockDefinition,
     position: { x: number; y: number },
   ) => CreatedMacroNode | null | undefined
+  variables?: readonly MacroVariableDefinition[]
+  onUpdateNodeConfig?: (nodeId: string, config: Record<string, JsonValue>) => void
   dialogOpen?: boolean
 }
 
@@ -93,6 +104,8 @@ export function MacroCanvas({
   onPromoteToVariable,
   quickSearchBlocks = BLOCKS,
   onDropQuickBlock,
+  variables = [],
+  onUpdateNodeConfig,
   dialogOpen = false,
 }: MacroCanvasProps) {
   const canvasRef = useRef<HTMLElement>(null)
@@ -204,7 +217,8 @@ export function MacroCanvas({
 
   return (
     <section ref={canvasRef} className="macro-canvas" aria-label="Macro graph canvas">
-      <ReactFlow<MacroFlowNode, MacroFlowEdge>
+      <InlineEditingContext.Provider value={{ variables, updateNodeConfig: onUpdateNodeConfig }}>
+        <ReactFlow<MacroFlowNode, MacroFlowEdge>
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -280,11 +294,12 @@ export function MacroCanvas({
         maxZoom={1.8}
         deleteKeyCode={['Backspace', 'Delete']}
         selectionKeyCode="Shift"
-      >
-        <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
-        <MiniMap pannable zoomable />
-        <Controls showInteractive={false} />
-      </ReactFlow>
+        >
+          <Background variant={BackgroundVariant.Dots} gap={18} size={1} />
+          <MiniMap pannable zoomable />
+          <Controls showInteractive={false} />
+        </ReactFlow>
+      </InlineEditingContext.Provider>
       <QuickBlockSearch
         open={!dialogOpen && quickSearch !== null}
         screenPosition={quickSearch?.screenPosition ?? { x: 0, y: 0 }}

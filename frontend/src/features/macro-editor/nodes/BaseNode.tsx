@@ -1,7 +1,27 @@
-import { Handle, Position, useConnection, type NodeProps } from '@xyflow/react'
-import { getNodePorts } from '../blocks'
+import {
+  Handle,
+  Position,
+  useConnection,
+  useNodeConnections,
+  type NodeConnection,
+  type NodeProps,
+} from '@xyflow/react'
+import { useState } from 'react'
+import {
+  BLOCK_BY_TYPE,
+  getNodePorts,
+  type InlinePropertyDefinition,
+} from '../blocks'
+import { useInlineEditing } from '../inline-editing'
 import { portTypesAreCompatible } from '../port-compatibility'
-import type { MacroFlowNode, PortDefinition, PortType } from '../types'
+import { SCREEN_ELEMENTS } from '../screen-elements'
+import type {
+  JsonValue,
+  MacroFlowNode,
+  MacroVariableDefinition,
+  PortDefinition,
+  PortType,
+} from '../types'
 import {
   localizeNodeLabel,
   macroCategoryLabels,
@@ -14,6 +34,9 @@ type PortDirection = 'input' | 'output'
 
 export function BaseNode({ id, data, selected }: NodeProps<MacroFlowNode>) {
   const ports = getNodePorts(data.nodeType, data.config)
+  const inlineEditing = useInlineEditing()
+  const inputConnections = useNodeConnections({ id, handleType: 'target' })
+  const inlineProperties = BLOCK_BY_TYPE.get(data.nodeType)?.inlineProperties ?? []
   const isEvent = data.category === 'event'
   const inputPorts = isEvent ? [] : ports.inputs
   const hasLegacyExecOutput = ports.outputs.length === 0
@@ -102,8 +125,316 @@ export function BaseNode({ id, data, selected }: NodeProps<MacroFlowNode>) {
           })}
         </div>
       )}
+      {inlineProperties.length > 0 && (
+        <InlineProperties
+          config={data.config}
+          connections={inputConnections}
+          editable={inlineEditing.updateNodeConfig !== undefined}
+          properties={inlineProperties}
+          variables={inlineEditing.variables}
+          onChange={(config) => inlineEditing.updateNodeConfig?.(id, config)}
+        />
+      )}
     </div>
   )
+}
+
+function InlineProperties({
+  config,
+  connections,
+  editable,
+  properties,
+  variables,
+  onChange,
+}: {
+  config: Record<string, JsonValue>
+  connections: NodeConnection[]
+  editable: boolean
+  properties: readonly InlinePropertyDefinition[]
+  variables: readonly MacroVariableDefinition[]
+  onChange: (config: Record<string, JsonValue>) => void
+}) {
+  const visibleProperties = properties.filter((property) => isInlinePropertyVisible(property, config))
+  if (visibleProperties.length === 0) return null
+
+  return (
+    <div className="macro-node__inline-properties nodrag nowheel" aria-label="핵심 설정">
+      {visibleProperties.map((property) => {
+        const connection = property.inputPortId
+          ? connections.find((item) => item.targetHandle === property.inputPortId)
+          : undefined
+        return (
+          <label className="macro-node__inline-property" key={property.key}>
+            <span className="macro-node__inline-label">{property.label}</span>
+            {connection ? (
+              <span
+                className="macro-node__inline-connected"
+                title={`${connection.source}${connection.sourceHandle ? `.${connection.sourceHandle}` : ''}에서 연결됨`}
+              >
+                <span>연결됨</span>
+                <small>{connection.sourceHandle ?? connection.source}</small>
+              </span>
+            ) : (
+              <InlinePropertyEditor
+                config={config}
+                disabled={!editable}
+                property={property}
+                variables={variables}
+                onChange={onChange}
+              />
+            )}
+          </label>
+        )
+      })}
+    </div>
+  )
+}
+
+function InlinePropertyEditor({
+  config,
+  disabled,
+  property,
+  variables,
+  onChange,
+}: {
+  config: Record<string, JsonValue>
+  disabled: boolean
+  property: InlinePropertyDefinition
+  variables: readonly MacroVariableDefinition[]
+  onChange: (config: Record<string, JsonValue>) => void
+}) {
+  const value = getConfigValue(config, property.key)
+  const common = {
+    'aria-label': `${property.label} 인라인 설정`,
+    className: 'macro-node__inline-control nodrag nowheel',
+    disabled,
+  }
+
+  if (property.editor === 'number') {
+    return (
+      <input
+        {...common}
+        type="number"
+        min={property.min}
+        step={property.step}
+        value={typeof value === 'number' ? value : 0}
+        onChange={(event) => {
+          const parsed = event.target.valueAsNumber
+          if (!Number.isFinite(parsed)) return
+          const stepped = property.step === 1 ? Math.trunc(parsed) : parsed
+          const next = property.min === undefined ? stepped : Math.max(property.min, stepped)
+          onChange(setConfigValue(config, property.key, next))
+        }}
+      />
+    )
+  }
+
+  if (property.editor === 'select') {
+    return (
+      <select
+        {...common}
+        value={typeof value === 'string' ? value : property.options?.[0]?.value ?? ''}
+        onChange={(event) => onChange(setConfigValue(config, property.key, event.target.value))}
+      >
+        {property.options?.map((option) => (
+          <option key={option.value} value={option.value}>{option.label}</option>
+        ))}
+      </select>
+    )
+  }
+
+  if (property.editor === 'screen-element') {
+    const screenId = typeof config.screen_id === 'string' ? config.screen_id : ''
+    const elements = SCREEN_ELEMENTS[screenId] ?? []
+    return (
+      <select
+        {...common}
+        value={typeof value === 'string' ? value : elements[0]?.id ?? ''}
+        onChange={(event) => {
+          const elementId = event.target.value
+          const selected = elements.find((element) => element.id === elementId)
+          onChange({
+            ...config,
+            element_id: elementId,
+            params: selected?.collection ? { index: 0 } : {},
+          })
+        }}
+      >
+        {elements.map((element) => (
+          <option key={element.id} value={element.id}>{element.label}</option>
+        ))}
+      </select>
+    )
+  }
+
+  if (property.editor === 'variable') {
+    return (
+      <select
+        {...common}
+        value={typeof value === 'string' ? value : ''}
+        onChange={(event) => {
+          const variable = variables.find((item) => item.name === event.target.value)
+          onChange(variable ? {
+            ...config,
+            name: variable.name,
+            type: variable.type,
+            default: variable.default ?? null,
+          } : { ...config, name: '', type: 'int', default: 0 })
+        }}
+      >
+        <option value="">변수 선택…</option>
+        {variables.map((variable) => (
+          <option key={variable.name} value={variable.name}>
+            {variable.name} · {variable.type}
+          </option>
+        ))}
+      </select>
+    )
+  }
+
+  if (property.editor === 'dynamic-value') {
+    return (
+      <DynamicValueEditor
+        key={`${typeof config.type === 'string' ? config.type : 'unknown'}:${displayJsonValue(value)}`}
+        config={config}
+        disabled={disabled}
+        label={property.label}
+        value={value}
+        onChange={(next) => onChange(setConfigValue(config, property.key, next))}
+      />
+    )
+  }
+
+  return (
+    <input
+      {...common}
+      type="text"
+      value={typeof value === 'string' ? value : ''}
+      onChange={(event) => onChange(setConfigValue(config, property.key, event.target.value))}
+    />
+  )
+}
+
+function DynamicValueEditor({
+  config,
+  disabled,
+  label,
+  value,
+  onChange,
+}: {
+  config: Record<string, JsonValue>
+  disabled: boolean
+  label: string
+  value: JsonValue | undefined
+  onChange: (value: JsonValue) => void
+}) {
+  const type = typeof config.type === 'string' ? config.type : 'string'
+  const [draft, setDraft] = useState(() => displayJsonValue(value))
+
+  if (type === 'bool') {
+    return (
+      <input
+        aria-label={`${label} 인라인 설정`}
+        className="macro-node__inline-checkbox nodrag nowheel"
+        disabled={disabled}
+        type="checkbox"
+        checked={value === true}
+        onChange={(event) => onChange(event.target.checked)}
+      />
+    )
+  }
+  if (type === 'int' || type === 'float') {
+    return (
+      <input
+        aria-label={`${label} 인라인 설정`}
+        className="macro-node__inline-control nodrag nowheel"
+        disabled={disabled}
+        type="number"
+        step={type === 'int' ? 1 : 'any'}
+        value={typeof value === 'number' ? value : 0}
+        onChange={(event) => {
+          const parsed = event.target.valueAsNumber
+          if (Number.isFinite(parsed)) onChange(type === 'int' ? Math.trunc(parsed) : parsed)
+        }}
+      />
+    )
+  }
+  if (type === 'string') {
+    return (
+      <input
+        aria-label={`${label} 인라인 설정`}
+        className="macro-node__inline-control nodrag nowheel"
+        disabled={disabled}
+        type="text"
+        value={typeof value === 'string' ? value : ''}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    )
+  }
+  const commit = () => {
+    try {
+      onChange(JSON.parse(draft) as JsonValue)
+    } catch {
+      setDraft(displayJsonValue(value))
+    }
+  }
+  return (
+    <input
+      aria-label={`${label} 인라인 설정`}
+      className="macro-node__inline-control nodrag nowheel"
+      disabled={disabled}
+      type="text"
+      value={draft}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          commit()
+        }
+      }}
+    />
+  )
+}
+
+function isInlinePropertyVisible(
+  property: InlinePropertyDefinition,
+  config: Record<string, JsonValue>,
+): boolean {
+  if (property.visible !== 'screen-element-collection') return true
+  const screenId = typeof config.screen_id === 'string' ? config.screen_id : ''
+  const elementId = typeof config.element_id === 'string' ? config.element_id : ''
+  return SCREEN_ELEMENTS[screenId]?.some(
+    (element) => element.id === elementId && element.collection === true,
+  ) ?? false
+}
+
+function getConfigValue(config: Record<string, JsonValue>, path: string): JsonValue | undefined {
+  return path.split('.').reduce<JsonValue | undefined>((current, key) => {
+    if (!isJsonObject(current)) return undefined
+    return current[key]
+  }, config)
+}
+
+function setConfigValue(
+  config: Record<string, JsonValue>,
+  path: string,
+  value: JsonValue,
+): Record<string, JsonValue> {
+  const [key, ...rest] = path.split('.')
+  if (!key) return config
+  if (rest.length === 0) return { ...config, [key]: value }
+  const child = isJsonObject(config[key]) ? config[key] : {}
+  return { ...config, [key]: setConfigValue(child, rest.join('.'), value) }
+}
+
+function isJsonObject(value: JsonValue | undefined): value is Record<string, JsonValue> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function displayJsonValue(value: JsonValue | undefined): string {
+  if (value === undefined) return ''
+  return typeof value === 'string' ? value : JSON.stringify(value)
 }
 
 function PortRow({
@@ -201,7 +532,7 @@ function PortHandle({
 function VisualPin({ type }: { type: PortType }) {
   return (
     <span
-      className={`macro-node__visual-pin macro-node__visual-pin--${type === 'exec' ? 'exec' : 'data'}`}
+      className={`macro-node__visual-pin macro-node__visual-pin--circle macro-node__visual-pin--${type === 'exec' ? 'exec' : 'data'}`}
       aria-hidden="true"
     />
   )
