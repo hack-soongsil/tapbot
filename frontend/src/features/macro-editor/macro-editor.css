@@ -320,7 +320,7 @@
 .my-blueprint__context-menu,
 .macro-canvas-context-menu {
   position: fixed;
-  z-index: 1410;
+  z-index: var(--z-popover);
   display: grid;
   min-width: 150px;
   padding: 4px;
@@ -630,13 +630,15 @@
 
 .macro-node__port--input {
   justify-content: flex-start;
-  padding: 1px 4px 1px 15px;
+  gap: 6px;
+  padding: 1px 8px 1px 0;
   text-align: left;
 }
 
 .macro-node__port--output {
   justify-content: flex-end;
-  padding: 1px 15px 1px 4px;
+  gap: 6px;
+  padding: 1px 0 1px 8px;
   text-align: right;
 }
 
@@ -663,52 +665,49 @@
   font-weight: 700;
 }
 
-.macro-node__port-handle.react-flow__handle {
+.macro-node__port-hitbox.react-flow__handle {
   z-index: 6;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
+  opacity: 0;
   border: 0;
   background: transparent;
+  transform: translateY(-50%);
 }
 
-.macro-node__port--input .macro-node__port-handle { left: -1px; }
-.macro-node__port--output .macro-node__port-handle { right: -1px; left: auto; }
+.macro-node__port--input .macro-node__port-hitbox { left: -12px; }
+.macro-node__port--output .macro-node__port-hitbox { right: -12px; left: auto; }
 
-.macro-node__port-handle::after {
-  position: absolute;
-  top: 50%;
-  left: 50%;
+.macro-node__visual-pin {
+  display: block;
+  flex: 0 0 auto;
+  pointer-events: none;
+  background: var(--port-color);
+  transition: filter 120ms ease, opacity 120ms ease, transform 120ms ease;
+}
+
+.macro-node__visual-pin--data {
   width: 13px;
   height: 13px;
   border: 2px solid #eff3f8;
   border-radius: 50%;
-  background: var(--port-color);
   box-shadow: 0 0 0 1px rgb(0 0 0 / 60%);
-  content: '';
-  transform: translate(-50%, -50%);
-  transition: filter 120ms ease, transform 120ms ease, opacity 120ms ease;
 }
 
-.macro-node__port[data-port-kind='exec'] .macro-node__port-handle::after {
+.macro-node__visual-pin--exec {
   width: 14px;
   height: 14px;
-  border: 0;
-  border-radius: 0;
   clip-path: polygon(0 0, 100% 50%, 0 100%);
   filter: drop-shadow(0 0 1px #fff) drop-shadow(0 1px 1px #000);
 }
 
-.macro-node__port--input[data-port-kind='exec'] .macro-node__port-handle::after {
-  clip-path: polygon(100% 0, 0 50%, 100% 100%);
-}
-
-.macro-node__port-handle:hover::after,
-.macro-node__port-handle.connectingfrom::after,
-.macro-node__port-handle.connectingto::after,
-.macro-node__port-handle.valid::after,
-.macro-node__port.is-connection-compatible .macro-node__port-handle::after {
+.macro-node__port-hitbox:hover ~ .macro-node__visual-pin,
+.macro-node__port-hitbox.connectingfrom ~ .macro-node__visual-pin,
+.macro-node__port-hitbox.connectingto ~ .macro-node__visual-pin,
+.macro-node__port-hitbox.valid ~ .macro-node__visual-pin,
+.macro-node__port.is-connection-compatible .macro-node__visual-pin {
   filter: drop-shadow(0 0 4px var(--port-color));
-  transform: translate(-50%, -50%) scale(1.25);
+  transform: scale(1.2);
 }
 
 .macro-node__port.is-connection-compatible {
@@ -724,7 +723,7 @@
   opacity: 0.28;
 }
 
-.macro-node.is-selected .macro-node__port-handle::after {
+.macro-node.is-selected .macro-node__visual-pin--data {
   box-shadow: 0 0 0 2px rgb(120 174 248 / 28%);
 }
 
@@ -832,7 +831,7 @@
 
 .quick-block-search {
   position: fixed;
-  z-index: 1400;
+  z-index: var(--z-quick-search);
   display: grid;
   width: min(360px, calc(100vw - 16px));
   max-height: min(70vh, 600px, calc(100vh - 16px));

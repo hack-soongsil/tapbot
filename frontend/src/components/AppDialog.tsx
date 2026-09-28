@@ -6,6 +6,7 @@ import {
   type Intent,
 } from '@blueprintjs/core'
 import { useId, type FormEvent, type ReactNode } from 'react'
+import { getTapbotOverlayRoot } from './overlay-root'
 
 interface AppDialogProps {
   title: string
@@ -45,6 +46,7 @@ export function AppDialog({
       role={role}
       className="tapbot-dialog bp6-dark"
       portalClassName="tapbot-dialog-portal"
+      portalContainer={getTapbotOverlayRoot()}
       canEscapeKeyClose={!busy}
       canOutsideClickClose={false}
       isCloseButtonShown={!busy}

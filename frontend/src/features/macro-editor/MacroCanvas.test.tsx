@@ -201,6 +201,8 @@ describe('MacroCanvas', () => {
     expect(event.querySelectorAll('[data-port-direction="input"]')).toHaveLength(0)
     expect(event.querySelectorAll('[data-port-direction="output"]')).toHaveLength(1)
     expect(event.querySelector('.react-flow__handle-right')).toBeTruthy()
+    expect(event.querySelector('.macro-node__visual-pin--exec')).toBeTruthy()
+    expect(event.querySelector('.macro-node__port-hitbox')).toBeTruthy()
 
     const branch = screen.getByLabelText('분기 매크로 노드')
     expect(branch.querySelectorAll('.macro-node__pin-row')).toHaveLength(2)
@@ -210,6 +212,13 @@ describe('MacroCanvas', () => {
     expect(branch.querySelectorAll('.react-flow__handle-right')).toHaveLength(2)
     expect(branch.querySelector('[data-port-kind="data"]')).toBeTruthy()
     expect(branch.querySelector('[data-port-kind="exec"]')).toBeTruthy()
+    expect(branch.querySelector('.macro-node__visual-pin--data')).toBeTruthy()
+    const inputPort = branch.querySelector<HTMLElement>('[data-port-direction="input"]')!
+    const outputPort = branch.querySelector<HTMLElement>('[data-port-direction="output"]')!
+    expect(inputPort.firstElementChild?.classList.contains('macro-node__port-hitbox')).toBe(true)
+    expect(inputPort.children[1]?.classList.contains('macro-node__visual-pin')).toBe(true)
+    expect(outputPort.firstElementChild?.classList.contains('macro-node__port-hitbox')).toBe(true)
+    expect(outputPort.lastElementChild?.classList.contains('macro-node__visual-pin')).toBe(true)
     expect(container.querySelector('.macro-node__ports')).toBeNull()
     expect(container.querySelector('.macro-node__port-column')).toBeNull()
   })
@@ -372,7 +381,8 @@ describe('MacroCanvas', () => {
 
     expect(contextMenu.defaultPrevented).toBe(true)
     expect(convert).toHaveBeenCalledWith({ x: 300, y: 220 })
-    expect(await screen.findByRole('dialog', { name: '빠른 블록 검색' })).toBeTruthy()
+    const quickSearch = await screen.findByRole('dialog', { name: '빠른 블록 검색' })
+    expect(quickSearch.closest('#tapbot-overlay-root')).toBeTruthy()
     convert.mockReturnValue({ x: 999, y: 999 })
     fireEvent.change(screen.getByLabelText('매크로 블록 검색'), { target: { value: 'click point' } })
     fireEvent.click(screen.getByText('위치 클릭'))
@@ -399,6 +409,36 @@ describe('MacroCanvas', () => {
     await waitFor(() => expect(container.querySelector('.react-flow__node')).not.toBeNull())
     fireEvent.contextMenu(container.querySelector('.react-flow__node')!)
     expect(screen.queryByRole('dialog', { name: '빠른 블록 검색' })).toBeNull()
+  })
+
+  it('dismisses canvas popups while an editor dialog is open', async () => {
+    let instance: ReactFlowInstance<MacroFlowNode, MacroFlowEdge> | null = null
+    const props = {
+      nodes: [],
+      edges: [],
+      onNodesChange: vi.fn(),
+      onEdgesChange: vi.fn(),
+      onConnect: vi.fn(),
+      onSelectNode: vi.fn(),
+      onDropBlock: vi.fn(),
+      onReady: (next: ReactFlowInstance<MacroFlowNode, MacroFlowEdge>) => { instance = next },
+    }
+    const { container, rerender } = render(
+      <div style={{ width: 800, height: 600 }}><MacroCanvas {...props} /></div>,
+    )
+    await waitFor(() => expect(instance).not.toBeNull())
+    fireEvent.contextMenu(container.querySelector('.react-flow__pane')!, {
+      clientX: 260,
+      clientY: 190,
+    })
+    expect(await screen.findByRole('dialog', { name: '빠른 블록 검색' })).toBeTruthy()
+
+    rerender(
+      <div style={{ width: 800, height: 600 }}><MacroCanvas {...props} dialogOpen /></div>,
+    )
+    expect(screen.queryByRole('dialog', { name: '빠른 블록 검색' })).toBeNull()
+    rerender(<div style={{ width: 800, height: 600 }}><MacroCanvas {...props} /></div>)
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '빠른 블록 검색' })).toBeNull())
   })
 
   it('offers Get or Set when a variable is dropped without a modifier', async () => {

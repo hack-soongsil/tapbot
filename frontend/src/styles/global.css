@@ -23,6 +23,13 @@
   --danger-soft: rgb(255 104 98 / 10%);
   --font-ui: 'Nanum Gothic', 'Noto Sans KR', Arial, sans-serif;
   --mono: 'JetBrains Mono', 'Cascadia Code', Consolas, monospace;
+  --z-workspace: 10;
+  --z-expanded-canvas-backdrop: 1000;
+  --z-expanded-canvas: 1010;
+  --z-dialog-backdrop: 1100;
+  --z-dialog: 1110;
+  --z-popover: 1200;
+  --z-quick-search: 1210;
 }
 
 * {
@@ -111,12 +118,22 @@ select:focus-visible {
 }
 
 .tapbot-dialog-portal {
+  z-index: var(--z-dialog-backdrop);
   font-family: var(--font-ui);
 }
 
+.tapbot-dialog-portal .bp6-overlay {
+  z-index: var(--z-dialog-backdrop);
+}
+
 .tapbot-dialog-portal .bp6-overlay-backdrop {
+  z-index: var(--z-dialog-backdrop);
   background: rgb(3 6 5 / 76%);
   backdrop-filter: blur(3px);
+}
+
+.tapbot-dialog-portal .bp6-overlay-content {
+  z-index: var(--z-dialog);
 }
 
 .tapbot-dialog.bp6-dialog {
@@ -1532,14 +1549,34 @@ select:focus-visible {
 }
 
 .macro-graph-breadcrumb {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 2px;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  padding: 0 10px;
+  overflow: hidden;
+  border-bottom: 1px solid #303740;
+  color: #778391;
+  background: #13181e;
+}
+
+.macro-graph-breadcrumb__segment {
   display: inline-flex;
   min-width: 0;
   align-items: center;
-  gap: 3px;
-  color: #778391;
+  gap: 2px;
 }
 
-.macro-graph-breadcrumb button {
+.macro-graph-breadcrumb__separator {
+  flex: 0 0 auto;
+  color: #5f6a77;
+  font-size: 11px;
+}
+
+.macro-graph-breadcrumb__item {
+  display: inline-block;
   max-width: 180px;
   padding: 3px 6px;
   overflow: hidden;
@@ -1551,11 +1588,20 @@ select:focus-visible {
   font-size: 11px;
   text-overflow: ellipsis;
   white-space: nowrap;
+  vertical-align: middle;
+}
+
+.macro-graph-breadcrumb button.macro-graph-breadcrumb__item {
   cursor: pointer;
 }
 
-.macro-graph-breadcrumb button:hover,
-.macro-graph-breadcrumb button[aria-current='page'] {
+.macro-graph-breadcrumb .macro-graph-breadcrumb__item.is-current {
+  color: #f2e2b9;
+  background: rgb(228 189 97 / 10%);
+  cursor: default;
+}
+
+.macro-graph-breadcrumb button.macro-graph-breadcrumb__item:hover {
   color: #f2e2b9;
   background: rgb(228 189 97 / 10%);
 }
@@ -1586,7 +1632,24 @@ select:focus-visible {
   min-width: 0;
   min-height: 0;
   grid-template-columns: 190px minmax(0, 1fr) 280px;
+  grid-template-rows: 32px minmax(0, 1fr);
   overflow: hidden;
+}
+
+.integrated-macro-editor > .macro-sidebar {
+  grid-column: 1;
+  grid-row: 2;
+}
+
+.integrated-macro-editor > .macro-canvas,
+.integrated-macro-editor > .integrated-macro-empty {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.integrated-macro-editor > .macro-inspector {
+  grid-column: 3;
+  grid-row: 2;
 }
 
 .integrated-macro-editor.is-tab-hidden {
@@ -1606,14 +1669,14 @@ select:focus-visible {
 
 .macro-canvas-expanded-backdrop {
   position: fixed;
-  z-index: 1298;
+  z-index: var(--z-expanded-canvas-backdrop);
   inset: 0;
   background: rgb(4 7 10 / 76%);
 }
 
 .macro-canvas-expanded-shell {
   position: fixed;
-  z-index: 1299;
+  z-index: var(--z-expanded-canvas);
   top: 4vh;
   left: 2.5vw;
   width: 95vw;
@@ -1662,7 +1725,7 @@ select:focus-visible {
 
 .integrated-macro-editor.is-expanded {
   position: fixed;
-  z-index: 1300;
+  z-index: var(--z-expanded-canvas);
   top: calc(4vh + 52px);
   right: auto;
   bottom: auto;
@@ -1675,6 +1738,25 @@ select:focus-visible {
   border-radius: 0 0 8px 8px;
   background: #151a20;
   pointer-events: auto;
+}
+
+.integrated-macro-editor.is-expanded > .macro-canvas,
+.integrated-macro-editor.is-expanded > .integrated-macro-empty {
+  grid-column: 3;
+}
+
+.integrated-macro-editor.is-expanded > .macro-inspector {
+  grid-column: 5;
+}
+
+.integrated-macro-editor.is-expanded > .is-palette-splitter {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.integrated-macro-editor.is-expanded > .is-inspector-splitter {
+  grid-column: 4;
+  grid-row: 2;
 }
 
 .macro-canvas-expanded-splitter {
@@ -1732,7 +1814,7 @@ body.macro-canvas-is-resizing canvas {
 .integrated-macro-running-notice.bp6-callout {
   position: absolute;
   z-index: 8;
-  top: 8px;
+  top: 40px;
   left: 50%;
   max-width: calc(100% - 24px);
   padding: 6px 10px;
@@ -1887,14 +1969,18 @@ body.macro-canvas-is-resizing canvas {
   flex-wrap: wrap;
 }
 
+.integrated-macro-card__actions > .bp6-button {
+  min-height: 32px;
+}
+
 .integrated-macro-card__menu {
   position: relative;
 }
 
 .integrated-macro-card__menu summary {
   display: grid;
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   place-items: center;
   border-radius: 3px;
   color: #c8d0da;

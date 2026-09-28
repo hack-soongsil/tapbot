@@ -148,13 +148,10 @@ function PortRow({
         }))
       }}
     >
-      {isInput && (
-        <PortHandle direction={direction} port={port} label={label} />
-      )}
+      <PortHandle direction={direction} port={port} label={label} />
+      {isInput && <VisualPin type={port.type} />}
       <span className="macro-node__port-label">{label}</span>
-      {!isInput && (
-        <PortHandle direction={direction} port={port} label={label} />
-      )}
+      {!isInput && <VisualPin type={port.type} />}
     </div>
   )
 }
@@ -192,11 +189,20 @@ function PortHandle({
 }) {
   return (
     <Handle
-      className="macro-node__port-handle"
+      className="macro-node__port-hitbox"
       type={direction === 'input' ? 'target' : 'source'}
       position={direction === 'input' ? Position.Left : Position.Right}
       id={port.id}
       aria-label={`${direction === 'input' ? '입력' : '출력'} ${label} ${portTypeLabels[port.type]} 포트`}
+    />
+  )
+}
+
+function VisualPin({ type }: { type: PortType }) {
+  return (
+    <span
+      className={`macro-node__visual-pin macro-node__visual-pin--${type === 'exec' ? 'exec' : 'data'}`}
+      aria-hidden="true"
     />
   )
 }
@@ -210,13 +216,14 @@ function LegacyExecOutput() {
       data-port-type="exec"
       title="실행 · 실행"
     >
-      <span className="macro-node__port-label">실행</span>
       <Handle
-        className="macro-node__port-handle"
+        className="macro-node__port-hitbox"
         type="source"
         position={Position.Right}
         aria-label="출력 실행 포트"
       />
+      <span className="macro-node__port-label">실행</span>
+      <VisualPin type="exec" />
     </div>
   )
 }

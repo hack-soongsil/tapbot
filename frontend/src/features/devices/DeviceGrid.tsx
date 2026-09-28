@@ -193,15 +193,26 @@ function DevicePreview({
 }
 
 function resolutionLabel(device: AndroidDeviceSummary): string {
-  return device.screen_width && device.screen_height
-    ? `${device.screen_width.toString()}×${device.screen_height.toString()}`
+  const width = device.screen_width
+  const height = device.screen_height
+  return isPositiveMetric(width) && isPositiveMetric(height)
+    ? `${width.toString()}×${height.toString()}`
     : '해상도 —'
 }
 
 function fpsLabel(device: AndroidDeviceSummary): string {
-  return device.stream_fps === null
+  const fps = device.stream_fps
+  return !isNonnegativeMetric(fps)
     ? 'FPS —'
-    : `${device.stream_fps.toFixed(1)} FPS · 프리뷰 2 FPS`
+    : `${fps.toFixed(1)} FPS · 프리뷰 2 FPS`
+}
+
+function isPositiveMetric(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value > 0
+}
+
+function isNonnegativeMetric(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0
 }
 
 function macroLabel(status: AndroidDeviceSummary['macro_status']): string {

@@ -12,6 +12,12 @@ import type { MacroCanvasProps } from './MacroCanvas'
 import type { MacroDefinition, MacroRuntime } from './types'
 import type { useMacroRuntime } from '../macro-runtime/useMacroRuntime'
 
+const flowInstance = vi.hoisted(() => ({
+  getViewport: vi.fn(() => ({ x: 0, y: 0, zoom: 1 })),
+  setViewport: vi.fn(() => Promise.resolve(true)),
+  fitView: vi.fn(() => Promise.resolve(true)),
+}))
+
 vi.mock('./api', () => ({
   macroEditorApi: {
     list: vi.fn(),
@@ -29,16 +35,24 @@ vi.mock('./api', () => ({
 }))
 
 vi.mock('./MacroCanvas', () => ({
-  MacroCanvas: ({ nodes, edges }: MacroCanvasProps) => (
-    <div data-testid="integrated-canvas">
-      {nodes.map((node) => (
-        <span key={node.id} data-state={node.data.runtimeState}>{node.id}</span>
-      ))}
-      {edges.map((edge) => (
-        <i key={edge.id} data-current={edge.className === 'runtime-current-edge'}>{edge.id}</i>
-      ))}
-    </div>
-  ),
+  MacroCanvas: ({ nodes, edges, onReady, onSelectNode }: MacroCanvasProps) => {
+    onReady(flowInstance as never)
+    return (
+      <div data-testid="integrated-canvas">
+        {nodes.map((node) => (
+          <button
+            key={node.id}
+            type="button"
+            data-state={node.data.runtimeState}
+            onClick={() => onSelectNode(node.id)}
+          >{node.id}</button>
+        ))}
+        {edges.map((edge) => (
+          <i key={edge.id} data-current={edge.className === 'runtime-current-edge'}>{edge.id}</i>
+        ))}
+      </div>
+    )
+  },
 }))
 
 const definition: MacroDefinition = {
@@ -94,6 +108,9 @@ function runtime(state: MacroRuntime['state'] = 'running'): ReturnType<typeof us
 describe('IntegratedMacroPanel', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
+    flowInstance.getViewport.mockReset().mockReturnValue({ x: 0, y: 0, zoom: 1 })
+    flowInstance.setViewport.mockReset().mockResolvedValue(true)
+    flowInstance.fitView.mockReset().mockResolvedValue(true)
     vi.mocked(macroEditorApi.list).mockResolvedValue({ macros: [definition] })
     vi.mocked(macroEditorApi.binding).mockResolvedValue({
       binding: {
@@ -189,6 +206,35 @@ describe('IntegratedMacroPanel', () => {
     fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
     expect(screen.getByTestId('integrated-canvas')).toBe(canvas)
     expect(screen.getByRole('button', { name: '저장' })).toBeTruthy()
+  })
+
+  it('exposes Edit as a primary card action and opens that macro at the Main canvas', async () => {
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime('idle')} />)
+    await screen.findByTestId('integrated-canvas')
+
+    const card = screen.getByText('Shared Flow').closest('article')!
+    const edit = within(card).getByRole('button', { name: '편집' })
+    const run = within(card).getByRole('button', { name: '실행' })
+    expect(edit.getAttribute('title')).toBe('매크로 캔버스에서 편집')
+    expect(edit.querySelector('.bp6-icon-edit')).toBeTruthy()
+    expect(run.querySelector('.bp6-icon-play')).toBeTruthy()
+    const menu = within(card).getByText('⋯').closest('details')!
+    expect(within(menu).queryByText('캔버스에서 편집')).toBeNull()
+    expect(within(menu).getByRole('button', { name: '이름 변경' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: '새 함수' })).getByRole('button', { name: '생성' }))
+    expect(screen.getByLabelText<HTMLSelectElement>('매크로 그래프').value).toBe('function-1')
+    fireEvent.click(screen.getByRole('tab', { name: '실행' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '편집' }))
+    const discard = screen.getByRole('alertdialog', { name: '변경사항 버리기' })
+    fireEvent.click(within(discard).getByRole('button', { name: '버리기' }))
+
+    await waitFor(() => expect(macroEditorApi.get).toHaveBeenLastCalledWith('shared'))
+    expect(screen.getByRole('tab', { name: '캔버스' }).getAttribute('aria-selected')).toBe('true')
+    expect(screen.getByLabelText<HTMLSelectElement>('매크로 그래프').value).toBe('__main__')
   })
 
   it('adds one Find Element with the selected UI text and tree path', async () => {
@@ -330,6 +376,31 @@ describe('IntegratedMacroPanel', () => {
     expect(document.body.style.overflow).toBe('')
   })
 
+  it('layers editor dialogs above the expanded canvas and closes the child first with Escape', async () => {
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
+    await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.click(screen.getByRole('button', { name: '확대' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '+ 변수' }))
+    const variableDialog = screen.getByRole('dialog', { name: '변수 추가' })
+    const dialogPortal = variableDialog.closest('.tapbot-dialog-portal')
+    expect(dialogPortal?.parentElement?.id).toBe('tapbot-overlay-root')
+    expect(dialogPortal?.querySelector('.bp6-overlay-backdrop')).toBeTruthy()
+    expect(screen.getByRole('dialog', { name: '매크로 캔버스 확대' })).toBeTruthy()
+
+    fireEvent.keyDown(variableDialog, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: '변수 추가' })).toBeNull())
+    expect(screen.getByRole('dialog', { name: '매크로 캔버스 확대' })).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+    const functionDialog = screen.getByRole('dialog', { name: '새 함수' })
+    expect(functionDialog.closest('.tapbot-dialog-portal')?.parentElement?.id).toBe('tapbot-overlay-root')
+    expect(within(functionDialog).getByLabelText('함수 이름')).toBeTruthy()
+    fireEvent.click(within(functionDialog).getByRole('button', { name: '취소' }))
+    expect(screen.getByRole('dialog', { name: '매크로 캔버스 확대' })).toBeTruthy()
+  })
+
   it('keeps the canvas editor available without duplicate macro management controls', async () => {
     vi.mocked(macroEditorApi.binding).mockResolvedValue({
       binding: null,
@@ -372,6 +443,82 @@ describe('IntegratedMacroPanel', () => {
     fireEvent.change(screen.getByLabelText('매크로 그래프'), { target: { value: '__main__' } })
     expect(canvas.textContent).not.toContain('function-1-entry')
     expect(screen.getByLabelText('매크로 화면')).toBeTruthy()
+  })
+
+  it('navigates nested function breadcrumbs and restores each graph view state', async () => {
+    const mainViewport = { x: 12, y: 24, zoom: 1.1 }
+    const reserveViewport = { x: 120, y: 80, zoom: 1.45 }
+    const slotViewport = { x: -30, y: 60, zoom: 1.8 }
+    flowInstance.getViewport
+      .mockReturnValueOnce(mainViewport)
+      .mockReturnValueOnce(reserveViewport)
+      .mockReturnValueOnce(slotViewport)
+
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
+    const canvas = await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+    let nameDialog = screen.getByRole('dialog', { name: '새 함수' })
+    fireEvent.change(within(nameDialog).getByLabelText('함수 이름'), { target: { value: 'Reserve' } })
+    fireEvent.click(within(nameDialog).getByRole('button', { name: '생성' }))
+    fireEvent.click(within(canvas).getByRole('button', { name: 'function-1-entry' }))
+
+    fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+    nameDialog = screen.getByRole('dialog', { name: '새 함수' })
+    fireEvent.change(within(nameDialog).getByLabelText('함수 이름'), { target: { value: 'Select Time Slot' } })
+    fireEvent.click(within(nameDialog).getByRole('button', { name: '생성' }))
+
+    const breadcrumb = screen.getByRole('navigation', { name: '매크로 그래프 경로' })
+    expect(document.getElementById('integrated-macro-editor')?.firstElementChild).toBe(breadcrumb)
+    expect(within(breadcrumb).getByRole('button', { name: 'Main' })).toBeTruthy()
+    expect(within(breadcrumb).getByRole('button', { name: 'Reserve' })).toBeTruthy()
+    expect(within(breadcrumb).getByText('Select Time Slot').getAttribute('aria-current')).toBe('page')
+    expect(within(breadcrumb).queryByRole('button', { name: 'Select Time Slot' })).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '함수 이름 변경' }))
+    nameDialog = screen.getByRole('dialog', { name: '함수 이름 변경' })
+    fireEvent.change(within(nameDialog).getByLabelText('함수 이름'), { target: { value: 'Slot Finder' } })
+    fireEvent.click(within(nameDialog).getByRole('button', { name: '저장' }))
+    expect(within(breadcrumb).getByText('Slot Finder').getAttribute('aria-current')).toBe('page')
+
+    fireEvent.click(within(breadcrumb).getByRole('button', { name: 'Reserve' }))
+    expect(canvas.textContent).toContain('function-1-entry')
+    expect(canvas.textContent).not.toContain('function-2-entry')
+    expect(within(screen.getByLabelText('선택한 노드 설정')).getByDisplayValue('function-1-entry')).toBeTruthy()
+    await waitFor(() => expect(flowInstance.setViewport).toHaveBeenCalledWith(reserveViewport, { duration: 0 }))
+
+    fireEvent.click(within(breadcrumb).getByRole('button', { name: 'Main' }))
+    expect(canvas.textContent).not.toContain('function-1-entry')
+    expect(within(breadcrumb).getByText('Main').getAttribute('aria-current')).toBe('page')
+    expect(within(breadcrumb).queryByRole('button', { name: 'Main' })).toBeNull()
+    await waitFor(() => expect(flowInstance.setViewport).toHaveBeenCalledWith(mainViewport, { duration: 0 }))
+  })
+
+  it('returns to Main when a function in the active breadcrumb path is deleted', async () => {
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
+    await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+
+    for (const name of ['Reserve', 'Select Time Slot']) {
+      fireEvent.click(screen.getByRole('button', { name: '새 함수' }))
+      const dialog = screen.getByRole('dialog', { name: '새 함수' })
+      fireEvent.change(within(dialog).getByLabelText('함수 이름'), { target: { value: name } })
+      fireEvent.click(within(dialog).getByRole('button', { name: '생성' }))
+    }
+
+    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
+    const blueprint = screen.getByLabelText('My Blueprint')
+    fireEvent.click(within(blueprint).getByRole('button', { name: 'Reserve 함수' }))
+    fireEvent.click(within(screen.getByLabelText('My Blueprint 설정')).getByRole('button', { name: '삭제' }))
+    const confirm = screen.getByRole('alertdialog', { name: '함수 삭제' })
+    fireEvent.click(within(confirm).getByRole('button', { name: '삭제' }))
+
+    const breadcrumb = screen.getByRole('navigation', { name: '매크로 그래프 경로' })
+    expect(within(breadcrumb).getByText('Main').getAttribute('aria-current')).toBe('page')
+    expect(within(breadcrumb).queryByText('Reserve')).toBeNull()
+    expect(within(breadcrumb).queryByText('Select Time Slot')).toBeNull()
+    expect(screen.getByLabelText<HTMLSelectElement>('매크로 그래프').value).toBe('__main__')
   })
 
   it('updates Call Function ports when the function signature changes', async () => {
@@ -457,7 +604,8 @@ describe('IntegratedMacroPanel', () => {
     expect(canvas.textContent).toContain('function-1-entry')
     expect(canvas.textContent).toContain('function-1-return')
     expect(within(blueprint).getByRole('button', { name: 'Select Time Slot 함수' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Select Time Slot' }).getAttribute('aria-current')).toBe('page')
+    const breadcrumb = screen.getByRole('navigation', { name: '매크로 그래프 경로' })
+    expect(within(breadcrumb).getByText('Select Time Slot').getAttribute('aria-current')).toBe('page')
   })
 
   it('shows the execution empty state and starts a new macro from it', async () => {

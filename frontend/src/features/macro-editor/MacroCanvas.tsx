@@ -13,6 +13,7 @@ import {
 import { createPortal } from 'react-dom'
 import { useEffect, useRef, useState, type DragEvent } from 'react'
 import '@xyflow/react/dist/style.css'
+import { getTapbotOverlayRoot } from '../../components/overlay-root'
 import { MACRO_BLOCK_MIME } from './BlockPalette'
 import {
   MACRO_BLUEPRINT_MIME,
@@ -69,6 +70,7 @@ export interface MacroCanvasProps {
     block: BlockDefinition,
     position: { x: number; y: number },
   ) => CreatedMacroNode | null | undefined
+  dialogOpen?: boolean
 }
 
 export interface PromoteVariablePort {
@@ -91,6 +93,7 @@ export function MacroCanvas({
   onPromoteToVariable,
   quickSearchBlocks = BLOCKS,
   onDropQuickBlock,
+  dialogOpen = false,
 }: MacroCanvasProps) {
   const canvasRef = useRef<HTMLElement>(null)
   const flowInstance = useRef<ReactFlowInstance<MacroFlowNode, MacroFlowEdge> | null>(null)
@@ -110,6 +113,16 @@ export function MacroCanvas({
     screenPosition: { x: number; y: number }
     flowPosition: { x: number; y: number }
   } | null>(null)
+
+  useEffect(() => {
+    if (!dialogOpen) return
+    draggedPort.current = null
+    window.setTimeout(() => {
+      setQuickSearch(null)
+      setBlueprintDrop(null)
+      setPromoteMenu(null)
+    }, 0)
+  }, [dialogOpen])
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -273,7 +286,7 @@ export function MacroCanvas({
         <Controls showInteractive={false} />
       </ReactFlow>
       <QuickBlockSearch
-        open={quickSearch !== null}
+        open={!dialogOpen && quickSearch !== null}
         screenPosition={quickSearch?.screenPosition ?? { x: 0, y: 0 }}
         flowPosition={quickSearch?.flowPosition ?? { x: 0, y: 0 }}
         blocks={quickSearchBlocks}
@@ -306,7 +319,7 @@ export function MacroCanvas({
         } : undefined}
         onClose={() => setQuickSearch(null)}
       />
-      {blueprintDrop && createPortal((
+      {!dialogOpen && blueprintDrop && createPortal((
         <div
           className="macro-canvas-context-menu"
           role="menu"
@@ -323,8 +336,8 @@ export function MacroCanvas({
             setBlueprintDrop(null)
           }}>Set</button>
         </div>
-      ), document.body)}
-      {promoteMenu && createPortal((
+      ), getTapbotOverlayRoot())}
+      {!dialogOpen && promoteMenu && createPortal((
         <div
           className="macro-canvas-context-menu"
           role="menu"
@@ -336,7 +349,7 @@ export function MacroCanvas({
             setPromoteMenu(null)
           }}>변수로 승격</button>
         </div>
-      ), document.body)}
+      ), getTapbotOverlayRoot())}
     </section>
   )
 }

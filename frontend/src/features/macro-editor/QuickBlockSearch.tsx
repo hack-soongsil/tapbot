@@ -1,4 +1,5 @@
 import { createPortal } from 'react-dom'
+import { getTapbotOverlayRoot } from '../../components/overlay-root'
 import {
   useEffect,
   useLayoutEffect,
@@ -356,7 +357,7 @@ function OpenQuickBlockSearch({
         )}
       </div>
     </div>,
-    document.body,
+    getTapbotOverlayRoot(),
   )
 }
 

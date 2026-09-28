@@ -13,9 +13,10 @@ export interface AndroidDeviceSummary {
   last_seen_at: string | null
   capture_ready: boolean
   stream_running: boolean
-  screen_width: number | null
-  screen_height: number | null
-  stream_fps: number | null
+  /** Optional for compatibility with agents/backends that predate screen metrics. */
+  screen_width?: number | null
+  screen_height?: number | null
+  stream_fps?: number | null
   accessibility_enabled: boolean
   remote_control_enabled: boolean
   macro_status: MacroStatus

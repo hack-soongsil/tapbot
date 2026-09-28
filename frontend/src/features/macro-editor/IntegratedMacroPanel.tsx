@@ -7,6 +7,7 @@ import {
   type EdgeChange,
   type NodeChange,
   type ReactFlowInstance,
+  type Viewport,
 } from '@xyflow/react'
 import {
   forwardRef,
@@ -121,6 +122,11 @@ interface ConfirmDialogState {
   onConfirm: () => void | Promise<void>
 }
 
+interface GraphViewState {
+  viewport: Viewport
+  selectedNodeId: string | null
+}
+
 function deviceDraftStorageKey(deviceId: string): string {
   return `${DEVICE_DRAFT_STORAGE_PREFIX}${deviceId}`
 }
@@ -160,6 +166,7 @@ export const IntegratedMacroPanel = forwardRef<
   const [nodeScreens, setNodeScreens] = useState<Record<string, string>>({})
   const [functionFlows, setFunctionFlows] = useState<Record<string, { nodes: MacroFlowNode[]; edges: MacroFlowEdge[] }>>({})
   const [activeFunctionId, setActiveFunctionId] = useState<string | null>(null)
+  const [graphNavigationStack, setGraphNavigationStack] = useState<string[]>([])
   const [selectedVariableName, setSelectedVariableName] = useState('')
   const [selectedBlueprint, setSelectedBlueprint] = useState<BlueprintSelection | null>(null)
   const [sidebarTab, setSidebarTab] = useState<'blueprint' | 'blocks'>('blocks')
@@ -183,7 +190,43 @@ export const IntegratedMacroPanel = forwardRef<
   const [expandedPaletteWidth, setExpandedPaletteWidth] = useState(EXPANDED_PALETTE_WIDTH)
   const [expandedInspectorWidth, setExpandedInspectorWidth] = useState(EXPANDED_INSPECTOR_WIDTH)
   const flowRef = useRef<ReactFlowInstance<MacroFlowNode, MacroFlowEdge> | null>(null)
+  const graphViewStates = useRef<Record<string, GraphViewState>>({})
   const editorRef = useRef<HTMLDivElement>(null)
+  const editorDialogOpen = Boolean(
+    variableDialog || nameDialog || portDialog || confirmDialog || runSetupMacro,
+  )
+
+  const navigateToGraphPath = useCallback((nextPath: string[]) => {
+    const currentKey = activeFunctionId ?? '__main__'
+    const viewport = flowRef.current?.getViewport()
+    if (viewport) {
+      graphViewStates.current[currentKey] = { viewport, selectedNodeId }
+    }
+
+    const targetFunctionId = nextPath.at(-1) ?? null
+    const targetKey = targetFunctionId ?? '__main__'
+    const saved = graphViewStates.current[targetKey]
+    setGraphNavigationStack(nextPath)
+    setActiveFunctionId(targetFunctionId)
+    setSelectedBlueprint(null)
+    setSelectedNodeId(saved?.selectedNodeId ?? null)
+
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (saved) void flowRef.current?.setViewport(saved.viewport, { duration: 0 })
+        else void flowRef.current?.fitView({ duration: 0, padding: 0.2 })
+      })
+    })
+  }, [activeFunctionId, selectedNodeId])
+
+  const enterFunctionGraph = (functionId: string) => {
+    const existingIndex = graphNavigationStack.indexOf(functionId)
+    const nextPath = existingIndex >= 0
+      ? graphNavigationStack.slice(0, existingIndex + 1)
+      : [...graphNavigationStack, functionId]
+    navigateToGraphPath(nextPath)
+    setSelectedBlueprint({ kind: 'function', id: functionId })
+  }
 
   const setCanvasExpansion = useCallback((expanded: boolean) => {
     const viewport = flowRef.current?.getViewport()
@@ -200,14 +243,37 @@ export const IntegratedMacroPanel = forwardRef<
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setCanvasExpansion(false)
+      if (event.key === 'Escape' && !editorDialogOpen) setCanvasExpansion(false)
     }
     window.addEventListener('keydown', closeOnEscape)
     return () => {
       document.body.style.overflow = previousOverflow
       window.removeEventListener('keydown', closeOnEscape)
     }
-  }, [canvasExpanded, setCanvasExpansion])
+  }, [canvasExpanded, editorDialogOpen, setCanvasExpansion])
+
+  useEffect(() => {
+    if (panelTab !== 'canvas' || graphNavigationStack.length === 0) return
+    const goToParentGraph = (event: KeyboardEvent) => {
+      if (!event.altKey || event.key !== 'ArrowLeft') return
+      if (variableDialog || nameDialog || portDialog || confirmDialog || runSetupMacro) return
+      const target = event.target
+      if (target instanceof HTMLElement && target.matches('input, textarea, select, [contenteditable="true"]')) return
+      event.preventDefault()
+      navigateToGraphPath(graphNavigationStack.slice(0, -1))
+    }
+    window.addEventListener('keydown', goToParentGraph)
+    return () => window.removeEventListener('keydown', goToParentGraph)
+  }, [
+    confirmDialog,
+    graphNavigationStack,
+    nameDialog,
+    navigateToGraphPath,
+    panelTab,
+    portDialog,
+    runSetupMacro,
+    variableDialog,
+  ])
 
   const beginExpandedResize = (
     side: 'palette' | 'inspector',
@@ -252,6 +318,8 @@ export const IntegratedMacroPanel = forwardRef<
       item.id,
       macroFunctionToFlow(item),
     ])))
+    graphViewStates.current = {}
+    setGraphNavigationStack([])
     setActiveFunctionId(null)
     setSelectedVariableName(next.variables?.[0]?.name ?? '')
     setSelectedBlueprint(null)
@@ -285,6 +353,8 @@ export const IntegratedMacroPanel = forwardRef<
           setEdges([])
           setNodeScreens({})
           setFunctionFlows({})
+          graphViewStates.current = {}
+          setGraphNavigationStack([])
           setActiveFunctionId(null)
           return
         }
@@ -612,8 +682,10 @@ export const IntegratedMacroPanel = forwardRef<
         setEdges([])
         setNodeScreens({})
         setFunctionFlows({})
-          setActiveFunctionId(null)
-          setSelectedVariableName('')
+        graphViewStates.current = {}
+        setGraphNavigationStack([])
+        setActiveFunctionId(null)
+        setSelectedVariableName('')
         setSelectedNodeId(null)
       } else {
         await macroEditorApi.bind(deviceId, macroId)
@@ -738,6 +810,8 @@ export const IntegratedMacroPanel = forwardRef<
         setEdges([])
         setNodeScreens({})
         setFunctionFlows({})
+        graphViewStates.current = {}
+        setGraphNavigationStack([])
         setActiveFunctionId(null)
         setSelectedVariableName('')
         setSelectedNodeId(null)
@@ -819,9 +893,7 @@ export const IntegratedMacroPanel = forwardRef<
     const item = createFunctionDefinition(id, requestedName)
     setDefinition({ ...definition, functions: [...(definition.functions ?? []), item] })
     setFunctionFlows((current) => ({ ...current, [id]: macroFunctionToFlow(item) }))
-    setActiveFunctionId(id)
-    setSelectedBlueprint({ kind: 'function', id })
-    setSelectedNodeId(null)
+    enterFunctionGraph(id)
     markChanged()
   }
 
@@ -853,6 +925,13 @@ export const IntegratedMacroPanel = forwardRef<
 
   const deleteFunctionNow = (functionId: string) => {
     if (!definition) return
+    const pathIndex = graphNavigationStack.indexOf(functionId)
+    if (pathIndex >= 0) {
+      const nextPath = pathIndex === graphNavigationStack.length - 1
+        ? []
+        : graphNavigationStack.slice(0, pathIndex)
+      navigateToGraphPath(nextPath)
+    }
     setDefinition({
       ...definition,
       functions: (definition.functions ?? []).filter((item) => item.id !== functionId),
@@ -862,11 +941,10 @@ export const IntegratedMacroPanel = forwardRef<
       delete next[functionId]
       return next
     })
-    if (activeFunctionId === functionId) setActiveFunctionId(null)
+    delete graphViewStates.current[functionId]
     if (selectedBlueprint?.kind === 'function' && selectedBlueprint.id === functionId) {
       setSelectedBlueprint(null)
     }
-    setSelectedNodeId(null)
     markChanged()
   }
 
@@ -1136,6 +1214,7 @@ export const IntegratedMacroPanel = forwardRef<
 
   const editMacro = (macro: MacroDefinition) => {
     discardOrRun(async () => {
+      setCanvasExpansion(false)
       await selectMacroNow(macro.id)
       setPanelTab('canvas')
     })
@@ -1151,22 +1230,6 @@ export const IntegratedMacroPanel = forwardRef<
           <Tag minimal title={deviceId}>
             기기 · {deviceId.length > 18 ? `${deviceId.slice(0, 18)}…` : deviceId}
           </Tag>
-          {panelTab === 'canvas' && (
-            <nav className="macro-graph-breadcrumb" aria-label="매크로 그래프 경로">
-              <button type="button" onClick={() => {
-                setActiveFunctionId(null)
-                setSelectedNodeId(null)
-              }}>Main</button>
-              {activeFunctionId && (
-                <>
-                  <span aria-hidden="true">›</span>
-                  <button type="button" aria-current="page">
-                    {definition?.functions?.find((item) => item.id === activeFunctionId)?.name ?? activeFunctionId}
-                  </button>
-                </>
-              )}
-            </nav>
-          )}
           {panelTab === 'canvas' && <select
             aria-label="매크로 화면"
             value={selectedScreenId}
@@ -1225,9 +1288,8 @@ export const IntegratedMacroPanel = forwardRef<
               value={activeFunctionId ?? '__main__'}
               disabled={!definition}
               onChange={(event) => {
-                setActiveFunctionId(event.target.value === '__main__' ? null : event.target.value)
-                setSelectedNodeId(null)
-                window.setTimeout(() => flowRef.current?.fitView({ duration: 200, padding: 0.2 }), 0)
+                const functionId = event.target.value === '__main__' ? null : event.target.value
+                navigateToGraphPath(functionId ? [functionId] : [])
               }}
             >
               <option value="__main__">메인</option>
@@ -1358,6 +1420,32 @@ export const IntegratedMacroPanel = forwardRef<
             gridTemplateColumns: `${expandedPaletteWidth}px 8px minmax(0, 1fr) 8px ${expandedInspectorWidth}px`,
           } : undefined}
         >
+          <nav className="macro-graph-breadcrumb" aria-label="매크로 그래프 경로">
+            {graphNavigationStack.length === 0 ? (
+              <span className="macro-graph-breadcrumb__item is-current" aria-current="page" title="Main">Main</span>
+            ) : (
+              <button type="button" className="macro-graph-breadcrumb__item" title="Main" onClick={() => navigateToGraphPath([])}>Main</button>
+            )}
+            {graphNavigationStack.map((functionId, index) => {
+              const label = definition?.functions?.find((item) => item.id === functionId)?.name ?? functionId
+              const current = index === graphNavigationStack.length - 1
+              return (
+                <span className="macro-graph-breadcrumb__segment" key={functionId}>
+                  <span className="macro-graph-breadcrumb__separator" aria-hidden="true">›</span>
+                  {current ? (
+                    <span className="macro-graph-breadcrumb__item is-current" aria-current="page" title={label}>{label}</span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="macro-graph-breadcrumb__item"
+                      title={label}
+                      onClick={() => navigateToGraphPath(graphNavigationStack.slice(0, index + 1))}
+                    >{label}</button>
+                  )}
+                </span>
+              )
+            })}
+          </nav>
           <div className="macro-sidebar">
             <div className="macro-sidebar__tabs" role="tablist" aria-label="캔버스 탐색기">
               <button type="button" role="tab" aria-selected={sidebarTab === 'blueprint'} onClick={() => setSidebarTab('blueprint')}>My Blueprint</button>
@@ -1373,11 +1461,7 @@ export const IntegratedMacroPanel = forwardRef<
                   setSelectedNodeId(null)
                   if (selection.kind === 'variable') setSelectedVariableName(selection.id)
                 }}
-                onOpenFunction={(functionId) => {
-                  setActiveFunctionId(functionId)
-                  setSelectedBlueprint({ kind: 'function', id: functionId })
-                  setSelectedNodeId(null)
-                }}
+                onOpenFunction={enterFunctionGraph}
                 onAddVariable={addVariable}
                 onAddFunction={createFunction}
                 onRenameFunction={renameFunction}
@@ -1391,7 +1475,7 @@ export const IntegratedMacroPanel = forwardRef<
           </div>
           {canvasExpanded && (
             <div
-              className="macro-canvas-expanded-splitter"
+              className="macro-canvas-expanded-splitter is-palette-splitter"
               role="separator"
               aria-label="블록과 캔버스 크기 조절"
               aria-orientation="vertical"
@@ -1433,6 +1517,7 @@ export const IntegratedMacroPanel = forwardRef<
               block.presetConfig,
               block.presetLabel,
             )}
+            dialogOpen={editorDialogOpen}
             onReady={(instance) => { flowRef.current = instance }}
             />
           ) : (
@@ -1443,7 +1528,7 @@ export const IntegratedMacroPanel = forwardRef<
           )}
           {canvasExpanded && (
             <div
-              className="macro-canvas-expanded-splitter"
+              className="macro-canvas-expanded-splitter is-inspector-splitter"
               role="separator"
               aria-label="캔버스와 인스펙터 크기 조절"
               aria-orientation="vertical"
@@ -1464,10 +1549,7 @@ export const IntegratedMacroPanel = forwardRef<
               onDeleteVariable={deleteVariable}
               onRenameFunction={renameFunction}
               onUpdateFunctionPorts={updateFunctionPorts}
-              onOpenFunction={(functionId) => {
-                setActiveFunctionId(functionId)
-                setSelectedNodeId(null)
-              }}
+              onOpenFunction={enterFunctionGraph}
               onDeleteFunction={deleteFunction}
             />
           ) : <NodeInspector
@@ -1959,6 +2041,15 @@ function MacroExecutionPanel({
                   )}
                 </div>
                 <div className="integrated-macro-card__actions">
+                  <Button
+                    small
+                    icon="edit"
+                    disabled={busy}
+                    title="매크로 캔버스에서 편집"
+                    onClick={() => onEdit(macro)}
+                  >
+                    편집
+                  </Button>
                   {isRunning ? (
                     <Button small disabled={busy} onClick={onPause}>{ko.actions.pause}</Button>
                   ) : isPaused ? (
@@ -1966,8 +2057,10 @@ function MacroExecutionPanel({
                   ) : (
                     <Button
                       small
+                      icon="play"
                       intent="success"
                       disabled={busy || Boolean(snapshot && ['running', 'paused'].includes(snapshot.state))}
+                      title="실행 설정 열기"
                       onClick={() => onRun(macro)}
                     >
                       {ko.actions.run}
@@ -1978,7 +2071,6 @@ function MacroExecutionPanel({
                   <details className="integrated-macro-card__menu">
                     <summary aria-label={`${macro.name} 더보기`}>⋯</summary>
                     <div>
-                      <button type="button" onClick={() => onEdit(macro)}>캔버스에서 편집</button>
                       <button type="button" onClick={() => onRename(macro)}>이름 변경</button>
                       <button type="button" onClick={() => onDuplicate(macro)}>복제</button>
                       <button className="is-danger" type="button" onClick={() => onDelete(macro)}>삭제</button>

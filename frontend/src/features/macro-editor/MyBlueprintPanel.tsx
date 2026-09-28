@@ -1,6 +1,7 @@
 import { Button } from '@blueprintjs/core'
 import { createPortal } from 'react-dom'
 import { useEffect, useState, type DragEvent, type MouseEvent, type ReactNode } from 'react'
+import { getTapbotOverlayRoot } from '../../components/overlay-root'
 import type {
   MacroFunctionDefinition,
   MacroVariableDefinition,
@@ -117,7 +118,7 @@ export function MyBlueprintPanel({
           <button type="button" role="menuitem" onClick={() => { onDuplicateFunction(menu.functionId); setMenu(null) }}>복제</button>
           <button type="button" role="menuitem" className="is-danger" onClick={() => { onDeleteFunction(menu.functionId); setMenu(null) }}>삭제</button>
         </div>
-      ), document.body)}
+      ), getTapbotOverlayRoot())}
     </aside>
   )
 }

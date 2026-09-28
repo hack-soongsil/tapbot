@@ -70,6 +70,27 @@ describe('DeviceGrid', () => {
     expect(screen.getByText('매크로: 대기')).toBeTruthy()
   })
 
+  it('renders legacy device summaries that omit screen metrics without crashing', () => {
+    const legacyDevice: AndroidDeviceSummary = {
+      ...online,
+      id: 'legacy-agent',
+      name: 'Legacy Agent',
+      screen_width: undefined,
+      screen_height: undefined,
+      stream_fps: undefined,
+    }
+
+    render(
+      <MemoryRouter>
+        <DeviceGrid devices={[legacyDevice]} refreshing={false} onRefresh={vi.fn()} />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText('Legacy Agent')).toBeTruthy()
+    expect(screen.getByText('해상도 —')).toBeTruthy()
+    expect(screen.getByText('FPS —')).toBeTruthy()
+  })
+
   it('requests at most one preview frame at a time and schedules the next after load', async () => {
     const url = vi.spyOn(androidApi, 'screenshotUrl')
     render(
