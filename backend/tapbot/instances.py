@@ -72,6 +72,10 @@ from tapbot.ui_resolution import (
     HybridTargetResolver,
     ScreenRecognizer,
 )
+from tapbot.ui_resolution.screens import (
+    canonical_screen_id,
+    screen_element_semantic_id,
+)
 from tapbot.vision.calibration import CalibrationStore
 from tapbot.vision.canonical import CanonicalVisionPipeline
 from tapbot.vision.detector import ColorButtonDetector, Detector
@@ -367,24 +371,19 @@ class _AndroidGraphUi:
     ) -> GraphElement:
         tree = self.context.ui_tree_provider.snapshot(max_age_ms=0)
         recognition = ScreenRecognizer().recognize(tree)
-        if recognition is None or recognition.screen_id != screen_id:
+        if (
+            recognition is None
+            or canonical_screen_id(recognition.screen_id)
+            != canonical_screen_id(screen_id)
+        ):
             actual = "unknown" if recognition is None else recognition.screen_id
             raise RuntimeError(
                 f"screen mismatch: expected {screen_id!r}, recognized {actual!r}"
             )
-        semantic_id = element_id
-        if element_id in {
-            "quick_date", "date_chip", "room_card", "room_feature", "time_slot",
-        }:
-            index = params.get("index")
-            if isinstance(index, bool) or not isinstance(index, int) or index < 0:
-                raise RuntimeError(f"{element_id} requires a non-negative index")
-            semantic_id = f"{element_id}[{index}]"
-        elif element_id == "room_card_by_name":
-            name = params.get("name")
-            if not isinstance(name, str) or not name.strip():
-                raise RuntimeError("room_card_by_name requires a non-empty name")
-            semantic_id = f"room_card_by_name[{name}]"
+        try:
+            semantic_id = screen_element_semantic_id(screen_id, element_id, params)
+        except ValueError as error:
+            raise RuntimeError(str(error)) from error
         candidate = next(
             (item for item in recognition.elements if item.semantic_id == semantic_id),
             None,

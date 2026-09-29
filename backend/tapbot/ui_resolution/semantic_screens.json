@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "aliases": {
+    "reservation_home": "study_room_list",
+    "reservation_detail": "study_room_detail",
+    "reservation_confirm": "study_room_confirm",
+    "reservation_success": "study_room_complete"
+  },
+  "element_aliases": {
+    "study_room_list": {
+      "history_button": "reservation_history",
+      "quick_date": "date_chip",
+      "selected_date_dropdown": "date_picker",
+      "nav_notice": "bottom_tab_home",
+      "nav_reservation": "bottom_tab_booking",
+      "nav_my": "bottom_tab_me"
+    },
+    "study_room_detail": {
+      "back_button": "back"
+    }
+  },
+  "screens": [
+    {
+      "id": "study_room_list",
+      "label": "스터디룸 목록",
+      "lifecycle": true,
+      "elements": [
+        { "id": "header_title", "label": "화면 제목" },
+        { "id": "reservation_history", "label": "예약 내역" },
+        { "id": "hero_headline", "label": "환영 문구" },
+        { "id": "hero_description", "label": "화면 설명" },
+        { "id": "date_chip", "label": "날짜 카드", "param": "index", "max_index": 4 },
+        { "id": "selected_date_chip", "label": "선택 날짜 카드" },
+        { "id": "selected_date_label", "label": "선택 날짜" },
+        { "id": "date_picker", "label": "날짜 선택" },
+        { "id": "live_status_indicator", "label": "실시간 현황" },
+        { "id": "room_card", "label": "스터디룸 카드", "param": "index" },
+        { "id": "room_card_by_name", "label": "이름으로 스터디룸 카드", "param": "name" },
+        { "id": "room_name", "label": "스터디룸 이름", "param": "index" },
+        { "id": "room_status", "label": "스터디룸 상태", "param": "index" },
+        { "id": "room_capacity", "label": "스터디룸 수용 인원", "param": "index" },
+        { "id": "room_location", "label": "스터디룸 위치", "param": "index" },
+        { "id": "room_availability", "label": "스터디룸 예약 현황", "param": "index" },
+        { "id": "bottom_tab_home", "label": "Home 탭" },
+        { "id": "bottom_tab_booking", "label": "Booking 탭" },
+        { "id": "bottom_tab_me", "label": "Me 탭" }
+      ]
+    },
+    {
+      "id": "study_room_detail",
+      "label": "스터디룸 상세",
+      "lifecycle": true,
+      "elements": [
+        { "id": "back", "label": "뒤로가기" },
+        { "id": "room_hero_image", "label": "스터디룸 대표 이미지" },
+        { "id": "room_name", "label": "스터디룸 이름" },
+        { "id": "room_feature", "label": "방 특징", "param": "index" },
+        { "id": "date_picker", "label": "날짜 선택" },
+        { "id": "selected_date_label", "label": "선택 날짜" },
+        { "id": "live_status_indicator", "label": "실시간 상태" },
+        { "id": "slot_guidance", "label": "시간 슬롯 안내" },
+        { "id": "time_slot", "label": "시간 슬롯", "param": "index", "max_index": 31 },
+        { "id": "time_slot_by_time", "label": "시각으로 시간 슬롯", "param": "name", "values": { "start": "06:00", "count": 32, "step_minutes": 30 } },
+        { "id": "time_slot_by_end_time", "label": "종료 시각으로 시간 슬롯", "param": "name", "values": { "start": "06:30", "count": 32, "step_minutes": 30 } },
+        { "id": "current_time_marker", "label": "현재 시간 표시" },
+        { "id": "legend_reserved", "label": "예약됨 범례" },
+        { "id": "legend_available", "label": "빈 시간 범례" },
+        { "id": "legend_selected", "label": "선택 범례" },
+        { "id": "selection_summary", "label": "선택 상태" },
+        { "id": "reset_selection", "label": "선택 초기화" },
+        { "id": "usage_rules", "label": "이용 규칙" },
+        { "id": "reserve_cta", "label": "예약 CTA" }
+      ]
+    },
+    {
+      "id": "study_room_confirm",
+      "label": "예약 확인",
+      "lifecycle": false,
+      "elements": [
+        { "id": "title", "label": "확인 제목" },
+        { "id": "room_name", "label": "스터디룸 이름" },
+        { "id": "date", "label": "예약 날짜" },
+        { "id": "time_range", "label": "예약 시간" },
+        { "id": "cancel", "label": "취소" },
+        { "id": "confirm_reservation", "label": "예약 확정" }
+      ]
+    },
+    {
+      "id": "study_room_complete",
+      "label": "예약 완료",
+      "lifecycle": false,
+      "elements": [
+        { "id": "success_title", "label": "예약 완료 제목" },
+        { "id": "room_name", "label": "스터디룸 이름" },
+        { "id": "date", "label": "예약 날짜" },
+        { "id": "time_range", "label": "예약 시간" },
+        { "id": "back_to_reservation", "label": "예약 화면으로 돌아가기" }
+      ]
+    }
+  ]
+}

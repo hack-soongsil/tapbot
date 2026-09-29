@@ -9,9 +9,9 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { ko, macroCategoryLabels } from '../../i18n/ko'
-import type { SearchItem } from './blocks'
+import type { SearchItem } from './search-provider'
 import { blockSupportsPortContext, type SourcePortContext } from './port-compatibility'
-import type { MacroNodeCategory, MacroNodeType } from './types'
+import type { MacroNodeCategory } from './types'
 
 export const QUICK_BLOCK_RECENT_KEY = 'tapbot.macro.quickBlockRecent'
 
@@ -34,10 +34,9 @@ export interface QuickBlockSearchProps {
   open: boolean
   screenPosition: { x: number; y: number }
   flowPosition: { x: number; y: number }
-  blocks: readonly SearchItem[]
+  items: readonly SearchItem[]
   sourcePortContext?: SourcePortContext | null
-  onSelect: (type: MacroNodeType, position: { x: number; y: number }) => void
-  onSelectDefinition?: (block: SearchItem, position: { x: number; y: number }) => void
+  onCreated?: (created: ReturnType<SearchItem['create']>, item: SearchItem) => void
   onClose: () => void
 }
 
@@ -64,10 +63,9 @@ export function QuickBlockSearch({ open, ...props }: QuickBlockSearchProps) {
 function OpenQuickBlockSearch({
   screenPosition,
   flowPosition,
-  blocks,
+  items,
   sourcePortContext = null,
-  onSelect,
-  onSelectDefinition,
+  onCreated,
   onClose,
 }: QuickBlockSearchProps) {
   const popupRef = useRef<HTMLDivElement>(null)
@@ -76,7 +74,7 @@ function OpenQuickBlockSearch({
   const [query, setQuery] = useState('')
   const [activeCategory, setActiveCategory] = useState<MacroNodeCategory | null>(null)
   const [activeIndex, setActiveIndex] = useState(0)
-  const [recent, setRecent] = useState<MacroNodeType[]>(readRecent)
+  const [recent, setRecent] = useState<string[]>(readRecent)
   const [popupPosition, setPopupPosition] = useState(() => clampPosition(
     screenPosition,
     EXPECTED_WIDTH,
@@ -84,19 +82,16 @@ function OpenQuickBlockSearch({
   ))
 
   const searchable = useMemo(
-    () => blocks.filter((block) => (
-      (block.quickSearch ?? block.palette) &&
-      (!sourcePortContext || blockSupportsPortContext(block, sourcePortContext))
-    )),
-    [blocks, sourcePortContext],
+    () => items.filter((item) => !sourcePortContext || blockSupportsPortContext(item, sourcePortContext)),
+    [items, sourcePortContext],
   )
-  const blockByType = useMemo(
-    () => new Map(searchable.map((block) => [block.type, block])),
+  const itemById = useMemo(
+    () => new Map(searchable.map((item) => [item.id, item])),
     [searchable],
   )
   const validRecent = useMemo(
-    () => recent.filter((type) => blockByType.has(type)),
-    [blockByType, recent],
+    () => recent.filter((id) => itemById.has(id)),
+    [itemById, recent],
   )
   const blocksByCategory = useMemo(() => new Map(categoryOrder.map((category) => [
     category,
@@ -108,10 +103,10 @@ function OpenQuickBlockSearch({
     () => categoryOrder.filter((category) => (blocksByCategory.get(category)?.length ?? 0) > 0),
     [blocksByCategory],
   )
-  const recentBlocks = useMemo(() => validRecent.flatMap((type) => {
-    const block = blockByType.get(type)
+  const recentBlocks = useMemo(() => validRecent.flatMap((id) => {
+    const block = itemById.get(id)
     return block ? [block] : []
-  }), [blockByType, validRecent])
+  }), [itemById, validRecent])
 
   const normalizedQuery = normalize(query)
   const ranked = useMemo(
@@ -121,7 +116,7 @@ function OpenQuickBlockSearch({
           .filter((item) => item.score > 0)
           .sort((a, b) => (
             b.score - a.score ||
-            recentRank(a.block.type, validRecent) - recentRank(b.block.type, validRecent) ||
+            recentRank(a.block.id, validRecent) - recentRank(b.block.id, validRecent) ||
             a.block.label.localeCompare(b.block.label)
           ))
           .map((item) => item.block)
@@ -132,7 +127,7 @@ function OpenQuickBlockSearch({
   const navigationItems = useMemo<NavigationItem[]>(() => {
     if (normalizedQuery) {
       return ranked.map((block) => ({
-        id: `search-${block.type}-${block.presetLabel ?? block.label}`,
+        id: `search-${block.id}`,
         kind: 'block',
         block,
         location: 'search',
@@ -140,7 +135,7 @@ function OpenQuickBlockSearch({
     }
     if (activeCategory) {
       return (blocksByCategory.get(activeCategory) ?? []).map((block) => ({
-        id: `category-${activeCategory}-${block.type}-${block.presetLabel ?? block.label}`,
+        id: `category-${activeCategory}-${block.id}`,
         kind: 'block',
         block,
         location: 'category',
@@ -148,7 +143,7 @@ function OpenQuickBlockSearch({
     }
     return [
       ...recentBlocks.map((block): BlockItem => ({
-        id: `recent-${block.type}`,
+        id: `recent-${block.id}`,
         kind: 'block',
         block,
         location: 'recent',
@@ -212,11 +207,11 @@ function OpenQuickBlockSearch({
   }, [navigationItems, visibleActiveIndex])
 
   const selectBlock = (block: SearchItem) => {
-    const nextRecent = [block.type, ...validRecent.filter((type) => type !== block.type)].slice(0, MAX_RECENT)
+    const nextRecent = [block.id, ...validRecent.filter((id) => id !== block.id)].slice(0, MAX_RECENT)
     setRecent(nextRecent)
     writeRecent(nextRecent)
-    if (onSelectDefinition) onSelectDefinition(block, flowPosition)
-    else onSelect(block.type, flowPosition)
+    const created = block.create(flowPosition)
+    onCreated?.(created, block)
     onClose()
   }
 
@@ -278,7 +273,7 @@ function OpenQuickBlockSearch({
         </button>
       )
     }
-    const path = `${macroCategoryLabels[item.block.category]} / ${item.block.label}`
+    const path = [...item.block.categoryPath, item.block.label].join(' / ')
     return (
       <button
         type="button"
@@ -386,8 +381,8 @@ function scoreBlock(block: SearchItem, query: string) {
   return 0
 }
 
-function recentRank(type: MacroNodeType, recent: readonly MacroNodeType[]) {
-  const index = recent.indexOf(type)
+function recentRank(id: string, recent: readonly string[]) {
+  const index = recent.indexOf(id)
   return index < 0 ? Number.MAX_SAFE_INTEGER : index
 }
 
@@ -404,18 +399,18 @@ function clampPosition(position: { x: number; y: number }, width: number, height
   }
 }
 
-function readRecent(): MacroNodeType[] {
+function readRecent(): string[] {
   try {
     const value = JSON.parse(window.localStorage.getItem(QUICK_BLOCK_RECENT_KEY) ?? '[]') as unknown
     return Array.isArray(value)
-      ? value.filter((item): item is MacroNodeType => typeof item === 'string').slice(0, MAX_RECENT)
+      ? value.filter((item): item is string => typeof item === 'string').slice(0, MAX_RECENT)
       : []
   } catch {
     return []
   }
 }
 
-function writeRecent(types: readonly MacroNodeType[]) {
+function writeRecent(types: readonly string[]) {
   try {
     window.localStorage.setItem(QUICK_BLOCK_RECENT_KEY, JSON.stringify(types))
   } catch {

@@ -2,10 +2,7 @@ import { Button } from '@blueprintjs/core'
 import { createPortal } from 'react-dom'
 import { useEffect, useState, type DragEvent, type MouseEvent, type ReactNode } from 'react'
 import { getTapbotOverlayRoot } from '../../components/overlay-root'
-import type {
-  MacroFunctionDefinition,
-  MacroVariableDefinition,
-} from './types'
+import type { MacroDefinition, MacroVariableDefinition } from './types'
 import {
   MACRO_BLUEPRINT_MIME,
   type BlueprintDragItem,
@@ -16,8 +13,7 @@ export type BlueprintSelection =
   | { kind: 'function'; id: string }
 
 interface MyBlueprintPanelProps {
-  variables: readonly MacroVariableDefinition[]
-  functions: readonly MacroFunctionDefinition[]
+  definition: Pick<MacroDefinition, 'variables' | 'functions'> | null
   selection: BlueprintSelection | null
   onSelect: (selection: BlueprintSelection) => void
   onOpenFunction: (functionId: string) => void
@@ -33,8 +29,7 @@ interface MyBlueprintPanelProps {
 }
 
 export function MyBlueprintPanel({
-  variables,
-  functions,
+  definition,
   selection,
   onSelect,
   onOpenFunction,
@@ -49,6 +44,8 @@ export function MyBlueprintPanel({
   onDeleteFunction,
 }: MyBlueprintPanelProps) {
   const [menu, setMenu] = useState<BlueprintContextMenu | null>(null)
+  const variables = definition?.variables ?? []
+  const functions = definition?.functions ?? []
 
   useEffect(() => {
     if (!menu) return

@@ -4,8 +4,15 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 import re
 from typing import Any, Protocol
+
+from tapbot.ui_resolution.semantic_manifest import (
+    canonical_element_id,
+    canonical_screen_id,
+    screen_element_templates,
+)
 
 
 JsonObject = dict[str, Any]
@@ -32,6 +39,7 @@ RESERVE_CTA_TEXTS = frozenset({
     "예약 처리 중",
 })
 DETAIL_GUIDANCE = "한 칸은 30분입니다. 예약된 시간은 선택할 수 없어요"
+ROOM_STATUS_LABELS = ("예약 가능", "예약 마감", "여유", "보통", "혼잡", "만석")
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,111 +107,73 @@ DEFAULT_SSUTODAY_SCREENS = (
         "study_room_complete",
         {
             "all": [
-                {"text": "예약이 완료되었습니다"},
-                {"text": "예약 화면으로 돌아가기"},
+                {"any": [
+                    {"text": "예약 성공"},
+                    {"text": "예약이 완료되었습니다"},
+                ]},
+                {"any": [
+                    {"text": "예약 화면으로"},
+                    {"text": "예약 화면으로 돌아가기"},
+                ]},
+            ]
+        },
+    ),
+    ScreenRule(
+        "study_room_confirm",
+        {
+            "all": [
+                {"any": [
+                    {"text": "예약 확인"},
+                    {"text": "이 시간으로 예약할까요?"},
+                ]},
+                {"any": [
+                    {"text": "예약하기"},
+                    {"text": "예약 확정"},
+                ]},
+                {"text": "취소"},
             ]
         },
     ),
     ScreenRule(
         "study_room_detail",
         {
-            "all": [
-                {"text_regex": r"^스터디룸 .+$"},
-                {"text": DETAIL_GUIDANCE},
-                {"text": "초기화"},
-                {"text_regex": DATE_PICKER_PATTERN.pattern},
+            "any": [
+                {"all": [
+                    {"text_regex": r"^스터디룸 .+$"},
+                    {"text": DETAIL_GUIDANCE},
+                    {"text": "초기화"},
+                    {"text_regex": DATE_PICKER_PATTERN.pattern},
+                ]},
+                {"all": [
+                    {"text": DETAIL_GUIDANCE},
+                    {"text": "초기화"},
+                    {"text_regex": DATE_PICKER_PATTERN.pattern},
+                ]},
             ]
         },
     ),
     ScreenRule(
         "study_room_list",
         {
-            "all": [
-                {"text": "스터디룸 예약"},
-                {"text_regex": r"^스터디룸 .+$"},
-                {"content_description": "예약"},
-            ]
-        },
-    ),
-    ScreenRule(
-        "reservation_detail",
-        {
-            "all": [
-                {"text": DETAIL_GUIDANCE},
-                {"text": "초기화"},
-                {"text_regex": DATE_PICKER_PATTERN.pattern},
-            ]
-        },
-    ),
-    ScreenRule(
-        "reservation_home",
-        {
-            "all": [
-                {"content_description": "예약 내역"},
-                {"content_description": "공지"},
-                {"content_description": "예약"},
-                {"content_description": "마이"},
-                {"text_regex": QUICK_DATE_PATTERN.pattern, "min_count": 1},
+            "any": [
+                {"all": [
+                    {"text": "스터디룸 예약"},
+                    {"text_regex": r"^스터디룸 .+$"},
+                    {"content_description": "예약"},
+                ]},
+                {"all": [
+                    {"content_description": "예약 내역"},
+                    {"content_description": "공지"},
+                    {"content_description": "예약"},
+                    {"content_description": "마이"},
+                    {"text_regex": QUICK_DATE_PATTERN.pattern, "min_count": 1},
+                ]},
             ]
         },
     ),
 )
 
-SCREEN_ELEMENT_TEMPLATES: dict[str, dict[str, JsonObject]] = {
-    "study_room_list": {
-        "header_title": {"label": "화면 제목", "kind": "element"},
-        "history_button": {"label": "최근 내역", "kind": "element"},
-        "reservation_history": {"label": "예약 내역", "kind": "element"},
-        "hero_headline": {"label": "환영 문구", "kind": "element"},
-        "hero_description": {"label": "화면 설명", "kind": "element"},
-        "date_chip": {"label": "날짜 카드", "kind": "collection", "required_params": ["index"]},
-        "selected_date_chip": {"label": "선택 날짜 카드", "kind": "element"},
-        "selected_date_label": {"label": "선택 날짜", "kind": "element"},
-        "selected_date_dropdown": {"label": "날짜 드롭다운", "kind": "element"},
-        "live_status_indicator": {"label": "실시간 현황", "kind": "element"},
-        "room_card": {"label": "스터디룸 카드", "kind": "collection", "required_params": ["index"]},
-        "room_card_by_name": {"label": "이름으로 스터디룸 카드", "kind": "collection", "required_params": ["name"]},
-        "bottom_tab_home": {"label": "Home 탭", "kind": "element"},
-        "bottom_tab_booking": {"label": "Booking 탭", "kind": "element"},
-        "bottom_tab_me": {"label": "Me 탭", "kind": "element"},
-        "date_picker": {"label": "날짜 선택", "kind": "element"},
-    },
-    "reservation_home": {
-        "reservation_history": {"label": "예약 내역", "kind": "element"},
-        "quick_date": {"label": "빠른 날짜", "kind": "collection", "required_params": ["index"]},
-        "date_picker": {"label": "날짜 선택", "kind": "element"},
-        "nav_notice": {"label": "공지 탭", "kind": "element"},
-        "nav_reservation": {"label": "예약 탭", "kind": "element"},
-        "nav_my": {"label": "마이 탭", "kind": "element"},
-    },
-    "reservation_detail": {
-        "back": {"label": "뒤로가기", "kind": "element"},
-        "date_picker": {"label": "날짜 선택", "kind": "element"},
-        "time_slot": {"label": "시간 슬롯", "kind": "collection", "required_params": ["index"]},
-        "reset_selection": {"label": "선택 초기화", "kind": "element"},
-        "reserve_cta": {"label": "예약 CTA", "kind": "element"},
-    },
-    "study_room_detail": {
-        "back": {"label": "뒤로가기", "kind": "element"},
-        "back_button": {"label": "뒤로가기 버튼", "kind": "element"},
-        "room_hero_image": {"label": "스터디룸 대표 이미지", "kind": "element"},
-        "room_name": {"label": "스터디룸 이름", "kind": "element"},
-        "room_feature": {"label": "방 특징", "kind": "collection", "required_params": ["index"]},
-        "selected_date_label": {"label": "선택 날짜", "kind": "element"},
-        "live_status_indicator": {"label": "실시간 상태", "kind": "element"},
-        "slot_guidance": {"label": "시간 슬롯 안내", "kind": "element"},
-        "time_slot": {"label": "시간 슬롯", "kind": "collection", "required_params": ["index"]},
-        "current_time_marker": {"label": "현재 시간 표시", "kind": "element"},
-        "legend_reserved": {"label": "예약됨 범례", "kind": "element"},
-        "legend_available": {"label": "빈 시간 범례", "kind": "element"},
-        "legend_selected": {"label": "선택 범례", "kind": "element"},
-        "selection_summary": {"label": "선택 상태", "kind": "element"},
-        "reset_selection": {"label": "선택 초기화", "kind": "element"},
-        "usage_rules": {"label": "이용 규칙", "kind": "element"},
-        "reserve_cta": {"label": "예약 CTA", "kind": "element"},
-    },
-    "study_room_complete": {},
-}
+SCREEN_ELEMENT_TEMPLATES = screen_element_templates()
 
 
 def validate_screen_element_reference(
@@ -211,22 +181,64 @@ def validate_screen_element_reference(
     element_id: object,
     params: object,
 ) -> tuple[str, ...]:
-    if not isinstance(screen_id, str) or screen_id not in SCREEN_ELEMENT_TEMPLATES:
+    if not isinstance(screen_id, str):
         return ("screen_id does not reference a known screen template",)
-    templates = SCREEN_ELEMENT_TEMPLATES[screen_id]
-    if not isinstance(element_id, str) or element_id not in templates:
+    canonical_screen = canonical_screen_id(screen_id)
+    if canonical_screen not in SCREEN_ELEMENT_TEMPLATES:
+        return ("screen_id does not reference a known screen template",)
+    if not isinstance(element_id, str):
+        return ("element_id does not exist in the selected screen template",)
+    canonical_element = canonical_element_id(canonical_screen, element_id)
+    templates = SCREEN_ELEMENT_TEMPLATES[canonical_screen]
+    if canonical_element not in templates:
         return ("element_id does not exist in the selected screen template",)
     if not isinstance(params, dict):
         return ("params must be an object",)
     errors: list[str] = []
-    for key in templates[element_id].get("required_params", []):
+    template = templates[canonical_element]
+    for key in template.get("required_params", []):
         value = params.get(key)
         if key == "name":
             if not isinstance(value, str) or not value.strip():
                 errors.append(f"params.{key} must be a non-empty string")
+            elif canonical_element == "time_slot_by_time" and _time_slot_index(value) is None:
+                errors.append(
+                    "params.name must be a half-hour time between 06:00 and 21:30"
+                )
+            elif (
+                canonical_element == "time_slot_by_end_time"
+                and _time_slot_end_index(value) is None
+            ):
+                errors.append(
+                    "params.name must be a half-hour time between 06:30 and 22:00"
+                )
         elif isinstance(value, bool) or not isinstance(value, int) or value < 0:
             errors.append(f"params.{key} must be a non-negative integer")
+        elif isinstance(template.get("max_index"), int) and value > template["max_index"]:
+            errors.append(
+                f"params.index must be between 0 and {template['max_index']}"
+            )
     return tuple(errors)
+
+
+def screen_element_semantic_id(
+    screen_id: str,
+    element_id: str,
+    params: Mapping[str, object],
+) -> str:
+    errors = validate_screen_element_reference(screen_id, element_id, dict(params))
+    if errors:
+        raise ValueError("; ".join(errors))
+    canonical_screen = canonical_screen_id(screen_id)
+    canonical_element = canonical_element_id(canonical_screen, element_id)
+    required = SCREEN_ELEMENT_TEMPLATES[canonical_screen][canonical_element].get(
+        "required_params", []
+    )
+    if "index" in required:
+        return f"{canonical_element}[{params['index']}]"
+    if "name" in required:
+        return f"{canonical_element}[{str(params['name']).strip()}]"
+    return canonical_element
 
 
 class ScreenRecognizer:
@@ -240,10 +252,11 @@ class ScreenRecognizer:
         for screen in self.screens:
             matcher = screen.match or _default_match(screen.id)
             if _matches_expression(nodes, matcher):
+                screen_id = canonical_screen_id(screen.id)
                 return ScreenRecognition(
-                    screen.id,
-                    extract_ssutoday_elements(screen.id, nodes),
-                    _screen_context(screen.id, nodes),
+                    screen_id,
+                    extract_ssutoday_elements(screen_id, nodes),
+                    _screen_context(screen_id, nodes),
                 )
         return None
 
@@ -258,12 +271,15 @@ def extract_ssutoday_elements(
         and all(isinstance(item, _Node) for item in ui_tree_or_nodes)
         else _nodes(ui_tree_or_nodes)
     )
-    if screen_id == "study_room_list":
+    canonical_id = canonical_screen_id(screen_id)
+    if canonical_id == "study_room_list":
         return _list_elements(nodes)
-    if screen_id == "reservation_home":
-        return _home_elements(nodes)
-    if screen_id in {"reservation_detail", "study_room_detail"}:
-        return _detail_elements(nodes, start_minutes=8 * 60 if screen_id == "study_room_detail" else 6 * 60)
+    if canonical_id == "study_room_detail":
+        return _detail_elements(nodes, start_minutes=6 * 60)
+    if canonical_id == "study_room_confirm":
+        return _confirm_elements(nodes)
+    if canonical_id == "study_room_complete":
+        return _success_elements(nodes)
     return ()
 
 
@@ -294,23 +310,70 @@ def _list_elements(nodes: tuple[_Node, ...]) -> tuple[SemanticUiElement, ...]:
         (
             node for node in nodes
             if re.fullmatch(r"date-chip-[0-9]+", node.node_id)
+            or _semantic_family(node) == "date_chip"
         ),
-        key=lambda node: int(node.node_id.rsplit("-", 1)[1]),
+        key=_semantic_collection_order,
+    )
+    fixture_date_chips = not date_chips
+    if fixture_date_chips:
+        date_chips = sorted(
+            _dedupe_same_bounds(
+                node for node in nodes
+                if node.class_name == "android.widget.Button"
+                and QUICK_DATE_PATTERN.fullmatch(node.text or "")
+            ),
+            key=lambda node: (
+                node.bounds.left,
+                node.bounds.top,
+                node.bounds.right,
+                node.bounds.bottom,
+            ),
+        )
+    selected_date_label = next(
+        (
+            node.text for node in nodes
+            if DATE_PICKER_PATTERN.fullmatch(node.text or "")
+        ),
+        None,
+    )
+    selected_date_iso = _date_label_to_iso(selected_date_label)
+    selected_day = (
+        date.fromisoformat(selected_date_iso).day if selected_date_iso else None
+    )
+    selected_chip_index = next(
+        (
+            index for index, node in enumerate(date_chips)
+            if _quick_date_day(node.text) == selected_day
+        ),
+        None,
     )
     for fallback_index, node in enumerate(date_chips):
-        index = node.metadata.get("index", fallback_index)
-        if isinstance(index, bool) or not isinstance(index, int):
-            index = fallback_index
+        index = _semantic_collection_index(node, fallback=fallback_index)
+        assert index is not None
         full_date = node.metadata.get("full_date")
         if not isinstance(full_date, str):
-            full_date = _mock_date_for_index(index)
+            if selected_date_iso is not None and selected_chip_index is not None:
+                full_date = (
+                    date.fromisoformat(selected_date_iso)
+                    + timedelta(days=index - selected_chip_index)
+                ).isoformat()
+            else:
+                full_date = _mock_date_for_index(index)
+        is_selected = node.selected or (
+            fixture_date_chips and index == selected_chip_index
+        )
+        day_parts = (node.text or "").split()
         metadata = {
             "family": "date_chip",
             "index": index,
             "full_date": full_date,
-            "selected": node.selected,
-            "day_label": node.metadata.get("day_label"),
-            "day_number": node.metadata.get("day_number"),
+            "selected": is_selected,
+            "day_label": node.metadata.get("day_label") or (
+                day_parts[0] if len(day_parts) == 2 else None
+            ),
+            "day_number": node.metadata.get("day_number") or (
+                day_parts[1] if len(day_parts) == 2 else None
+            ),
         }
         result.append(_element(
             f"date_chip[{index}]",
@@ -318,7 +381,7 @@ def _list_elements(nodes: tuple[_Node, ...]) -> tuple[SemanticUiElement, ...]:
             {"semantic_family": "date_chip", "index": index},
             metadata=metadata,
         ))
-        if node.selected:
+        if is_selected:
             result.append(_element(
                 "selected_date_chip",
                 node,
@@ -349,21 +412,25 @@ def _list_elements(nodes: tuple[_Node, ...]) -> tuple[SemanticUiElement, ...]:
         (
             node for node in nodes
             if re.fullmatch(r"room-card-[0-9]+", node.node_id)
+            or _semantic_family(node) in {"room_card", "room_card_by_name"}
+            or _looks_like_room_card(node)
         ),
-        key=lambda node: int(node.node_id.rsplit("-", 1)[1]),
+        key=_semantic_collection_order,
     )
-    for node in room_cards:
-        index = int(node.node_id.rsplit("-", 1)[1])
-        parts = (node.content_description or "").split("|")
-        room_name = parts[0] if len(parts) == 4 else f"스터디룸 {index}"
+    for fallback_index, node in enumerate(room_cards):
+        index = _semantic_collection_index(node, fallback=fallback_index)
+        assert index is not None
+        room_name, capacity, location, status = _room_card_values(
+            node, nodes, fallback_name=f"스터디룸 {index}"
+        )
         metadata = {
             "family": "room_card",
             "index": index,
             "room_id": node.metadata.get("room_id", _room_id_from_name(room_name)),
             "room_name": room_name,
-            "capacity": node.metadata.get("capacity", parts[1] if len(parts) == 4 else None),
-            "location": node.metadata.get("location", parts[2] if len(parts) == 4 else None),
-            "status": node.metadata.get("status", parts[3] if len(parts) == 4 else None),
+            "capacity": capacity,
+            "location": location,
+            "status": status,
         }
         result.append(_element(
             f"room_card[{index}]",
@@ -377,69 +444,50 @@ def _list_elements(nodes: tuple[_Node, ...]) -> tuple[SemanticUiElement, ...]:
             {"semantic_family": "room_card_by_name", "name": room_name},
             metadata={**metadata, "family": "room_card_by_name", "name": room_name},
         ))
+        part_specs = (
+            ("room_name", room_name, "text"),
+            ("room_status", metadata.get("status"), "text"),
+            ("room_capacity", metadata.get("capacity"), "text"),
+            ("room_location", metadata.get("location"), "text"),
+            ("room_availability", f"{room_name} 시간대별 예약 현황", "description"),
+        )
+        for family, value, source in part_specs:
+            if not isinstance(value, str) or not value:
+                continue
+            candidates = _dedupe_same_bounds(
+                candidate for candidate in nodes
+                if _bounds_within(candidate.bounds, node.bounds)
+                and (
+                    candidate.text == value if source == "text"
+                    else candidate.content_description == value
+                )
+            )
+            if candidates:
+                result.append(_element(
+                    f"{family}[{index}]",
+                    candidates[0],
+                    {"semantic_family": family, "index": index},
+                    metadata={**metadata, "family": family, "index": index},
+                ))
 
     for semantic_id, node_id, description in (
-        ("bottom_tab_home", "bottom-home", "홈"),
+        ("bottom_tab_home", "bottom-home", "공지"),
         ("bottom_tab_booking", "bottom-booking", "예약"),
         ("bottom_tab_me", "bottom-me", "마이"),
     ):
         candidates = _dedupe_same_bounds(
             node for node in nodes
-            if node.node_id == node_id and node.content_description == description
+            if node.content_description == description
+            and (
+                node.node_id == node_id
+                or node.class_name in {"android.view.View", "android.widget.Button"}
+            )
         )
         if candidates:
             result.append(_element(
                 semantic_id, candidates[0], {"content_description": description}
             ))
 
-    return tuple(result)
-
-
-def _home_elements(nodes: tuple[_Node, ...]) -> tuple[SemanticUiElement, ...]:
-    result: list[SemanticUiElement] = []
-    history = _dedupe_same_bounds(
-        node for node in nodes if node.content_description == "예약 내역"
-    )
-    if history:
-        result.append(_element("reservation_history", history[0], {
-            "content_description": "예약 내역",
-            "class_name": "android.widget.Button",
-        }))
-
-    quick_dates = _dedupe_same_bounds(
-        node for node in nodes if QUICK_DATE_PATTERN.fullmatch(node.text or "")
-    )
-    for index, node in enumerate(sorted(quick_dates, key=_visual_order)):
-        result.append(_element(
-            f"quick_date[{index}]",
-            node,
-            {"text_regex": QUICK_DATE_PATTERN.pattern, "index": index},
-            metadata={"family": "quick_date", "index": index},
-        ))
-
-    date_nodes = _dedupe_same_bounds(
-        node for node in nodes if DATE_PICKER_PATTERN.fullmatch(node.text or "")
-    )
-    if date_nodes:
-        result.append(_element(
-            "date_picker",
-            date_nodes[0],
-            {"text_regex": DATE_PICKER_PATTERN.pattern},
-        ))
-    for semantic_id, label in (
-        ("nav_notice", "공지"),
-        ("nav_reservation", "예약"),
-        ("nav_my", "마이"),
-    ):
-        candidates = _dedupe_same_bounds(
-            node for node in nodes if node.content_description == label
-        )
-        if candidates:
-            result.append(_element(
-                semantic_id,
-                candidates[0],
-                {"content_description": label},
-            ))
     return tuple(result)
 
 
@@ -486,7 +534,7 @@ def _detail_elements(
         ))
 
     room_names = _dedupe_same_bounds(
-        node for node in nodes if re.fullmatch(r"스터디룸 .+", node.text or "")
+        node for node in nodes if _room_id_from_name(node.text) is not None
     )
     if room_names:
         result.append(_element("room_name", room_names[0], {
@@ -537,40 +585,110 @@ def _detail_elements(
     reserved_bounds = {element.bounds for element in result}
     cta = _dedupe_same_bounds(node for node in nodes if node.text in RESERVE_CTA_TEXTS)
     slot_bottom = min((node.bounds.top for node in cta), default=float("inf"))
-    mock_slots = [node for node in nodes if re.fullmatch(r"slot-[0-9]+", node.node_id)]
-    slots = _dedupe_same_bounds(mock_slots or (
+    semantic_slots = [
         node for node in nodes
-        if node.class_name == "android.widget.Button"
-        and not node.text
-        and not node.content_description
-        and node.clickable
-        and node.bounds not in reserved_bounds
-        and node.bounds.top >= 200
-        and node.bounds.bottom <= slot_bottom
-    ))
-    for index, node in enumerate(sorted(slots, key=_visual_order)):
-        slot_index = node.metadata.get("index", index)
-        if isinstance(slot_index, bool) or not isinstance(slot_index, int):
+        if re.fullmatch(r"slot-[0-9]+", node.node_id)
+        or _semantic_family(node) in {"time_slot", "time_slot_by_time"}
+    ]
+    tree_slots = _indexed_time_slot_siblings(nodes)
+    tree_slot_indices = {
+        node.node_id: index for index, node in enumerate(tree_slots)
+    }
+    slots = (
+        _dedupe_same_bounds(semantic_slots)
+        if semantic_slots
+        else tree_slots
+        if tree_slots
+        else _dedupe_same_bounds(
+            node for node in nodes
+            if node.class_name == "android.widget.Button"
+            and not node.text
+            and not node.content_description
+            and node.clickable
+            and node.bounds not in reserved_bounds
+            and node.bounds.top >= 200
+            and node.bounds.bottom <= slot_bottom
+        )
+    )
+    ordered_slots = (
+        tree_slots if tree_slots and not semantic_slots
+        else sorted(slots, key=_semantic_collection_order)
+    )
+    for index, node in enumerate(ordered_slots):
+        slot_index = _semantic_collection_index(node)
+        if slot_index is None:
+            slot_index = tree_slot_indices.get(node.node_id)
+        if slot_index is None:
             slot_index = index
-        minutes = start_minutes + slot_index * 30
+        assert slot_index is not None
+        start_time = node.metadata.get(
+            "start_time", node.metadata.get("time", node.metadata.get("name"))
+        )
+        time_index = _time_slot_index(start_time) if isinstance(start_time, str) else None
+        if time_index is None:
+            minutes = start_minutes + slot_index * 30
+            start_time = _format_minutes(minutes)
+        elif (
+            _semantic_collection_index(node) is None
+            and node.node_id not in tree_slot_indices
+        ):
+            slot_index = time_index
+        start_value = _parse_time_minutes(start_time)
+        end_time = node.metadata.get("end_time")
+        if not isinstance(end_time, str):
+            end_time = _format_minutes(start_value + 30)
         selected = node.selected
         state = node.metadata.get("state")
         if not isinstance(state, str):
             state = "selected" if selected else "available" if node.enabled else "reserved"
+        booked_value = node.metadata.get("booked")
+        booked = (
+            booked_value if isinstance(booked_value, bool)
+            else state.lower() in {"reserved", "booked"}
+        )
+        metadata = {
+            "family": "time_slot",
+            "index": slot_index,
+            "time": start_time,
+            "start_time": start_time,
+            "end_time": end_time,
+            "state": state,
+            "booked": booked,
+            "selected": selected,
+        }
         result.append(_element(
-            f"time_slot[{slot_index}]",
-            node,
+            f"time_slot[{slot_index}]", node,
             {
                 "class_name": "android.widget.Button",
                 "semantic_family": "time_slot",
                 "index": slot_index,
             },
+            metadata=metadata,
+        ))
+        result.append(_element(
+            f"time_slot_by_time[{start_time}]", node,
+            {
+                "class_name": "android.widget.Button",
+                "semantic_family": "time_slot_by_time",
+                "name": start_time,
+            },
             metadata={
-                "family": "time_slot",
-                "index": slot_index,
-                "time": f"{minutes // 60:02d}:{minutes % 60:02d}",
-                "state": state,
-                "selected": selected,
+                **metadata,
+                "family": "time_slot_by_time",
+                "name": start_time,
+            },
+        ))
+        result.append(_element(
+            f"time_slot_by_end_time[{end_time}]", node,
+            {
+                "class_name": "android.widget.Button",
+                "semantic_family": "time_slot_by_end_time",
+                "name": end_time,
+            },
+            metadata={
+                **metadata,
+                "family": "time_slot_by_end_time",
+                "name": end_time,
             },
         ))
 
@@ -597,10 +715,17 @@ def _detail_elements(
     selected_slot_index = None
     selected_time = None
     if selected_slots:
-        selected_slot_index = selected_slots[0].metadata.get("index")
-        if isinstance(selected_slot_index, int) and not isinstance(selected_slot_index, bool):
-            minutes = start_minutes + selected_slot_index * 30
-            selected_time = f"{minutes // 60:02d}:{minutes % 60:02d}"
+        selected_node = selected_slots[0]
+        selected_slot_index = _semantic_collection_index(selected_node)
+        if selected_slot_index is None:
+            selected_slot_index = tree_slot_indices.get(selected_node.node_id)
+        if selected_slot_index is None:
+            selected_slot_index = ordered_slots.index(selected_node)
+        selected_time = selected_node.metadata.get(
+            "start_time", selected_node.metadata.get("time")
+        )
+        if not isinstance(selected_time, str):
+            selected_time = _format_minutes(start_minutes + selected_slot_index * 30)
     if summaries:
         result.append(_element(
             "selection_summary", summaries[0], {"text": summaries[0].text or ""},
@@ -620,20 +745,90 @@ def _detail_elements(
     if cta:
         state_text = cta[0].text or ""
         cta_state = {
-            "시간을 선택하세요": "NO_SELECTION",
-            "이 시간으로 예약하기": "SELECTED",
-            "예약 처리 중": "SUBMITTING",
-        }.get(state_text, "UNKNOWN")
+            "시간을 선택하세요": "idle",
+            "이 시간으로 예약하기": "ready",
+            "예약 처리 중": "submitting",
+        }.get(state_text, "idle")
         result.append(_element(
             "reserve_cta",
             cta[0],
             {"text_regex": "^(시간을 선택하세요|이 시간으로 예약하기|예약 처리 중)$"},
             metadata={
                 "state": cta_state,
-                "state_text": state_text,
+                "text": state_text,
                 "selected_slot_index": selected_slot_index,
                 "selected_time": selected_time,
             },
+        ))
+    return tuple(result)
+
+
+def _confirm_elements(nodes: tuple[_Node, ...]) -> tuple[SemanticUiElement, ...]:
+    result: list[SemanticUiElement] = []
+    specs = (
+        ("title", lambda node: node.node_id == "confirm-title" or node.text in {"예약 확인", "이 시간으로 예약할까요?"}),
+        ("room_name", lambda node: node.node_id == "confirm-room" or bool(re.fullmatch(r"스터디룸 .+", node.text or ""))),
+        ("date", lambda node: node.node_id == "confirm-date" or bool(DATE_PICKER_PATTERN.fullmatch(node.text or ""))),
+        ("time_range", lambda node: node.node_id == "confirm-time" or bool(re.fullmatch(r"[0-9]{2}:[0-9]{2} - [0-9]{2}:[0-9]{2}", node.text or ""))),
+        ("cancel", lambda node: node.node_id == "confirm-cancel" or node.text == "취소"),
+        ("confirm_reservation", lambda node: node.node_id == "confirm-reservation" or node.text in {"예약하기", "예약 확정"}),
+    )
+    for semantic_id, matches in specs:
+        candidates = _dedupe_same_bounds(node for node in nodes if matches(node))
+        if candidates:
+            result.append(_element(
+                semantic_id, candidates[0], {"semantic_id": semantic_id}
+            ))
+    return tuple(result)
+
+
+def _success_elements(nodes: tuple[_Node, ...]) -> tuple[SemanticUiElement, ...]:
+    result: list[SemanticUiElement] = []
+    title = _dedupe_same_bounds(
+        node for node in nodes
+        if node.node_id in {"complete-title", "success-title"}
+        or node.text in {"예약이 완료되었습니다", "예약 성공"}
+    )
+    if title:
+        result.append(_element(
+            "success_title", title[0], {"text": title[0].text or "예약 성공"}
+        ))
+    detail = next(
+        (node for node in nodes if node.node_id == "complete-detail"), None
+    )
+    if detail is not None:
+        parts = [part.strip() for part in (detail.text or "").split(" · ")]
+        for semantic_id, index in (("room_name", 0), ("date", 1), ("time_range", 2)):
+            if len(parts) > index:
+                result.append(_element(
+                    semantic_id, detail,
+                    {"semantic_id": semantic_id},
+                    metadata={"value": parts[index]},
+                ))
+    else:
+        for semantic_id, node_ids in (
+            ("room_name", {"success-room"}),
+            ("date", {"success-date"}),
+            ("time_range", {"success-time"}),
+        ):
+            candidates = _dedupe_same_bounds(
+                node for node in nodes if node.node_id in node_ids
+            )
+            if candidates:
+                result.append(_element(
+                    semantic_id,
+                    candidates[0],
+                    {"semantic_id": semantic_id},
+                    metadata={"value": candidates[0].text},
+                ))
+    back = _dedupe_same_bounds(
+        node for node in nodes
+        if node.node_id == "complete-home"
+        or node.text in {"예약 화면으로", "예약 화면으로 돌아가기"}
+    )
+    if back:
+        result.append(_element(
+            "back_to_reservation", back[0], {"text": back[0].text or "예약 화면으로"}
         ))
     return tuple(result)
 
@@ -678,6 +873,15 @@ def _dedupe_same_bounds(nodes: Iterable[_Node]) -> list[_Node]:
     return list(selected.values())
 
 
+def _bounds_within(bounds: SemanticBounds, container: SemanticBounds) -> bool:
+    return (
+        bounds.left >= container.left
+        and bounds.top >= container.top
+        and bounds.right <= container.right
+        and bounds.bottom <= container.bottom
+    )
+
+
 def _semantic_priority(node: _Node) -> tuple[int, int, int]:
     return (
         1 if node.class_name == "android.widget.Button" else 0,
@@ -691,6 +895,7 @@ def _visual_order(node: _Node) -> tuple[int, int, int, int]:
 
 
 def _default_match(screen_id: str) -> JsonObject:
+    screen_id = canonical_screen_id(screen_id)
     for screen in DEFAULT_SSUTODAY_SCREENS:
         if screen.id == screen_id:
             return screen.match
@@ -698,7 +903,8 @@ def _default_match(screen_id: str) -> JsonObject:
 
 
 def _screen_context(screen_id: str, nodes: tuple[_Node, ...]) -> JsonObject:
-    if screen_id == "study_room_list":
+    canonical_id = canonical_screen_id(screen_id)
+    if canonical_id == "study_room_list":
         date_label = next(
             (
                 node.text for node in nodes
@@ -707,11 +913,47 @@ def _screen_context(screen_id: str, nodes: tuple[_Node, ...]) -> JsonObject:
             ),
             None,
         )
+        if date_label is None:
+            date_label = next(
+                (
+                    node.text for node in nodes
+                    if DATE_PICKER_PATTERN.fullmatch(node.text or "")
+                ),
+                None,
+            )
         return {"selected_date": _date_label_to_iso(date_label)}
-    if screen_id not in {"study_room_detail", "study_room_complete"}:
+    if canonical_id not in {
+        "study_room_detail", "study_room_confirm", "study_room_complete",
+    }:
         return {}
+    if canonical_id == "study_room_complete":
+        room = next(
+            (
+                node.text for node in nodes
+                if node.node_id == "success-room"
+                and re.fullmatch(r"스터디룸 .+", node.text or "")
+            ),
+            None,
+        )
+        date_label = next(
+            (node.text for node in nodes if node.node_id == "success-date"), None
+        )
+        time_range = next(
+            (node.text for node in nodes if node.node_id == "success-time"), None
+        )
+        if room is not None:
+            context: JsonObject = {
+                "room_id": _room_id_from_name(room),
+                "room_name": room,
+            }
+            if isinstance(date_label, str):
+                context["date"] = _date_label_to_iso(date_label) or date_label
+            if isinstance(time_range, str):
+                context["time"] = re.split(r"\s*[~-]\s*", time_range)[0]
+                context["time_range"] = time_range
+            return context
     detail_text = next(
-        (node.text for node in nodes if (node.text or "").startswith("스터디룸 ")),
+        (node.text for node in nodes if _room_id_from_name(node.text) is not None),
         None,
     )
     room = detail_text.split(" · ", 1)[0] if detail_text else None
@@ -727,12 +969,141 @@ def _screen_context(screen_id: str, nodes: tuple[_Node, ...]) -> JsonObject:
         context["selected_date"] = _date_label_to_iso(date_label)
     elif detail_text:
         date_match = re.search(r"[0-9]{4}-[0-9]{2}-[0-9]{2}", detail_text)
+        time_range_match = re.search(
+            r"([0-9]{2}:[0-9]{2}) - ([0-9]{2}:[0-9]{2})$", detail_text
+        )
         time_match = re.search(r"[0-9]{2}:[0-9]{2}$", detail_text)
         if date_match:
             context["date"] = date_match.group()
-        if time_match:
+        if time_range_match:
+            context["time"] = time_range_match.group(1)
+            context["time_range"] = time_range_match.group()
+        elif time_match:
             context["time"] = time_match.group()
     return context
+
+
+def _semantic_family(node: _Node) -> str | None:
+    value = node.metadata.get("semantic_family", node.metadata.get("family"))
+    if isinstance(value, str):
+        return value
+    semantic_id = node.metadata.get("semantic_id")
+    if not isinstance(semantic_id, str):
+        return None
+    return semantic_id.split("[", 1)[0]
+
+
+def _semantic_collection_index(node: _Node, *, fallback: int | None = None) -> int | None:
+    index = node.metadata.get("index")
+    if isinstance(index, int) and not isinstance(index, bool):
+        return index
+    semantic_id = node.metadata.get("semantic_id")
+    if isinstance(semantic_id, str):
+        match = re.search(r"\[([0-9]+)\]$", semantic_id)
+        if match is not None:
+            return int(match.group(1))
+    match = re.search(r"(?:date-chip|room-card|slot)-([0-9]+)$", node.node_id)
+    if match is not None:
+        return int(match.group(1))
+    return fallback
+
+
+def _semantic_collection_order(node: _Node) -> tuple[int, int, int, int]:
+    index = _semantic_collection_index(node)
+    if index is not None:
+        return (index, node.bounds.top, node.bounds.left, node.bounds.right)
+    visual = _visual_order(node)
+    return (10_000 + visual[0], visual[1], visual[2], visual[3])
+
+
+def _indexed_time_slot_siblings(nodes: tuple[_Node, ...]) -> list[_Node]:
+    groups: dict[str, dict[int, _Node]] = {}
+    for node in nodes:
+        if (
+            node.class_name != "android.widget.Button"
+            or node.text
+            or node.content_description
+        ):
+            continue
+        match = re.search(r"(?:^|\.)([0-9]+)$", node.node_id)
+        if match is None:
+            continue
+        parent_key = node.parent_id or node.node_id.rsplit(".", 1)[0]
+        groups.setdefault(parent_key, {})[int(match.group(1))] = node
+    for group in groups.values():
+        if all(index in group for index in range(32)):
+            return [group[index] for index in range(32)]
+    return []
+
+
+def _looks_like_room_card(node: _Node) -> bool:
+    return (
+        node.clickable
+        and re.match(r"^스터디룸\s+\S+", node.content_description or "") is not None
+    )
+
+
+def _room_card_values(
+    node: _Node,
+    nodes: tuple[_Node, ...],
+    *,
+    fallback_name: str,
+) -> tuple[str, str | None, str | None, str | None]:
+    description = (node.content_description or "").strip()
+    parts = description.split("|")
+    nested_texts = [
+        candidate.text
+        for candidate in nodes
+        if candidate is not node
+        and candidate.text
+        and _bounds_within(candidate.bounds, node.bounds)
+    ]
+
+    name_match = re.match(r"^(스터디룸\s+\S+)", description)
+    capacity_match = re.search(r"\b[0-9]+인실\b", description)
+    description_status = next(
+        (label for label in ROOM_STATUS_LABELS if description.endswith(label)), None
+    )
+    description_location = None
+    if capacity_match is not None:
+        description_location = description[capacity_match.end():].strip()
+        if description_status and description_location.endswith(description_status):
+            description_location = description_location[:-len(description_status)].strip()
+
+    metadata_name = node.metadata.get("room_name", node.metadata.get("name"))
+    room_name = (
+        metadata_name if isinstance(metadata_name, str) and metadata_name
+        else parts[0] if len(parts) == 4
+        else name_match.group(1) if name_match is not None
+        else next(
+            (text for text in nested_texts if re.fullmatch(r"스터디룸 .+", text)),
+            fallback_name,
+        )
+    )
+
+    def metadata_text(key: str) -> str | None:
+        value = node.metadata.get(key)
+        return value if isinstance(value, str) and value else None
+
+    capacity = (
+        metadata_text("capacity")
+        or (parts[1] if len(parts) == 4 else None)
+        or (capacity_match.group() if capacity_match is not None else None)
+        or next((text for text in nested_texts if re.fullmatch(r"[0-9]+인실", text)), None)
+    )
+    location = (
+        metadata_text("location")
+        or (parts[2] if len(parts) == 4 else None)
+        or description_location
+        or next((text for text in nested_texts if re.match(r"^[0-9]+층", text)), None)
+    )
+    status = (
+        metadata_text("status")
+        or (parts[3] if len(parts) == 4 else None)
+        or description_status
+        or next((text for text in nested_texts if text in ROOM_STATUS_LABELS), None)
+    )
+    return room_name, capacity, location, status
 
 
 def _date_label_to_iso(label: str | None) -> str | None:
@@ -744,6 +1115,40 @@ def _date_label_to_iso(label: str | None) -> str | None:
         return None
     year, month, day = (int(value) for value in match.groups())
     return f"{year:04d}-{month:02d}-{day:02d}"
+
+
+def _quick_date_day(label: str | None) -> int | None:
+    match = QUICK_DATE_PATTERN.fullmatch(label or "")
+    return int(match.group().split()[1]) if match else None
+
+
+def _parse_time_minutes(value: str) -> int:
+    hour, minute = (int(part) for part in value.split(":"))
+    return hour * 60 + minute
+
+
+def _format_minutes(value: int) -> str:
+    return f"{value // 60:02d}:{value % 60:02d}"
+
+
+def _time_slot_index(value: str) -> int | None:
+    if not re.fullmatch(r"[0-9]{2}:[0-9]{2}", value):
+        return None
+    minutes = _parse_time_minutes(value)
+    start = 6 * 60
+    if minutes < start or minutes > 21 * 60 + 30 or (minutes - start) % 30:
+        return None
+    return (minutes - start) // 30
+
+
+def _time_slot_end_index(value: str) -> int | None:
+    if not re.fullmatch(r"[0-9]{2}:[0-9]{2}", value):
+        return None
+    minutes = _parse_time_minutes(value)
+    start = 6 * 60 + 30
+    if minutes < start or minutes > 22 * 60 or (minutes - start) % 30:
+        return None
+    return (minutes - start) // 30
 
 
 def _room_id_from_name(room_name: object) -> str | None:

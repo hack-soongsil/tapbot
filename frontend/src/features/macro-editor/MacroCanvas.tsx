@@ -11,7 +11,7 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react'
 import { createPortal } from 'react-dom'
-import { useEffect, useRef, useState, type DragEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type DragEvent } from 'react'
 import '@xyflow/react/dist/style.css'
 import { getTapbotOverlayRoot } from '../../components/overlay-root'
 import { MACRO_BLOCK_MIME } from './BlockPalette'
@@ -19,9 +19,9 @@ import {
   MACRO_BLUEPRINT_MIME,
   type BlueprintDragItem,
 } from './blueprint-dnd'
-import { NODE_DEFINITIONS, type SearchItem } from './blocks'
 import { InlineEditingContext } from './inline-editing'
 import { QuickBlockSearch } from './QuickBlockSearch'
+import { createSearchItems, type SearchItem } from './search-provider'
 import {
   connectionForCreatedNode,
   connectionKind,
@@ -75,11 +75,7 @@ export interface MacroCanvasProps {
     port: PromoteVariablePort,
     position: { x: number; y: number },
   ) => void
-  quickSearchBlocks?: readonly SearchItem[]
-  onDropQuickBlock?: (
-    block: SearchItem,
-    position: { x: number; y: number },
-  ) => CreatedMacroNode | null | undefined
+  quickSearchItems?: readonly SearchItem[]
   variables?: readonly MacroVariableDefinition[]
   onUpdateNodeConfig?: (nodeId: string, config: Record<string, JsonValue>) => void
   dialogOpen?: boolean
@@ -104,8 +100,7 @@ export function MacroCanvas({
   onReady,
   onDropBlueprintItem,
   onPromoteToVariable,
-  quickSearchBlocks = NODE_DEFINITIONS,
-  onDropQuickBlock,
+  quickSearchItems,
   variables = [],
   onUpdateNodeConfig,
   dialogOpen = false,
@@ -128,6 +123,10 @@ export function MacroCanvas({
     screenPosition: { x: number; y: number }
     flowPosition: { x: number; y: number }
   } | null>(null)
+  const searchItems = useMemo(
+    () => quickSearchItems ?? createSearchItems(null, (type, position) => onDropBlock(type, position)),
+    [onDropBlock, quickSearchItems],
+  )
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -334,10 +333,9 @@ export function MacroCanvas({
         open={!dialogOpen && quickSearch !== null}
         screenPosition={quickSearch?.screenPosition ?? { x: 0, y: 0 }}
         flowPosition={quickSearch?.flowPosition ?? { x: 0, y: 0 }}
-        blocks={quickSearchBlocks}
+        items={searchItems}
         sourcePortContext={quickSearch?.sourcePortContext}
-        onSelect={(type, position) => {
-          const created = onDropBlock(type, position)
+        onCreated={(created) => {
           const context = quickSearch?.sourcePortContext
           if (!created || !context) return
           const planned = connectionForCreatedNode(context, created)
@@ -349,19 +347,6 @@ export function MacroCanvas({
             targetHandle: planned.connection.targetHandle ?? null,
           }, planned.kind)
         }}
-        onSelectDefinition={onDropQuickBlock ? (block, position) => {
-          const created = onDropQuickBlock(block, position)
-          const context = quickSearch?.sourcePortContext
-          if (!created || !context) return
-          const planned = connectionForCreatedNode(context, created)
-          if (!planned || !planned.connection.source || !planned.connection.target) return
-          onConnect({
-            source: planned.connection.source,
-            sourceHandle: planned.connection.sourceHandle ?? null,
-            target: planned.connection.target,
-            targetHandle: planned.connection.targetHandle ?? null,
-          }, planned.kind)
-        } : undefined}
         onClose={() => setQuickSearch(null)}
       />
       {!dialogOpen && blueprintDrop && createPortal((

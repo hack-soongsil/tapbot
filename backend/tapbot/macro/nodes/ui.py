@@ -59,7 +59,7 @@ class FindScreenElementNode:
                 config.get("element_id"),
                 params,
             )
-            if not error.startswith("params.index")
+            if not error.startswith(("params.index", "params.name"))
         )
 
     def execute(
@@ -89,12 +89,50 @@ class FindScreenElementNode:
                     hint="index 입력에 0 이상의 정수를 연결하세요.",
                 )
             params["index"] = index
+        if "name" in context.input_values:
+            name = context.input_values["name"]
+            if not isinstance(name, str) or not name.strip():
+                raise MacroExecutionError(
+                    "screen element name data input must be a non-empty string",
+                    code="INPUT_TYPE_MISMATCH",
+                    port="name",
+                    expected="non-empty string",
+                    value=name,
+                    hint="name 입력에 찾을 엘리먼트의 이름이나 시각을 연결하세요.",
+                )
+            params["name"] = name.strip()
         try:
             element = resolver(screen_id, element_id, params)
         except RuntimeError as error:
             context.last_resolved_element = None
+            message = str(error)
+            if config.get("required") is True:
+                mismatch = message.startswith("screen mismatch:")
+                default_code = "SCREEN_MISMATCH" if mismatch else "ELEMENT_NOT_FOUND"
+                configured_code = config.get(
+                    "screen_mismatch_code" if mismatch else "missing_error_code",
+                    default_code,
+                )
+                code = configured_code if isinstance(configured_code, str) else default_code
+                raise MacroExecutionError(
+                    "현재 화면이 예상과 다릅니다."
+                    if mismatch else "화면에서 필요한 엘리먼트를 찾을 수 없습니다.",
+                    code=code,
+                    port="element",
+                    expected=f"{screen_id}/{element_id}",
+                    actual="screen mismatch" if mismatch else "missing",
+                    hint=(
+                        "이전 화면 전환이 완료되었는지 확인하세요."
+                        if mismatch else "입력값과 현재 화면의 엘리먼트 상태를 확인하세요."
+                    ),
+                    details={
+                        "screen_id": screen_id,
+                        "element_id": element_id,
+                        "params": params,
+                    },
+                ) from error
             return NodeResult.success(
-                {"found": False, "reason": str(error)},
+                {"found": False, "reason": message},
                 next_handle="exec_out",
                 data_outputs={"found": False},
             )

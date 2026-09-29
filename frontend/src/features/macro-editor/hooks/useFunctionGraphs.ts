@@ -27,7 +27,9 @@ export function useFunctionGraphs({
   mapGraphs,
   activeFunctionId,
   graphNavigationStack,
-  navigateToGraphPath,
+  openFunction,
+  openMain,
+  goToBreadcrumb,
   forgetGraphView,
   selectedBlueprint,
   setSelectedBlueprint,
@@ -46,7 +48,9 @@ export function useFunctionGraphs({
   mapGraphs: (update: (graph: GraphFlow, graphId: GraphId) => GraphFlow) => void
   activeFunctionId: string | null
   graphNavigationStack: string[]
-  navigateToGraphPath: (path: string[]) => void
+  openFunction: (functionId: string, allowPendingDefinition?: boolean) => void
+  openMain: () => void
+  goToBreadcrumb: (index: number) => void
   forgetGraphView: (functionId: string) => void
   selectedBlueprint: BlueprintSelection | null
   setSelectedBlueprint: Dispatch<SetStateAction<BlueprintSelection | null>>
@@ -69,10 +73,10 @@ export function useFunctionGraphs({
     const item = createFunctionDefinition(id, requestedName)
     setDefinition({ ...definition, functions: [...(definition.functions ?? []), item] })
     replaceGraph(functionGraphId(id), macroFunctionToFlow(item))
-    navigateToGraphPath([...graphNavigationStack, id])
+    openFunction(id, true)
     setSelectedBlueprint({ kind: 'function', id })
     markChanged()
-  }, [definition, graphNavigationStack, markChanged, navigateToGraphPath, replaceGraph, setDefinition, setSelectedBlueprint])
+  }, [definition, markChanged, openFunction, replaceGraph, setDefinition, setSelectedBlueprint])
 
   const renameFunction = useCallback((functionId = activeFunctionId) => {
     if (!definition || !functionId) return
@@ -85,9 +89,8 @@ export function useFunctionGraphs({
     if (!definition) return
     const pathIndex = graphNavigationStack.indexOf(functionId)
     if (pathIndex >= 0) {
-      navigateToGraphPath(pathIndex === graphNavigationStack.length - 1
-        ? []
-        : graphNavigationStack.slice(0, pathIndex))
+      if (pathIndex === 0) openMain()
+      else goToBreadcrumb(pathIndex)
     }
     setDefinition({
       ...definition,
@@ -99,7 +102,7 @@ export function useFunctionGraphs({
       setSelectedBlueprint(null)
     }
     markChanged()
-  }, [definition, forgetGraphView, graphNavigationStack, markChanged, navigateToGraphPath, removeGraph, selectedBlueprint, setDefinition, setSelectedBlueprint])
+  }, [definition, forgetGraphView, goToBreadcrumb, graphNavigationStack, markChanged, openMain, removeGraph, selectedBlueprint, setDefinition, setSelectedBlueprint])
 
   const deleteFunction = useCallback((
     functionId = activeFunctionId,

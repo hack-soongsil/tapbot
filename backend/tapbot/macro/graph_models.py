@@ -10,6 +10,10 @@ from collections.abc import Callable, Mapping
 from typing import Any, Protocol, TypeAlias
 
 from tapbot.macro.tap_point import TapBounds
+from tapbot.ui_resolution.semantic_manifest import (
+    canonical_element_id,
+    canonical_screen_id,
+)
 
 
 JsonScalar: TypeAlias = str | int | float | bool | None
@@ -370,6 +374,30 @@ class MacroDefinition:
     variables: tuple[MacroVariableDefinition, ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "nodes",
+            tuple(_canonicalize_node_screen(node) for node in self.nodes),
+        )
+        object.__setattr__(
+            self,
+            "functions",
+            tuple(_canonicalize_function_screens(item) for item in self.functions),
+        )
+        if self.screen is not None:
+            object.__setattr__(
+                self, "screen", _canonicalize_screen_definition(self.screen)
+            )
+        if self.screen_event_entry_node_ids is not None:
+            object.__setattr__(self, "screen_event_entry_node_ids", {
+                canonical_screen_id(screen_id): entries
+                for screen_id, entries in self.screen_event_entry_node_ids.items()
+            })
+        object.__setattr__(
+            self,
+            "metadata",
+            _canonicalize_editor_screen_metadata(self.metadata),
+        )
         if self.event_entry_node_ids is None and self.entry_node_id:
             object.__setattr__(
                 self,
@@ -428,22 +456,19 @@ class MacroDefinition:
             raise ValueError("macro functions must be an array")
         if not isinstance(raw_variables, list):
             raise ValueError("macro variables must be an array")
-        screen_event_entries = (
-            None
-            if raw_screen_event_entries is None
-            else {
-                _text(
-                    screen_id,
-                    "screen event screen id",
-                ): EventEntryNodeIds.from_dict(
+        screen_event_entries = None
+        if raw_screen_event_entries is not None:
+            screen_event_entries = {}
+            for screen_id, entries in _mapping(
+                raw_screen_event_entries,
+                "screen_event_entry_node_ids",
+            ).items():
+                parsed_screen_id = canonical_screen_id(
+                    _text(screen_id, "screen event screen id")
+                )
+                screen_event_entries[parsed_screen_id] = EventEntryNodeIds.from_dict(
                     _mapping(entries, f"screen event entries for {screen_id}")
                 )
-                for screen_id, entries in _mapping(
-                    raw_screen_event_entries,
-                    "screen_event_entry_node_ids",
-                ).items()
-            }
-        )
         # The global lifecycle shape remains readable, but is normalized into the
         # per-screen model whenever the legacy definition identifies its screen.
         migrated_screen_id: str | None = None
@@ -453,8 +478,8 @@ class MacroDefinition:
             and raw_screen is not None
         ):
             legacy_screen = ScreenDefinition.from_dict(_mapping(raw_screen, "screen"))
-            screen_event_entries = {legacy_screen.id: event_entries}
-            migrated_screen_id = legacy_screen.id
+            migrated_screen_id = canonical_screen_id(legacy_screen.id)
+            screen_event_entries = {migrated_screen_id: event_entries}
         parsed_nodes = tuple(
             MacroNode.from_dict(_mapping(item, "macro node"))
             for item in raw_nodes
@@ -467,6 +492,7 @@ class MacroDefinition:
             parsed_nodes,
             parsed_edges,
         )
+        parsed_nodes = tuple(_canonicalize_node_screen(node) for node in parsed_nodes)
         if migrated_screen_id is not None and event_entries is not None:
             entry_kinds = {
                 node_id: kind
@@ -496,16 +522,24 @@ class MacroDefinition:
             nodes=parsed_nodes,
             edges=parsed_edges,
             entry_node_id=entry_node_id,
-            metadata=_json_object(value.get("metadata", {}), name="metadata"),
+            metadata=_canonicalize_editor_screen_metadata(
+                _json_object(value.get("metadata", {}), name="metadata")
+            ),
             screen=(
                 None
                 if raw_screen is None
-                else ScreenDefinition.from_dict(_mapping(raw_screen, "screen"))
+                else _canonicalize_screen_definition(
+                    ScreenDefinition.from_dict(_mapping(raw_screen, "screen"))
+                )
             ),
             event_entry_node_ids=event_entries,
             screen_event_entry_node_ids=screen_event_entries,
             functions=tuple(
-                MacroFunctionDefinition.from_dict(_mapping(item, "macro function"))
+                _canonicalize_function_screens(
+                    MacroFunctionDefinition.from_dict(
+                        _mapping(item, "macro function")
+                    )
+                )
                 for item in raw_functions
             ),
             variables=tuple(
@@ -567,7 +601,9 @@ class MacroDefinition:
     ) -> str | None:
         if self.screen_event_entry_node_ids is not None:
             if screen_id is not None:
-                entries = self.screen_event_entry_node_ids.get(screen_id)
+                entries = self.screen_event_entry_node_ids.get(
+                    canonical_screen_id(screen_id)
+                )
                 return None if entries is None else entries.get(event_kind)
             if len(self.screen_event_entry_node_ids) == 1:
                 entries = next(iter(self.screen_event_entry_node_ids.values()))
@@ -798,6 +834,11 @@ class GraphRuntime:
     definition_id: str
     definition_version: int
     current_node_id: str | None
+    graph_id: str = "main"
+    graph_path: tuple[str, ...] = ("main",)
+    function_id: str | None = None
+    function_name: str | None = None
+    call_depth: int = 0
     state: GraphRuntimeStatus = GraphRuntimeStatus.IDLE
     step_count: int = 0
     variables: JsonObject = field(default_factory=dict)
@@ -925,12 +966,27 @@ class GraphNodeTrace:
     input_sources: JsonObject = field(default_factory=dict)
     function_input_summary: JsonObject = field(default_factory=dict)
 
+    @property
+    def graph_id(self) -> str:
+        function_id = self.function_id or (
+            self.graph_path[-1] if len(self.graph_path) > 1 else None
+        )
+        if function_id is not None:
+            return f"function:{function_id}"
+        return "main"
+
+    @property
+    def call_depth(self) -> int:
+        return max(0, len(self.graph_path) - 1)
+
     def to_dict(self) -> JsonObject:
         return {
             "timestamp": self.completed_at.isoformat(),
             "step": self.step,
             "graph_path": list(self.graph_path),
             "graph_path_labels": list(self.graph_path_labels),
+            "graph_id": self.graph_id,
+            "call_depth": self.call_depth,
             "screen_id": self.screen_id,
             "active_screen": self.screen_id,
             "macro_definition_id": self.macro_definition_id,
@@ -958,6 +1014,50 @@ class GraphRunResult:
     definition: MacroDefinition
     runtime: GraphRuntime
     traces: tuple[GraphNodeTrace, ...]
+
+
+def _canonicalize_node_screen(node: MacroNode) -> MacroNode:
+    raw_screen_id = node.config.get("screen_id")
+    if not isinstance(raw_screen_id, str):
+        return node
+    screen_id = canonical_screen_id(raw_screen_id)
+    config = {**node.config, "screen_id": screen_id}
+    raw_element_id = config.get("element_id")
+    if isinstance(raw_element_id, str):
+        config["element_id"] = canonical_element_id(
+            screen_id, raw_element_id
+        )
+    return MacroNode(node.id, node.type, config, node.position, node.label)
+
+
+def _canonicalize_function_screens(
+    function: MacroFunctionDefinition,
+) -> MacroFunctionDefinition:
+    return MacroFunctionDefinition(
+        function.id,
+        function.name,
+        function.inputs,
+        function.outputs,
+        tuple(_canonicalize_node_screen(node) for node in function.nodes),
+        function.edges,
+        function.entry_node_id,
+        function.return_node_id,
+    )
+
+
+def _canonicalize_screen_definition(screen: ScreenDefinition) -> ScreenDefinition:
+    return ScreenDefinition(canonical_screen_id(screen.id), screen.match)
+
+
+def _canonicalize_editor_screen_metadata(metadata: JsonObject) -> JsonObject:
+    raw = metadata.get("editor_screen_node_ids")
+    if not isinstance(raw, dict):
+        return metadata
+    normalized: JsonObject = {}
+    for screen_id, node_ids in raw.items():
+        if isinstance(screen_id, str):
+            normalized[canonical_screen_id(screen_id)] = node_ids
+    return {**metadata, "editor_screen_node_ids": normalized}
 
 
 def assert_json_value(value: object, *, name: str = "value") -> None:

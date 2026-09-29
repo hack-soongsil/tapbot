@@ -59,7 +59,11 @@ _TYPED: dict[str, NodePorts] = {
         },
     ),
     "find_screen_element": NodePorts(
-        {"exec_in": PortType.EXEC, "index": PortType.INT},
+        {
+            "exec_in": PortType.EXEC,
+            "index": PortType.INT,
+            "name": PortType.STRING,
+        },
         {
             "exec_out": PortType.EXEC,
             "found": PortType.BOOL,

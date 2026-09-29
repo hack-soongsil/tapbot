@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type {
   AndroidDebugState,
@@ -448,6 +448,51 @@ describe('Android live viewport layout stability', () => {
     expect(view.container.querySelector('.android-live-stage')).toBe(stage)
     expect(stage?.querySelectorAll('.android-detection-box')).toHaveLength(10)
     expect(view.container.querySelectorAll('.android-hierarchy-row')).toHaveLength(60)
+  })
+
+  it('keeps the live header compact without duplicate panel titles', () => {
+    const view = render(
+      <AndroidDebugWorkspace
+        controller={controller()}
+        devices={devices}
+        onDeviceChange={vi.fn()}
+      />,
+    )
+    const header = view.container.querySelector('.android-live-header') as HTMLElement
+
+    expect(within(header).getByRole('button', { name: '요소 검사' })).toBeTruthy()
+    expect(within(header).getByLabelText('실시간 화면 상태').textContent).toBe('200×100·20 FPS·1 ms')
+    expect(header.textContent).not.toContain('기준 화면 소스')
+    expect(header.textContent).not.toContain('안드로이드 실시간 화면')
+    expect(header.querySelector('.bp6-tag')).toBeNull()
+  })
+
+  it('centers icon-only live screen actions with accessible tooltips', () => {
+    const activeController = controller()
+    const view = render(
+      <AndroidDebugWorkspace
+        controller={activeController}
+        devices={devices}
+        onDeviceChange={vi.fn()}
+      />,
+    )
+    const toolbar = view.container.querySelector('.android-control-bar') as HTMLElement
+    const group = within(toolbar).getByLabelText('실시간 화면 액션')
+    const actions = ['스크린샷', '뒤로', '홈'] as const
+
+    for (const label of actions) {
+      const button = within(group).getByRole('button', { name: label })
+      expect(button.classList.contains('android-live-action-button')).toBe(true)
+      expect(button.closest('.bp6-popover-target')).toBeTruthy()
+    }
+    expect(group.textContent).toBe('')
+
+    fireEvent.click(within(group).getByRole('button', { name: '스크린샷' }))
+    fireEvent.click(within(group).getByRole('button', { name: '뒤로' }))
+    fireEvent.click(within(group).getByRole('button', { name: '홈' }))
+    expect(activeController.saveScreenshot).toHaveBeenCalledTimes(1)
+    expect(activeController.back).toHaveBeenCalledTimes(1)
+    expect(activeController.home).toHaveBeenCalledTimes(1)
   })
 
   it('keeps the stage and image slot when stream falls back to screenshots', async () => {

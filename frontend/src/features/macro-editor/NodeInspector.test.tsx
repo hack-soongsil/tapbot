@@ -63,7 +63,7 @@ describe('NodeInspector semantic screen elements', () => {
     expect(error.getByText('Actual').nextElementSibling?.textContent).toBe('bool')
     expect(error.getByText('실제 입력값').nextElementSibling?.textContent).toContain('"index": false')
     expect(error.getByText('실패 Port 값').nextElementSibling?.textContent).toBe('false')
-    expect(error.getByText('Screen').nextElementSibling?.textContent).toContain('reservation_detail')
+    expect(error.getByText('Screen').nextElementSibling?.textContent).toContain('study_room_detail')
     expect(error.getByText('Hint').nextElementSibling?.textContent).toBe('정수 인덱스를 연결하세요.')
     expect(error.getByText('Function Inputs').nextElementSibling?.textContent).toContain('requested_index')
   })
@@ -81,7 +81,7 @@ describe('NodeInspector semantic screen elements', () => {
     )
 
     const screenSelect = screen.getByLabelText<HTMLSelectElement>('화면')
-    expect(screenSelect.value).toBe('reservation_detail')
+    expect(screenSelect.value).toBe('study_room_detail')
     expect([...screenSelect.options].map((option) => option.value)).toContain('study_room_detail')
     const element = screen.getByLabelText<HTMLSelectElement>('엘리먼트')
     expect(element.value).toBe('time_slot')
@@ -90,6 +90,7 @@ describe('NodeInspector semantic screen elements', () => {
     const index = screen.getByLabelText<HTMLInputElement>('인덱스')
     expect(index.type).toBe('number')
     expect(index.min).toBe('0')
+    expect(index.max).toBe('31')
     expect(index.valueAsNumber).toBe(6)
     fireEvent.change(index, { target: { value: '8' } })
 
@@ -103,6 +104,7 @@ describe('NodeInspector semantic screen elements', () => {
     const ports = getNodePorts('find_screen_element', timeSlotNode.data.config)
 
     expect(ports.inputs).toContainEqual({ id: 'index', type: 'int', optional: true })
+    expect(ports.inputs).toContainEqual({ id: 'name', type: 'string', optional: true })
     expect(ports.outputs).toEqual(expect.arrayContaining([
       { id: 'element', type: 'element' },
       { id: 'found', type: 'bool' },
@@ -142,6 +144,67 @@ describe('NodeInspector semantic screen elements', () => {
       ...roomNode.data.config,
       params: { name: '스터디룸 2C' },
     })
+  })
+
+  it('selects a canonical detail slot directly by time', () => {
+    const onUpdateConfig = vi.fn()
+    const byTimeNode: MacroFlowNode = {
+      ...timeSlotNode,
+      data: {
+        ...timeSlotNode.data,
+        config: {
+          screen_id: 'study_room_detail',
+          element_id: 'time_slot_by_time',
+          params: { name: '18:30' },
+        },
+      },
+    }
+    render(
+      <NodeInspector
+        node={byTimeNode} issues={[]} onUpdateConfig={onUpdateConfig}
+        onUpdateLabel={vi.fn()} onSetEntry={vi.fn()} onDelete={vi.fn()}
+      />,
+    )
+
+    const screenSelect = screen.getByLabelText<HTMLSelectElement>('화면')
+    expect([...screenSelect.options].map((option) => option.value)).toEqual([
+      'study_room_list', 'study_room_detail', 'study_room_confirm',
+      'study_room_complete',
+    ])
+    const time = screen.getByLabelText<HTMLSelectElement>('시간')
+    expect(time.options).toHaveLength(32)
+    expect(time.value).toBe('18:30')
+    fireEvent.change(time, { target: { value: '19:00' } })
+    expect(onUpdateConfig).toHaveBeenCalledWith({
+      ...byTimeNode.data.config,
+      params: { name: '19:00' },
+    })
+  })
+
+  it('selects the inclusive final slot by requested end time', () => {
+    const endTimeNode: MacroFlowNode = {
+      ...timeSlotNode,
+      data: {
+        ...timeSlotNode.data,
+        config: {
+          screen_id: 'study_room_detail',
+          element_id: 'time_slot_by_end_time',
+          params: { name: '19:30' },
+        },
+      },
+    }
+    render(
+      <NodeInspector
+        node={endTimeNode} issues={[]} onUpdateConfig={vi.fn()}
+        onUpdateLabel={vi.fn()} onSetEntry={vi.fn()} onDelete={vi.fn()}
+      />,
+    )
+
+    const endTime = screen.getByLabelText<HTMLSelectElement>('시간')
+    expect(endTime.options).toHaveLength(32)
+    expect(endTime.options[0]?.value).toBe('06:30')
+    expect(endTime.options[31]?.value).toBe('22:00')
+    expect(endTime.value).toBe('19:30')
   })
 })
 

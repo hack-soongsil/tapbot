@@ -316,7 +316,7 @@ class GraphValidator:
                     errors.append(
                         f"node {node.id!r}: click_element requires element input or selector fallback"
                     )
-            if node.type == "find_screen_element" and "index" not in inputs:
+            if node.type == "find_screen_element":
                 from tapbot.ui_resolution.screens import validate_screen_element_reference
 
                 params = node.config.get("params", {})
@@ -325,7 +325,15 @@ class GraphValidator:
                     node.config.get("element_id"),
                     params,
                 ):
-                    if message.startswith("params.index"):
+                    dynamic_index = (
+                        message.startswith("params.index") and "index" in inputs
+                    )
+                    dynamic_name = (
+                        message.startswith("params.name") and "name" in inputs
+                    )
+                    if message.startswith(("params.index", "params.name")) and not (
+                        dynamic_index or dynamic_name
+                    ):
                         errors.append(f"node {node.id!r}: {message}")
             if node.type == "function_return":
                 raw_outputs = node.config.get("outputs", [])

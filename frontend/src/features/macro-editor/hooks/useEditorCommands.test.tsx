@@ -48,7 +48,8 @@ function dependencies(overrides: Partial<EditorCommandDependencies> = {}) {
     setRuntimeDetailOpen: vi.fn(), setCanvasExpansion: vi.fn(), setVariableDialog: vi.fn(),
     setNameDialog: vi.fn(), setConfirmDialog: vi.fn(), setRunSetupMacro: vi.fn(),
     setBusy: vi.fn(), setMessage: vi.fn(), setMessageIntent: vi.fn(),
-    enterFunctionGraph: vi.fn(), navigateToGraphPath: vi.fn(), guardUnsavedChanges: vi.fn(),
+    openMain: vi.fn(), openFunction: vi.fn(), openPath: vi.fn(), goBack: vi.fn(),
+    goToBreadcrumb: vi.fn(), guardUnsavedChanges: vi.fn(),
     markChanged: vi.fn(), selectedScreenId: 'reservation_home',
     ...overrides,
   } as unknown as EditorCommandDependencies

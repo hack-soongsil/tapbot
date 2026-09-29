@@ -36,6 +36,7 @@ pythonpath = ["backend", "."]
 addopts = "-ra -m 'not hardware'"
 markers = [
     "hardware: requires a connected physical Android device, camera, or robot",
+    "blueprint_soak: long-running Blueprint state-isolation regression test",
 ]
 
 [tool.hatch.build.targets.wheel]

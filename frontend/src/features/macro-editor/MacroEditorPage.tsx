@@ -21,6 +21,7 @@ import { NodeInspector } from './NodeInspector'
 import { createEmptyMacroDefinition, MACRO_DRAFT_STORAGE_KEY } from './definition-factory'
 import { MacroEventLog } from '../macro-runtime/MacroEventLog'
 import { useMacroRuntime } from '../macro-runtime/useMacroRuntime'
+import { runtimeNodeKey } from '../macro-runtime/runtime-overlay'
 import type {
   BackendValidationResponse,
   MacroDefinition,
@@ -133,7 +134,7 @@ export function MacroEditorPage() {
         ...node.data,
         isEntry: Boolean(meta.entry_node_id) && node.id === meta.entry_node_id,
         errors: issues.filter((issue) => issue.nodeId === node.id).map((issue) => issue.message),
-        runtimeState: liveRuntime.graphOverlay.nodeStates[node.id] ?? 'pending',
+        runtimeState: liveRuntime.graphOverlay.nodeStates[runtimeNodeKey('main', node.id)] ?? 'pending',
       },
     })),
     [issues, liveRuntime.graphOverlay.nodeStates, meta.entry_node_id, nodes],
@@ -148,14 +149,16 @@ export function MacroEditorPage() {
       },
       className: [
         edge.data?.kind === 'data' ? 'macro-edge--data' : '',
-        edge.id === liveRuntime.graphOverlay.currentEdgeId ? 'runtime-current-edge' : '',
+        liveRuntime.graphOverlay.currentGraphId === 'main'
+          && edge.id === liveRuntime.graphOverlay.currentEdgeId ? 'runtime-current-edge' : '',
       ].filter(Boolean).join(' ') || undefined,
-      animated: edge.id === liveRuntime.graphOverlay.currentEdgeId || issues.some((issue) => issue.edgeId === edge.id),
+      animated: (liveRuntime.graphOverlay.currentGraphId === 'main'
+        && edge.id === liveRuntime.graphOverlay.currentEdgeId) || issues.some((issue) => issue.edgeId === edge.id),
       style: issues.some((issue) => issue.edgeId === edge.id)
         ? { stroke: 'var(--danger)' }
         : undefined,
     })),
-    [edges, issues, liveRuntime.graphOverlay.currentEdgeId],
+    [edges, issues, liveRuntime.graphOverlay.currentEdgeId, liveRuntime.graphOverlay.currentGraphId],
   )
 
   useEffect(() => {

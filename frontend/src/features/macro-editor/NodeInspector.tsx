@@ -8,7 +8,12 @@ import {
 } from './blocks'
 import { RuntimeErrorSection } from './RuntimeErrorSection'
 import type { RuntimeTrace } from './runtime-trace'
-import { SCREEN_ELEMENTS, SEMANTIC_SCREEN_OPTIONS } from './screen-elements'
+import {
+  SCREEN_ELEMENTS,
+  SEMANTIC_SCREEN_OPTIONS,
+  canonicalElementId,
+  canonicalScreenId,
+} from './screen-elements'
 import type {
   JsonValue,
   MacroFlowNode,
@@ -338,16 +343,19 @@ function SamplingFields({ label, value, onChange }: { label: string; value: Reco
 }
 
 function ScreenElementFields({ config, updateMany, updateObject }: { config: Record<string, JsonValue>; updateMany: (values: Record<string, JsonValue>) => void; updateObject: (key: string, field: string, value: JsonValue) => void }) {
-  const screenId = text(config.screen_id, 'reservation_home')
+  const screenId = canonicalScreenId(text(config.screen_id, 'study_room_list'))
   const elements = SCREEN_ELEMENTS[screenId] ?? []
-  const elementId = text(config.element_id, elements[0]?.id ?? '')
+  const elementId = canonicalElementId(
+    screenId,
+    text(config.element_id, elements[0]?.id ?? ''),
+  )
   const selected = elements.find((element) => element.id === elementId)
   const params = jsonObject(config.params)
   const defaultParams = (option: typeof selected): Record<string, JsonValue> => {
     if (!option?.collection) return {}
-    return option.param === 'name' ? { name: '' } : { index: 0 }
+    return option.param === 'name' ? { name: option.values?.[0] ?? '' } : { index: 0 }
   }
-  return <><Field label={ko.inspector.screen}><select value={screenId} onChange={(event) => { const next = event.target.value; const first = SCREEN_ELEMENTS[next]?.[0]; updateMany({ screen_id: next, element_id: first?.id ?? '', params: defaultParams(first) }) }}>{SEMANTIC_SCREEN_OPTIONS.map((screen) => <option key={screen.id} value={screen.id}>{screen.label}</option>)}</select></Field><Field label={ko.inspector.element}><select value={elementId} onChange={(event) => { const next = event.target.value; updateMany({ element_id: next, params: defaultParams(elements.find((element) => element.id === next)) }) }}>{elements.map((element) => <option key={element.id} value={element.id}>{element.label}</option>)}</select></Field>{selected?.collection && (selected.param === 'name' ? <TextField label="이름" value={text(params.name)} onChange={(value) => updateObject('params', 'name', value)} /> : <NumberField label={ko.inspector.index} min={0} value={number(params.index)} onChange={(value) => updateObject('params', 'index', Math.max(0, Math.trunc(value)))} />)}</>
+  return <><Field label={ko.inspector.screen}><select value={screenId} onChange={(event) => { const next = event.target.value; const first = SCREEN_ELEMENTS[next]?.[0]; updateMany({ screen_id: next, element_id: first?.id ?? '', params: defaultParams(first) }) }}>{SEMANTIC_SCREEN_OPTIONS.map((screen) => <option key={screen.id} value={screen.id}>{screen.label}</option>)}</select></Field><Field label={ko.inspector.element}><select value={elementId} onChange={(event) => { const next = event.target.value; updateMany({ element_id: next, params: defaultParams(elements.find((element) => element.id === next)) }) }}>{elements.map((element) => <option key={element.id} value={element.id}>{element.label}</option>)}</select></Field>{selected?.collection && (selected.param === 'name' ? selected.values ? <Field label="시간"><select value={text(params.name, selected.values[0])} onChange={(event) => updateObject('params', 'name', event.target.value)}>{selected.values.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field> : <TextField label="이름" value={text(params.name)} onChange={(value) => updateObject('params', 'name', value)} /> : <NumberField label={ko.inspector.index} min={0} max={selected.maxIndex} value={number(params.index)} onChange={(value) => updateObject('params', 'index', Math.min(selected.maxIndex ?? Number.MAX_SAFE_INTEGER, Math.max(0, Math.trunc(value))))} />)}</>
 }
 
 function TriState({ label, value, onChange }: { label: string; value: JsonValue | undefined; onChange: (value: JsonValue) => void }) {

@@ -210,6 +210,50 @@ def test_semantic_slot_resolution_returns_disabled_and_hidden_state_metadata() -
     assert hidden.metadata["visible"] is False
 
 
+def test_time_slot_resolves_by_half_hour_name_through_canonical_screen_alias() -> None:
+    def slot_node(index: int) -> dict[str, object]:
+        return {
+            "node_id": f"slot-{index}",
+            "parent_id": None,
+            "class_name": "android.widget.Button",
+            "text": None,
+            "content_description": None,
+            "view_id_resource_name": None,
+            "bounds": {
+                "left": 20 + index * 10, "top": 500,
+                "right": 28 + index * 10, "bottom": 550,
+            },
+            "clickable": True,
+            "enabled": True,
+            "visible_to_user": index < 8,
+            "metadata": {"index": index},
+        }
+
+    tree = {"nodes": [
+        {
+            **slot_node(0),
+            "node_id": "guidance",
+            "class_name": "android.widget.TextView",
+            "text": "한 칸은 30분입니다. 예약된 시간은 선택할 수 없어요",
+            "clickable": False,
+        },
+        {**slot_node(0), "node_id": "date", "text": "2026년 9월 29일(화)"},
+        {**slot_node(0), "node_id": "reset", "text": "초기화"},
+        {**slot_node(0), "node_id": "cta", "text": "시간을 선택하세요", "enabled": False},
+        *(slot_node(index) for index in range(32)),
+    ]}
+    resolver = _AndroidGraphUi(StaticAndroidContext(tree))  # type: ignore[arg-type]
+
+    slot = resolver.resolve_screen_element(
+        "study_room_detail", "time_slot_by_time", {"name": "18:30"}
+    )
+
+    assert slot.id == "time_slot_by_time[18:30]"
+    assert slot.metadata["index"] == 25
+    assert slot.metadata["start_time"] == "18:30"
+    assert slot.metadata["end_time"] == "19:00"
+
+
 def test_study_room_card_resolves_by_index_and_name() -> None:
     def node(
         node_id: str,
@@ -236,11 +280,16 @@ def test_study_room_card_resolves_by_index_and_name() -> None:
     tree = {"nodes": [
         node("header", text="스터디룸 예약", bounds=(20, 40, 300, 100)),
         node(
+            "accessibility-card-a",
+            description="스터디룸 2A 10인실 2층 교수연구실 옆 보통",
+            bounds=(20, 120, 1000, 340),
+        ),
+        node(
             "room-name", text="스터디룸 2B", bounds=(100, 400, 500, 470)
         ),
         node(
-            "room-card-1",
-            description="스터디룸 2B|10인실|2층 중앙|여유",
+            "accessibility-card-b",
+            description="스터디룸 2B 10인실 2층 중앙 여유",
             bounds=(20, 350, 1000, 700),
         ),
         node("bottom-booking", description="예약", bounds=(300, 1800, 700, 1900)),

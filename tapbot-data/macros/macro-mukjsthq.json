@@ -342,8 +342,8 @@
       },
       "id": "find_screen_element-2",
       "position": {
-        "x": 399.9232562197333,
-        "y": 160.6274216419348
+        "x": 286.6990700827118,
+        "y": 247.13578857808608
       },
       "type": "find_screen_element"
     },
@@ -368,8 +368,8 @@
       },
       "id": "click_element-2",
       "position": {
-        "x": 1005.2472338564252,
-        "y": 121.84175974513516
+        "x": 988.7088695892197,
+        "y": 107.84775921134599
       },
       "type": "click_element"
     },
@@ -413,5 +413,5 @@
       "update": "event-home-update"
     }
   },
-  "version": 18
+  "version": 19
 }

@@ -331,11 +331,15 @@ class ClickElementNode:
                 hint="대상이 보이도록 스크롤하거나 화면 전환을 기다리세요.",
             )
         if element.metadata.get("enabled") is False:
+            disabled_code, disabled_summary, disabled_hint = _disabled_element_error(
+                element, config
+            )
             raise MacroExecutionError(
-                f"click element target {element.id!r} is disabled", code="ELEMENT_DISABLED",
-                summary="엘리먼트 클릭 실패: 대상이 비활성 상태입니다.",
+                f"click element target {element.id!r} is disabled",
+                code=disabled_code,
+                summary=disabled_summary,
                 port="element", expected="enabled", actual="disabled", value=element,
-                hint="필수 입력이나 선행 단계를 완료하고 대상이 활성화된 뒤 다시 실행하세요.",
+                hint=disabled_hint,
             )
         context.last_resolved_element = element
         click = _object(config, "click", {})
@@ -435,6 +439,51 @@ class WaitNode:
             remaining -= interval
         context.check_active()
         return NodeResult.success(next_handle="exec_out")
+
+
+def _disabled_element_error(
+    element: GraphElement,
+    config: JsonObject,
+) -> tuple[str, str, str]:
+    configured_code = config.get("disabled_error_code")
+    semantic_id = element.metadata.get("semantic_id")
+    semantic_family = (
+        semantic_id.split("[", 1)[0]
+        if isinstance(semantic_id, str)
+        else None
+    )
+    state = element.metadata.get("state")
+    if isinstance(configured_code, str) and configured_code:
+        code = configured_code
+    elif semantic_family in {"time_slot", "time_slot_by_time", "time_slot_by_end_time"}:
+        code = "SLOT_RESERVED" if state in {"booked", "reserved", "mine"} else "SLOT_DISABLED"
+    elif semantic_family == "reserve_cta":
+        code = "CTA_DISABLED"
+    else:
+        code = "ELEMENT_DISABLED"
+    if code == "SLOT_RESERVED":
+        return (
+            code,
+            "시간 슬롯 선택 실패: 이미 예약된 시간입니다.",
+            "다른 시간대를 선택하거나 예약 현황을 새로 확인하세요.",
+        )
+    if code == "SLOT_DISABLED":
+        return (
+            code,
+            "시간 슬롯 선택 실패: 선택할 수 없는 시간입니다.",
+            "과거 시간이 아닌 활성화된 시간 슬롯을 선택하세요.",
+        )
+    if code == "CTA_DISABLED":
+        return (
+            code,
+            "예약 버튼이 비활성 상태입니다.",
+            "시간 범위가 정상적으로 선택되었는지 확인하세요.",
+        )
+    return (
+        code,
+        "엘리먼트 클릭 실패: 대상이 비활성 상태입니다.",
+        "필수 입력이나 선행 단계를 완료하고 대상이 활성화된 뒤 다시 실행하세요.",
+    )
 
 
 def _require_actions(context: GraphExecutionContext):

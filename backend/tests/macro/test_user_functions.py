@@ -22,6 +22,11 @@ class Ui:
         return GraphElement("result", TapBounds(0, 0, 10, 10))
 
 
+class FailingUi:
+    def find_element(self, selector, **options):
+        raise RuntimeError("device lookup failed")
+
+
 def exec_edge(edge_id, source, target, handle="exec_out"):
     return MacroEdge(
         edge_id, source, target,
@@ -36,14 +41,20 @@ def data_edge(edge_id, source, source_handle, target, target_handle):
     )
 
 
-def find_function(function_id="check", called_function_id=None):
+def find_function(function_id="check", called_function_id=None, *, has_input=True):
     middle = MacroNode("exists", "element_exists", {"selector": {"text": "ok"}})
+    result_handle = "result"
     if called_function_id is not None:
-        middle = MacroNode("nested", "call_function", {"function_id": called_function_id})
+        middle = MacroNode("nested", "call_function", {
+            "function_id": called_function_id,
+            "inputs": [{"id": "index", "type": "int"}] if has_input else [],
+            "outputs": [{"id": "success", "type": "bool"}],
+        })
+        result_handle = "success"
     return MacroFunctionDefinition(
         function_id,
         function_id.title(),
-        (FunctionPortDefinition("index", "int"),),
+        (FunctionPortDefinition("index", "int"),) if has_input else (),
         (FunctionPortDefinition("success", "bool"),),
         (
             MacroNode("fn-entry", "function_entry"),
@@ -53,7 +64,7 @@ def find_function(function_id="check", called_function_id=None):
         (
             exec_edge("entry-next", "fn-entry", middle.id),
             exec_edge("to-return", middle.id, "fn-return"),
-            data_edge("result", middle.id, "result", "fn-return", "success"),
+            data_edge("result", middle.id, result_handle, "fn-return", "success"),
         ),
         "fn-entry",
         "fn-return",
@@ -270,6 +281,73 @@ def test_function_call_returns_data_and_keeps_local_scope_isolated() -> None:
     assert context.variables["outer_index"] == 0
     assert "exists" not in context.variables
     assert "fn-entry" not in context.variables
+
+
+def test_nested_function_forwards_node_trace_and_edge_callbacks_with_graph_context() -> None:
+    inner = find_function("inner", has_input=False)
+    outer = find_function("outer", "inner", has_input=False)
+    graph = MacroDefinition(
+        "macro", "Macro", 1,
+        (MacroNode("call", "call_function", {"function_id": "outer"}),),
+        (), "call", functions=(outer, inner),
+    )
+    starts: list[tuple[str, str, tuple[str, ...], int]] = []
+    traces: list[tuple[str, str, tuple[str, ...], int]] = []
+    edges: list[tuple[str, str, tuple[str, ...], int]] = []
+
+    result = GraphEngine(create_default_node_registry()).run(
+        graph,
+        context=GraphExecutionContext(ui=Ui()),
+        on_node_start=lambda node, runtime: starts.append((
+            node.id, runtime.graph_id, runtime.graph_path, runtime.call_depth,
+        )),
+        on_trace=lambda trace, _runtime: traces.append((
+            trace.node_id, trace.graph_id, trace.graph_path, trace.call_depth,
+        )),
+        on_edge=lambda edge, runtime: edges.append((
+            edge.id, runtime.graph_id, runtime.graph_path, runtime.call_depth,
+        )),
+    )
+
+    assert result.runtime.state is GraphRuntimeStatus.COMPLETED
+    assert starts[0] == ("call", "main", ("main",), 0)
+    assert ("nested", "function:outer", ("main", "outer"), 1) in starts
+    assert ("exists", "function:inner", ("main", "outer", "inner"), 2) in starts
+    assert ("exists", "function:inner", ("main", "outer", "inner"), 2) in traces
+    assert ("entry-next", "function:inner", ("main", "outer", "inner"), 2) in edges
+    assert [trace.step for trace in result.traces] == list(range(1, len(result.traces) + 1))
+    assert any(trace.graph_id == "function:outer" for trace in result.traces)
+    assert any(trace.graph_id == "function:inner" for trace in result.traces)
+    assert result.traces[-1].node_id == "call"
+
+
+def test_nested_function_failure_marks_child_and_parent_call_nodes() -> None:
+    inner = find_function("inner", has_input=False)
+    outer = find_function("outer", "inner", has_input=False)
+    graph = MacroDefinition(
+        "macro", "Macro", 1,
+        (MacroNode("call", "call_function", {"function_id": "outer"}),),
+        (), "call", functions=(outer, inner),
+    )
+    published = []
+
+    result = GraphEngine(create_default_node_registry()).run(
+        graph,
+        context=GraphExecutionContext(ui=FailingUi()),
+        on_trace=lambda trace, _runtime: published.append(trace),
+    )
+
+    assert result.runtime.state is GraphRuntimeStatus.ERROR
+    failures = [trace for trace in published if trace.status.value == "failure"]
+    assert [(trace.graph_id, trace.node_id) for trace in failures] == [
+        ("function:inner", "exists"),
+        ("function:outer", "nested"),
+        ("main", "call"),
+    ]
+    origin = failures[0].to_dict()
+    assert origin["graph_path"] == ["main", "outer", "inner"]
+    assert origin["call_depth"] == 2
+    assert failures[-1].error_payload["cause"]["graph_id"] == "function:inner"
 
 
 def test_recursive_function_call_is_rejected() -> None:

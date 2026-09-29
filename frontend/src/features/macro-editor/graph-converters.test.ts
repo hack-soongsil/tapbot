@@ -56,14 +56,14 @@ describe('macro graph converters', () => {
     expect(restored.entry_node_id).toBeUndefined()
     expect(restored.event_entry_node_ids).toBeUndefined()
     expect(restored.screen_event_entry_node_ids).toEqual({
-      reservation_home: {
-        enter: 'event-home-enter', update: 'event-home-update', exit: 'event-home-exit',
+      study_room_list: {
+        enter: 'event-study-room-list-enter', update: 'event-study-room-list-update', exit: 'event-study-room-list-exit',
       },
-      reservation_detail: {
-        enter: 'event-detail-enter', update: 'event-detail-update', exit: 'event-detail-exit',
+      study_room_detail: {
+        enter: 'event-study-room-detail-enter', update: 'event-study-room-detail-update', exit: 'event-study-room-detail-exit',
       },
     })
-    expect(restored.edges[0]).toMatchObject({ source: 'event-home-enter', target: 'find' })
+    expect(restored.edges[0]).toMatchObject({ source: 'event-study-room-list-enter', target: 'find' })
     const restoredFind = restored.nodes.find((node) => node.id === 'find')!
     expect(restoredFind).not.toHaveProperty('selected')
     expect(restoredFind).not.toHaveProperty('measured')
@@ -104,11 +104,11 @@ describe('macro graph converters', () => {
 
     expect(restored).not.toHaveProperty('event_entry_node_ids')
     expect(restored).not.toHaveProperty('screen')
-    expect(restored.screen_event_entry_node_ids?.reservation_home).toEqual({
+    expect(restored.screen_event_entry_node_ids?.study_room_list).toEqual({
       enter: 'enter', update: 'update', exit: 'exit',
     })
-    expect(restored.screen_event_entry_node_ids?.reservation_detail).toEqual({
-      enter: 'event-detail-enter', update: 'event-detail-update', exit: 'event-detail-exit',
+    expect(restored.screen_event_entry_node_ids?.study_room_detail).toEqual({
+      enter: 'event-study-room-detail-enter', update: 'event-study-room-detail-update', exit: 'event-study-room-detail-exit',
     })
     expect(restored.nodes).toHaveLength(6)
     expect(flow.nodes.every((node) => node.deletable === false)).toBe(true)
@@ -150,7 +150,7 @@ describe('macro graph converters', () => {
     expect(restored.nodes.find((node) => node.id === 'semantic')).toMatchObject({
       type: 'find_screen_element',
       config: {
-        screen_id: 'reservation_home', element_id: 'quick_date', params: { index: 2 },
+        screen_id: 'study_room_list', element_id: 'date_chip', params: { index: 2 },
       },
     })
     expect(restored.nodes.find((node) => node.id === 'semantic-click')).toMatchObject({

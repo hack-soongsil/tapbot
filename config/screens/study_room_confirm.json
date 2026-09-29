@@ -1,0 +1,21 @@
+{
+  "id": "study_room_confirm",
+  "label": "예약 확인",
+  "screen_type": "dialog",
+  "supports_scroll": false,
+  "match": {
+    "all": [
+      {"text": "이 시간으로 예약할까요?"},
+      {"text": "취소"},
+      {"text": "예약 확정"}
+    ]
+  },
+  "elements": {
+    "title": {"label": "확인 제목", "selector": {"text": "이 시간으로 예약할까요?"}},
+    "room_name": {"label": "스터디룸 이름", "selector": {"text_regex": "^스터디룸 .+$"}},
+    "date": {"label": "예약 날짜"},
+    "time_range": {"label": "예약 시간"},
+    "cancel": {"label": "취소", "selector": {"text": "취소"}},
+    "confirm_reservation": {"label": "예약 확정", "selector": {"text": "예약 확정"}}
+  }
+}

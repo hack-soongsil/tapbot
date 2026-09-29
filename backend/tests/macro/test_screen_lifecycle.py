@@ -62,11 +62,11 @@ def test_enter_update_and_transition_order() -> None:
     dispatcher.refresh(detail_tree("이 시간으로 예약하기"))
 
     assert calls == [
-        ("enter", "reservation_home"),
-        ("update", "reservation_home"),
-        ("exit", "reservation_home"),
-        ("enter", "reservation_detail"),
-        ("update", "reservation_detail"),
+        ("enter", "study_room_list"),
+        ("update", "study_room_list"),
+        ("exit", "study_room_list"),
+        ("enter", "study_room_detail"),
+        ("update", "study_room_detail"),
     ]
 
 

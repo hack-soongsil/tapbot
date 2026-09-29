@@ -52,6 +52,10 @@ class DeviceRuntimeSnapshot:
     current_node_id: str | None
     current_edge_id: str | None
     state: DeviceRuntimeStatus
+    current_graph_id: str = "main"
+    current_graph_path: tuple[str, ...] = ("main",)
+    current_function_id: str | None = None
+    node_states: JsonObject = field(default_factory=dict)
     active_screen_id: str | None = None
     step_count: int = 0
     variables: JsonObject = field(default_factory=dict)
@@ -67,6 +71,10 @@ class DeviceRuntimeSnapshot:
             "definition_version": self.definition_version,
             "current_node_id": self.current_node_id,
             "current_edge_id": self.current_edge_id,
+            "current_graph_id": self.current_graph_id,
+            "current_graph_path": list(self.current_graph_path),
+            "current_function_id": self.current_function_id,
+            "node_states": json.loads(json.dumps(self.node_states)),
             "state": self.state.value,
             "active_screen_id": self.active_screen_id,
             "step_count": self.step_count,
@@ -93,6 +101,7 @@ class _Session:
     thread: Thread | None = None
     error: str | None = None
     current_edge_id: str | None = None
+    node_states: dict[str, str] = field(default_factory=dict)
     last_variable_fingerprint: dict[str, str] = field(default_factory=dict)
     active_screen_id: str | None = None
 
@@ -235,6 +244,10 @@ class RuntimeManager:
                 ),
                 current_edge_id=session.current_edge_id,
                 state=session.state,
+                current_graph_id="main" if runtime is None else runtime.graph_id,
+                current_graph_path=("main",) if runtime is None else runtime.graph_path,
+                current_function_id=None if runtime is None else runtime.function_id,
+                node_states=dict(session.node_states),
                 active_screen_id=session.active_screen_id,
                 step_count=len(session.traces),
                 variables=_snapshot_variables(session.context.variables),
@@ -474,6 +487,9 @@ class RuntimeManager:
                 error_payload=error_payload,
             )
             session.traces.append(trace)
+            session.node_states[_runtime_node_key(trace.graph_id, trace.node_id)] = (
+                "failure" if trace.status is NodeStatus.FAILURE else "success"
+            )
             session.current_edge_id = None
             if session.step_budget is not None:
                 session.step_budget -= 1
@@ -502,7 +518,7 @@ class RuntimeManager:
         session.last_variable_fingerprint = fingerprint
         self._publish(
             session,
-            "macro.node.failed" if trace.status is NodeStatus.FAILURE else "macro.node.completed",
+            _node_event_type(trace.status),
             node_id=trace.node_id,
             payload={
                 **trace.to_dict(),
@@ -525,11 +541,15 @@ class RuntimeManager:
         with session.condition:
             session.runtime = runtime
             session.current_edge_id = None
+            session.node_states[_runtime_node_key(runtime.graph_id, node.id)] = "running"
         self._publish(
             session,
             "macro.node.started",
             node_id=node.id,
-            payload={"node_type": node.type},
+            payload={
+                "node_type": node.type,
+                **_runtime_graph_context(runtime),
+            },
         )
 
     def _edge_traversed(
@@ -545,7 +565,11 @@ class RuntimeManager:
             session,
             "macro.edge.traversed",
             edge_id=edge.id,
-            payload={"source": edge.source, "target": edge.target},
+            payload={
+                "source": edge.source,
+                "target": edge.target,
+                **_runtime_graph_context(runtime),
+            },
         )
 
     def _publish_node_output(self, session: _Session, trace: GraphNodeTrace) -> None:
@@ -632,6 +656,24 @@ class RuntimeManager:
 
 def _snapshot_variables(variables: dict[str, object]) -> JsonObject:
     return {name: _snapshot_variable_value(value) for name, value in variables.items()}
+
+
+def _runtime_graph_context(runtime: GraphRuntime) -> JsonObject:
+    return {
+        "graph_id": runtime.graph_id,
+        "graph_path": list(runtime.graph_path),
+        "function_id": runtime.function_id,
+        "function_name": runtime.function_name,
+        "call_depth": runtime.call_depth,
+    }
+
+
+def _runtime_node_key(graph_id: str, node_id: str) -> str:
+    return f"{graph_id}::{node_id}"
+
+
+def _node_event_type(status: NodeStatus) -> str:
+    return "macro.node.failed" if status is NodeStatus.FAILURE else "macro.node.completed"
 
 
 def _validated_initial_variables(

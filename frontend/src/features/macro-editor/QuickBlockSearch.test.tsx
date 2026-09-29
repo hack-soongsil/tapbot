@@ -2,8 +2,8 @@
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { BLOCKS } from './blocks'
 import { QUICK_BLOCK_RECENT_KEY, QuickBlockSearch } from './QuickBlockSearch'
+import { createSearchItems } from './search-provider'
 import type { MacroNodeType } from './types'
 
 const screenPosition = { x: 120, y: 140 }
@@ -26,13 +26,16 @@ afterEach(cleanup)
 function setup(overrides: Partial<React.ComponentProps<typeof QuickBlockSearch>> = {}) {
   const onSelect = vi.fn()
   const onClose = vi.fn()
+  const items = createSearchItems(null, (type, position) => {
+    onSelect(type, position)
+    return { id: `${type}-created`, type, config: {} }
+  })
   render(
     <QuickBlockSearch
       open
       screenPosition={screenPosition}
       flowPosition={flowPosition}
-      blocks={BLOCKS}
-      onSelect={onSelect}
+      items={items}
       onClose={onClose}
       {...overrides}
     />,

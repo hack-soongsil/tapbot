@@ -1,5 +1,5 @@
 import { Button, Callout, Icon } from '@blueprintjs/core'
-import { SCREEN_OPTIONS } from './screen-elements'
+import { SEMANTIC_SCREEN_OPTIONS, canonicalScreenId } from './screen-elements'
 import { traceErrorCode, traceErrorMessage, traceErrorPayload, traceGraphPath, type RuntimeTrace } from './runtime-trace'
 import type { JsonValue, MacroFlowNode, MacroFunctionDefinition } from './types'
 
@@ -15,10 +15,11 @@ export function RuntimeErrorSection({ trace, node, functions, onFocusNode }: {
     : Array.isArray(trace.graph_path_labels)
     ? trace.graph_path_labels.filter((value): value is string => typeof value === 'string')
     : ['Main', ...traceGraphPath(trace).map((id) => functions.find((item) => item.id === id)?.name ?? id)]
-  const screenId = typeof payload.screen_id === 'string'
+  const rawScreenId = typeof payload.screen_id === 'string'
     ? payload.screen_id
     : typeof trace.screen_id === 'string' ? trace.screen_id : null
-  const screenName = SCREEN_OPTIONS.find((item) => item.id === screenId)?.label
+  const screenId = rawScreenId ? canonicalScreenId(rawScreenId) : null
+  const screenName = SEMANTIC_SCREEN_OPTIONS.find((item) => item.id === screenId)?.label
   const inputs = object(trace.resolved_inputs ?? trace.input_summary)
   const actualInputs = { ...inputs, ...object(payload.input_values), ...object(payload.inputs) }
   const fields: Array<[string, JsonValue | undefined]> = [

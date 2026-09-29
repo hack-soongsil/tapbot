@@ -24,8 +24,7 @@ const functions = [{
 
 function setup() {
   const props = {
-    variables,
-    functions,
+    definition: { variables, functions },
     selection: null,
     onSelect: vi.fn(),
     onOpenFunction: vi.fn(),

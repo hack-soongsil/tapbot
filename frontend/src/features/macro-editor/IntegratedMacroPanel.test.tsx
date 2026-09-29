@@ -139,6 +139,22 @@ function syncRuntimeOverlay(view: ReturnType<typeof useMacroRuntime>) {
   return view
 }
 
+function pressSaveShortcut(
+  target: Window | Element = window,
+  modifier: 'ctrl' | 'meta' = 'ctrl',
+  key = 's',
+) {
+  const event = new KeyboardEvent('keydown', {
+    key,
+    ctrlKey: modifier === 'ctrl',
+    metaKey: modifier === 'meta',
+    bubbles: true,
+    cancelable: true,
+  })
+  fireEvent(target, event)
+  return event
+}
+
 describe('IntegratedMacroPanel', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
@@ -210,7 +226,7 @@ describe('IntegratedMacroPanel', () => {
     expect(screen.getByText('Shared Flow')).toBeTruthy()
     expect(screen.getByText('phone-a · run-a')).toBeTruthy()
     expect(screen.getByText('Current Node').nextElementSibling?.textContent).toContain('엘리먼트 찾기')
-    expect(screen.getByText('Current Screen').nextElementSibling?.textContent).toBe('스터디룸 예약 메인')
+    expect(screen.getByText('Current Screen').nextElementSibling?.textContent).toBe('스터디룸 목록')
     expect(screen.getByText('Step Count').nextElementSibling?.textContent).toBe('4')
     expect(screen.getByLabelText('런타임 변수').textContent).toContain('count')
     expect(screen.queryByLabelText('런타임 트레이스')).toBeNull()
@@ -318,7 +334,7 @@ describe('IntegratedMacroPanel', () => {
     const screenNodeIds = saved?.metadata.editor_screen_node_ids
     const homeNodeIds =
       screenNodeIds && typeof screenNodeIds === 'object' && !Array.isArray(screenNodeIds)
-        ? screenNodeIds.reservation_home
+        ? screenNodeIds.study_room_list
         : null
     expect(Array.isArray(homeNodeIds) ? homeNodeIds : []).toContain('find_element-1')
     expect(JSON.stringify(added?.config)).not.toContain('bounds')
@@ -344,6 +360,84 @@ describe('IntegratedMacroPanel', () => {
       .getByRole('button', { name: '실행' }))
     expect(await screen.findByText(/검증 오류 \d+개가 있어 실행할 수 없습니다/)).toBeTruthy()
     expect(macroEditorApi.command).not.toHaveBeenCalled()
+  })
+
+  it('uses the existing save flow for Ctrl+S and Cmd+S in main, function, and expanded canvases', async () => {
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime('idle')} />)
+    const canvas = await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.click(within(canvas).getByRole('button', { name: 'find' }))
+
+    let releaseSave: (() => void) | undefined
+    vi.mocked(macroEditorApi.save).mockImplementationOnce((value) => new Promise((resolve) => {
+      releaseSave = () => resolve(value)
+    }))
+    vi.mocked(macroEditorApi.save).mockClear()
+    const labelInput = screen.getByLabelText('표시 이름')
+    const ctrlEvent = pressSaveShortcut(labelInput, 'ctrl', 'S')
+    pressSaveShortcut(labelInput, 'ctrl')
+
+    expect(ctrlEvent.defaultPrevented).toBe(true)
+    await waitFor(() => expect(macroEditorApi.save).toHaveBeenCalledTimes(1))
+    act(() => releaseSave?.())
+    await waitFor(() => expect(screen.getByRole('button', { name: '저장' }).hasAttribute('disabled')).toBe(false))
+
+    vi.mocked(macroEditorApi.save).mockImplementation((value) => Promise.resolve(value))
+    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
+    fireEvent.click(within(screen.getByLabelText('My Blueprint')).getByRole('button', { name: '새 함수' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: '새 함수' })).getByRole('button', { name: '생성' }))
+    expect(screen.getByLabelText<HTMLSelectElement>('매크로 그래프').value).toBe('function-1')
+
+    vi.mocked(macroEditorApi.save).mockClear()
+    const metaEvent = pressSaveShortcut(window, 'meta')
+    expect(metaEvent.defaultPrevented).toBe(true)
+    await waitFor(() => expect(macroEditorApi.save).toHaveBeenCalledTimes(1))
+    expect(vi.mocked(macroEditorApi.save).mock.calls[0]?.[0].functions?.[0]?.id).toBe('function-1')
+    await waitFor(() => expect(screen.getByRole('button', { name: '저장' }).hasAttribute('disabled')).toBe(false))
+
+    fireEvent.click(screen.getByRole('button', { name: '확대' }))
+    vi.mocked(macroEditorApi.save).mockClear()
+    const expandedEvent = pressSaveShortcut()
+    expect(expandedEvent.defaultPrevented).toBe(true)
+    await waitFor(() => expect(macroEditorApi.save).toHaveBeenCalledTimes(1))
+  })
+
+  it('suppresses the save shortcut while editor, confirm, and run dialogs are open', async () => {
+    const view = render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime('idle')} />)
+    await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
+    const blueprint = screen.getByLabelText('My Blueprint')
+    vi.mocked(macroEditorApi.save).mockClear()
+
+    fireEvent.click(within(blueprint).getByRole('button', { name: '새 변수' }))
+    const variableDialog = screen.getByRole('dialog', { name: '변수 추가' })
+    expect(pressSaveShortcut(within(variableDialog).getByLabelText('이름')).defaultPrevented).toBe(true)
+    expect(macroEditorApi.save).not.toHaveBeenCalled()
+    fireEvent.click(within(variableDialog).getByRole('button', { name: '취소' }))
+
+    fireEvent.click(within(blueprint).getByRole('button', { name: '새 함수' }))
+    const functionDialog = screen.getByRole('dialog', { name: '새 함수' })
+    expect(pressSaveShortcut(within(functionDialog).getByLabelText('함수 이름'), 'meta').defaultPrevented).toBe(true)
+    expect(macroEditorApi.save).not.toHaveBeenCalled()
+    fireEvent.click(within(functionDialog).getByRole('button', { name: '생성' }))
+
+    fireEvent.click(within(screen.getByLabelText('My Blueprint 설정')).getByRole('button', { name: '삭제' }))
+    const confirmDialog = screen.getByRole('alertdialog', { name: '함수 삭제' })
+    expect(pressSaveShortcut(confirmDialog).defaultPrevented).toBe(true)
+    expect(macroEditorApi.save).not.toHaveBeenCalled()
+    fireEvent.click(within(confirmDialog).getByRole('button', { name: '취소' }))
+
+    const failed = runtime('error')
+    failed.runtime!.error = 'failed'
+    failed.runtime!.trace = [{
+      node_id: 'find', graph_path: ['main'], status: 'failure', error: 'failed',
+    }]
+    view.rerender(<IntegratedMacroPanel deviceId="phone-a" runtime={syncRuntimeOverlay(failed)} />)
+    fireEvent.click(screen.getByRole('button', { name: '다시 실행' }))
+    const runDialog = screen.getByRole('dialog', { name: '매크로 실행' })
+    expect(pressSaveShortcut(within(runDialog).getByRole('button', { name: '실행' })).defaultPrevented).toBe(true)
+    expect(macroEditorApi.save).not.toHaveBeenCalled()
   })
 
   it('keeps unsaved drafts isolated per device and restores them on return', async () => {
@@ -383,18 +477,18 @@ describe('IntegratedMacroPanel', () => {
     const canvas = await screen.findByTestId('integrated-canvas')
     fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
 
-    expect(canvas.textContent).toContain('event-home-enter')
-    expect(canvas.textContent).toContain('event-home-update')
-    expect(canvas.textContent).toContain('event-home-exit')
-    expect(canvas.textContent).not.toContain('event-detail-enter')
+    expect(canvas.textContent).toContain('event-study-room-list-enter')
+    expect(canvas.textContent).toContain('event-study-room-list-update')
+    expect(canvas.textContent).toContain('event-study-room-list-exit')
+    expect(canvas.textContent).not.toContain('event-study-room-detail-enter')
 
     fireEvent.change(screen.getByLabelText('매크로 화면'), {
-      target: { value: 'reservation_detail' },
+      target: { value: 'study_room_detail' },
     })
-    expect(canvas.textContent).toContain('event-detail-enter')
-    expect(canvas.textContent).toContain('event-detail-update')
-    expect(canvas.textContent).toContain('event-detail-exit')
-    expect(canvas.textContent).not.toContain('event-home-enter')
+    expect(canvas.textContent).toContain('event-study-room-detail-enter')
+    expect(canvas.textContent).toContain('event-study-room-detail-update')
+    expect(canvas.textContent).toContain('event-study-room-detail-exit')
+    expect(canvas.textContent).not.toContain('event-study-room-list-enter')
   })
 
   it('keeps ordinary nodes isolated between the Home and Detail canvases', async () => {
@@ -406,14 +500,14 @@ describe('IntegratedMacroPanel', () => {
     expect(canvas.textContent).toContain('wait-1')
 
     fireEvent.change(screen.getByLabelText('매크로 화면'), {
-      target: { value: 'reservation_detail' },
+      target: { value: 'study_room_detail' },
     })
     expect(canvas.textContent).not.toContain('wait-1')
     fireEvent.click(screen.getByRole('button', { name: '위치 클릭 추가' }))
     expect(canvas.textContent).toContain('click_point-1')
 
     fireEvent.change(screen.getByLabelText('매크로 화면'), {
-      target: { value: 'reservation_home' },
+      target: { value: 'study_room_list' },
     })
     expect(canvas.textContent).toContain('wait-1')
     expect(canvas.textContent).not.toContain('click_point-1')
@@ -687,6 +781,51 @@ describe('IntegratedMacroPanel', () => {
     expect(within(screen.getByLabelText('선택한 노드 설정')).getByDisplayValue('nested-call')).toBeTruthy()
   })
 
+  it('maps runtime node and edge state by graph id without forcing graph navigation', async () => {
+    vi.mocked(macroEditorApi.get).mockResolvedValue({
+      ...definition,
+      entry_node_id: 'shared-node',
+      nodes: [
+        { id: 'shared-node', type: 'wait', config: { duration_ms: 1 } },
+        { id: 'main-end', type: 'stop', config: {} },
+      ],
+      edges: [{ id: 'shared-edge', source: 'shared-node', target: 'main-end' }],
+      functions: [{
+        id: 'worker', name: 'Worker', inputs: [], outputs: [],
+        entry_node_id: 'shared-node', return_node_id: 'function-return',
+        nodes: [
+          { id: 'shared-node', type: 'function_entry', config: {} },
+          { id: 'function-return', type: 'function_return', config: {} },
+        ],
+        edges: [{ id: 'shared-edge', source: 'shared-node', target: 'function-return' }],
+      }],
+    })
+    const running = runtime()
+    running.runtime!.current_node_id = 'function-return'
+    running.runtime!.current_edge_id = 'shared-edge'
+    running.runtime!.current_graph_id = 'function:worker'
+    running.runtime!.current_graph_path = ['main', 'worker']
+    running.runtime!.current_function_id = 'worker'
+    running.runtime!.node_states = {
+      'main::shared-node': 'success',
+      'function:worker::shared-node': 'running',
+    }
+    running.runtime!.trace = []
+
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={syncRuntimeOverlay(running)} />)
+    const canvas = await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+
+    expect(screen.getByLabelText<HTMLSelectElement>('매크로 그래프').value).toBe('__main__')
+    expect(within(canvas).getByRole('button', { name: 'shared-node' }).getAttribute('data-state')).toBe('success')
+    expect(within(canvas).getByText('shared-edge').getAttribute('data-current')).toBe('false')
+
+    fireEvent.change(screen.getByLabelText('매크로 그래프'), { target: { value: 'worker' } })
+    expect(within(canvas).getByRole('button', { name: 'shared-node' }).getAttribute('data-state')).toBe('running')
+    expect(within(canvas).getByText('shared-edge').getAttribute('data-current')).toBe('true')
+    await waitFor(() => expect(flowInstance.fitView).toHaveBeenCalled())
+  })
+
   it('automatically focuses the original nested failure and navigates again from its trace row', async () => {
     const functions = ['reserve', 'slot'].map((id): NonNullable<MacroDefinition['functions']>[number] => ({
       id, name: id === 'reserve' ? 'Reserve' : 'SelectTimeSlot', inputs: [], outputs: [],
@@ -741,7 +880,7 @@ describe('IntegratedMacroPanel', () => {
       error: 'edge failed', error_payload: { edge_id: 'bad-edge', source: 'source', target: 'find' },
     }]
     render(<IntegratedMacroPanel deviceId="phone-a" runtime={syncRuntimeOverlay(failed)} />)
-    await waitFor(() => expect(screen.getByLabelText<HTMLSelectElement>('매크로 화면').value).toBe('reservation_detail'))
+    await waitFor(() => expect(screen.getByLabelText<HTMLSelectElement>('매크로 화면').value).toBe('study_room_detail'))
     expect(screen.getByLabelText('Runtime Error')).toBeTruthy()
     expect(screen.getByText('bad-edge').getAttribute('data-error')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: '출발 노드로 이동' }))

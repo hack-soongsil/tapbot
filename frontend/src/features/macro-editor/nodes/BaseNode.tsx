@@ -16,7 +16,7 @@ import {
 } from '../blocks'
 import { useInlineEditing } from '../inline-editing'
 import { portTypesAreCompatible } from '../port-compatibility'
-import { SCREEN_ELEMENTS } from '../screen-elements'
+import { SCREEN_ELEMENTS, canonicalElementId, canonicalScreenId } from '../screen-elements'
 import type {
   JsonValue,
   MacroFlowNode,
@@ -251,7 +251,9 @@ function InlinePropertyEditor({
   }
 
   if (property.editor === 'screen-element') {
-    const screenId = typeof config.screen_id === 'string' ? config.screen_id : ''
+    const screenId = canonicalScreenId(
+      typeof config.screen_id === 'string' ? config.screen_id : '',
+    )
     const elements = SCREEN_ELEMENTS[screenId] ?? []
     return (
       <select
@@ -409,8 +411,13 @@ function isInlinePropertyVisible(
   config: Record<string, JsonValue>,
 ): boolean {
   if (property.visible !== 'screen-element-collection') return true
-  const screenId = typeof config.screen_id === 'string' ? config.screen_id : ''
-  const elementId = typeof config.element_id === 'string' ? config.element_id : ''
+  const screenId = canonicalScreenId(
+    typeof config.screen_id === 'string' ? config.screen_id : '',
+  )
+  const elementId = canonicalElementId(
+    screenId,
+    typeof config.element_id === 'string' ? config.element_id : '',
+  )
   return SCREEN_ELEMENTS[screenId]?.some(
     (element) => element.id === elementId && element.collection === true,
   ) ?? false

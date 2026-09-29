@@ -105,6 +105,10 @@ class GraphEngine:
         screen_id = (_screen_id or node_by_id[selected_entry].config.get("screen_id")
                      or (snapshot.screen.id if snapshot.screen else None))
         root_definition_id = _root_definition_id or snapshot.id
+        graph_path = ("main", *_call_stack)
+        function_id = _call_stack[-1] if _call_stack else None
+        function_name = _function_name_stack[-1] if _function_name_stack else None
+        graph_id = "main" if function_id is None else f"function:{function_id}"
         outgoing = _outgoing(snapshot.edges)
         data_incoming = _data_incoming(snapshot.edges)
         started_monotonic = self.monotonic()
@@ -137,7 +141,9 @@ class GraphEngine:
             parent=execution_context,
             cancelled=cancelled,
             call_stack=_call_stack,
+            on_node_start=on_node_start,
             on_trace=child_trace,
+            on_edge=on_edge,
             trace_steps=trace_steps,
             screen_id=screen_id if isinstance(screen_id, str) else None,
             root_definition_id=root_definition_id,
@@ -149,6 +155,11 @@ class GraphEngine:
             definition_id=snapshot.id,
             definition_version=snapshot.version,
             current_node_id=selected_entry,
+            graph_id=graph_id,
+            graph_path=graph_path,
+            function_id=function_id,
+            function_name=function_name,
+            call_depth=len(_call_stack),
             state=GraphRuntimeStatus.RUNNING,
             variables=execution_context.variables,
             started_at=execution_context.started_at,
@@ -184,6 +195,8 @@ class GraphEngine:
                 "current_step": trace.step,
                 "graph_path_ids": list(trace.graph_path),
                 "graph_path_labels": list(trace.graph_path_labels),
+                "graph_id": trace.graph_id,
+                "call_depth": trace.call_depth,
                 "resolved_inputs": trace.resolved_inputs,
                 "input_sources": trace.input_sources,
             })
@@ -215,8 +228,6 @@ class GraphEngine:
             payload: JsonObject | None = None
             resolved_inputs = _summarize(execution_context.input_values)
             input_sources = _input_sources(node.id, data_incoming)
-            function_id = _call_stack[-1] if _call_stack else None
-            function_name = _function_name_stack[-1] if _function_name_stack else None
             caller_node_id = _caller_node_stack[-1] if _caller_node_stack else None
             if result.error:
                 partial = _error_details(node, result, error)
@@ -267,6 +278,8 @@ class GraphEngine:
                     "current_step": trace_steps[0],
                     "graph_path_ids": ["main", *_call_stack],
                     "graph_path_labels": ["Main", *_function_name_stack],
+                    "graph_id": graph_id,
+                    "call_depth": len(_call_stack),
                     "function_id": function_id,
                     "function_name": function_name,
                     "caller_node_id": caller_node_id,
@@ -546,7 +559,9 @@ class GraphEngine:
         parent: GraphExecutionContext,
         cancelled: Callable[[], bool] | None,
         call_stack: tuple[str, ...],
+        on_node_start: Callable[[MacroNode, GraphRuntime], None] | None,
         on_trace: Callable[[GraphNodeTrace, GraphRuntime], None],
+        on_edge: Callable[[MacroEdge, GraphRuntime], None] | None,
         trace_steps: list[int],
         screen_id: str | None,
         root_definition_id: str,
@@ -607,7 +622,9 @@ class GraphEngine:
             context=child,
             cancelled=cancelled,
             _call_stack=(*call_stack, function_id),
+            on_node_start=on_node_start,
             on_trace=on_trace,
+            on_edge=on_edge,
             _trace_steps=trace_steps,
             _screen_id=screen_id,
             _root_definition_id=root_definition_id,

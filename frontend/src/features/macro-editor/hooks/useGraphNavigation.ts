@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState, type Dispatch, type SetStateAction } from 'react'
 import type { ReactFlowInstance, Viewport } from '@xyflow/react'
-import { MAIN_GRAPH_ID, graphIdFromFunctionId, type GraphId } from '../graph-store'
+import {
+  MAIN_GRAPH_ID,
+  functionGraphId,
+  functionIdFromGraphId,
+  type GraphId,
+} from '../graph-store'
 import type { BlueprintSelection } from '../MyBlueprintPanel'
 import type { MacroDefinition, MacroFlowEdge, MacroFlowNode } from '../types'
 
@@ -28,22 +33,21 @@ export function useGraphNavigation({
   panelTab: 'canvas' | 'execution'
   dialogOpen: boolean
 }) {
-  const [graphNavigationStack, setGraphNavigationStack] = useState<string[]>([])
+  const [navigationPath, setNavigationPath] = useState<GraphId[]>([MAIN_GRAPH_ID])
   const [graphNavigationError, setGraphNavigationError] = useState<string | null>(null)
   const flowRef = useRef<ReactFlowInstance<MacroFlowNode, MacroFlowEdge> | null>(null)
   const graphViewStates = useRef<Record<string, GraphViewState>>({})
   const navigationEpoch = useRef(0)
 
-  const navigateToGraphPath = useCallback((nextPath: string[], focusNode?: MacroFlowNode) => {
+  const commitNavigation = useCallback((nextPath: GraphId[], focusNode?: MacroFlowNode) => {
     const epoch = ++navigationEpoch.current
     setGraphNavigationError(null)
     const viewport = flowRef.current?.getViewport()
     if (viewport) graphViewStates.current[activeGraphId] = { viewport, selectedNodeId }
 
-    const targetFunctionId = nextPath.at(-1) ?? null
-    const targetKey = graphIdFromFunctionId(targetFunctionId)
+    const targetKey = nextPath.at(-1) ?? MAIN_GRAPH_ID
     const saved = graphViewStates.current[targetKey]
-    setGraphNavigationStack(nextPath)
+    setNavigationPath(nextPath)
     setActiveGraphId(targetKey)
     setSelectedBlueprint(null)
     setSelectedNodeId(focusNode?.id ?? saved?.selectedNodeId ?? null)
@@ -64,54 +68,99 @@ export function useGraphNavigation({
     })
   }, [activeGraphId, selectedNodeId, setActiveGraphId, setSelectedBlueprint, setSelectedNodeId])
 
-  const enterFunctionGraph = useCallback((functionId: string | undefined) => {
-    if (!functionId || !definition?.functions?.some((item) => item.id === functionId)) {
+  const openFunction = useCallback((functionId: string | undefined, allowPendingDefinition = false) => {
+    if (!functionId || (!allowPendingDefinition && !definition?.functions?.some((item) => item.id === functionId))) {
       setGraphNavigationError(functionId
         ? `함수 ${functionId}를 찾을 수 없습니다. 삭제되었거나 참조가 올바르지 않습니다.`
         : '호출할 함수가 지정되지 않았습니다.')
       return
     }
-    const existingIndex = graphNavigationStack.indexOf(functionId)
+    const targetGraphId = functionGraphId(functionId)
+    const existingIndex = navigationPath.indexOf(targetGraphId)
     const nextPath = existingIndex >= 0
-      ? graphNavigationStack.slice(0, existingIndex + 1)
-      : [...graphNavigationStack, functionId]
-    navigateToGraphPath(nextPath)
-    if (!graphViewStates.current[graphIdFromFunctionId(functionId)]?.selectedNodeId) {
+      ? navigationPath.slice(0, existingIndex + 1)
+      : [...navigationPath, targetGraphId]
+    commitNavigation(nextPath)
+    if (!graphViewStates.current[targetGraphId]?.selectedNodeId) {
       setSelectedBlueprint({ kind: 'function', id: functionId })
     }
-  }, [definition, graphNavigationStack, navigateToGraphPath, setSelectedBlueprint])
+  }, [commitNavigation, definition, navigationPath, setSelectedBlueprint])
+
+  const openPath = useCallback((functionIds: string[], focusNode?: MacroFlowNode) => {
+    const missing = functionIds.find((id) => !definition?.functions?.some((item) => item.id === id))
+    if (missing) {
+      setGraphNavigationError(`함수 ${missing}를 찾을 수 없습니다. 삭제되었거나 참조가 올바르지 않습니다.`)
+      return false
+    }
+    commitNavigation([MAIN_GRAPH_ID, ...functionIds.map(functionGraphId)], focusNode)
+    return true
+  }, [commitNavigation, definition])
+
+  const openMain = useCallback((focusNode?: MacroFlowNode) => {
+    commitNavigation([MAIN_GRAPH_ID], focusNode)
+  }, [commitNavigation])
+
+  const goBack = useCallback(() => {
+    if (navigationPath.length > 1) commitNavigation(navigationPath.slice(0, -1))
+  }, [commitNavigation, navigationPath])
+
+  const goToBreadcrumb = useCallback((index: number) => {
+    if (index < 0 || index >= navigationPath.length) return
+    commitNavigation(navigationPath.slice(0, index + 1))
+  }, [commitNavigation, navigationPath])
 
   const resetGraphNavigation = useCallback(() => {
     graphViewStates.current = {}
     setGraphNavigationError(null)
-    setGraphNavigationStack([])
+    setNavigationPath([MAIN_GRAPH_ID])
     setActiveGraphId(MAIN_GRAPH_ID)
   }, [setActiveGraphId])
 
   const forgetGraphView = useCallback((functionId: string) => {
-    delete graphViewStates.current[graphIdFromFunctionId(functionId)]
+    delete graphViewStates.current[functionGraphId(functionId)]
   }, [])
 
   useEffect(() => {
-    if (panelTab !== 'canvas' || graphNavigationStack.length === 0) return
+    if (panelTab !== 'canvas' || navigationPath.length <= 1) return
     const goToParentGraph = (event: KeyboardEvent) => {
       if (!event.altKey || event.key !== 'ArrowLeft' || dialogOpen) return
       const target = event.target
       if (target instanceof HTMLElement && target.matches('input, textarea, select, [contenteditable="true"]')) return
       event.preventDefault()
-      navigateToGraphPath(graphNavigationStack.slice(0, -1))
+      goBack()
     }
     window.addEventListener('keydown', goToParentGraph)
     return () => window.removeEventListener('keydown', goToParentGraph)
-  }, [dialogOpen, graphNavigationStack, navigateToGraphPath, panelTab])
+  }, [dialogOpen, goBack, navigationPath.length, panelTab])
+
+  const graphNavigationStack = navigationPath
+    .slice(1)
+    .flatMap((graphId) => {
+      const functionId = functionIdFromGraphId(graphId)
+      return functionId ? [functionId] : []
+    })
+  const breadcrumbs = navigationPath.map((graphId) => {
+    const functionId = functionIdFromGraphId(graphId)
+    return {
+      graphId,
+      functionId,
+      label: functionId
+        ? definition?.functions?.find((item) => item.id === functionId)?.name ?? functionId
+        : 'Main',
+    }
+  })
 
   return {
     graphNavigationStack,
     graphNavigationError,
     setGraphNavigationError,
     flowRef,
-    navigateToGraphPath,
-    enterFunctionGraph,
+    breadcrumbs,
+    openMain,
+    openFunction,
+    openPath,
+    goBack,
+    goToBreadcrumb,
     resetGraphNavigation,
     forgetGraphView,
   }

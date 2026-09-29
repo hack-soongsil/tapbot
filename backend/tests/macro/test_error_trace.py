@@ -260,7 +260,7 @@ def test_screen_lifecycle_failure_inherits_screen_through_nested_calls():
         graph, entry_node_id="enter", context=GraphExecutionContext(sleep=fail_sleep),
     )
     assert result.runtime.state is GraphRuntimeStatus.ERROR
-    assert all(trace.screen_id == "reservation_detail" for trace in result.traces)
+    assert all(trace.screen_id == "study_room_detail" for trace in result.traces)
 
 
 def test_runtime_failure_stream_and_snapshot_keep_nested_trace_until_reset(tmp_path):

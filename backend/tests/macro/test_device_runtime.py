@@ -12,6 +12,7 @@ from tapbot.macro.graph_models import (
     EventEntryNodeIds,
     MacroDefinition,
     MacroEdge,
+    MacroFunctionDefinition,
     MacroNode,
     MacroVariableDefinition,
     NodeResult,
@@ -213,6 +214,116 @@ def test_debug_print_is_published_as_structured_user_event(tmp_path: Path) -> No
     manager.close()
 
 
+def test_nested_function_runtime_events_and_snapshot_are_graph_aware(tmp_path: Path) -> None:
+    registry = create_default_node_registry()
+
+    def edge(edge_id: str, source: str, target: str) -> MacroEdge:
+        return MacroEdge(
+            edge_id, source, target,
+            source_handle="exec_out", target_handle="exec_in", kind="exec",
+        )
+
+    inner = MacroFunctionDefinition(
+        "inner", "Inner", (), (),
+        (
+            MacroNode("entry", "function_entry"),
+            MacroNode("work", "debug_print", {"message": "inside"}),
+            MacroNode("return", "function_return"),
+        ),
+        (edge("inner-work", "entry", "work"), edge("inner-return", "work", "return")),
+        "entry", "return",
+    )
+    outer = MacroFunctionDefinition(
+        "outer", "Outer", (), (),
+        (
+            MacroNode("entry", "function_entry"),
+            MacroNode("call-inner", "call_function", {
+                "function_id": "inner", "inputs": [], "outputs": [],
+            }),
+            MacroNode("return", "function_return"),
+        ),
+        (edge("outer-call", "entry", "call-inner"), edge("outer-return", "call-inner", "return")),
+        "entry", "return",
+    )
+    definition = MacroDefinition(
+        "nested", "Nested", 1,
+        (MacroNode("call-outer", "call_function", {"function_id": "outer"}),),
+        (), "call-outer", functions=(outer, inner),
+    )
+    repository = MacroRepository(FileMacroDefinitionStore(
+        tmp_path / "nested-macros", validator=GraphValidator(registry)
+    ))
+    repository.create(definition)
+    bindings = DeviceMacroBindingRepository(tmp_path / "nested-bindings.json")
+    bindings.set(DeviceMacroBinding("phone", "nested"))
+    manager = RuntimeManager(
+        repository,
+        bindings,
+        engine_factory=lambda _device_id: GraphEngine(registry),
+        context_factory=lambda device_id, _binding: GraphExecutionContext(device_id=device_id),
+    )
+
+    manager.start("phone")
+    deadline = time.monotonic() + 1
+    snapshot = manager.current("phone")
+    while time.monotonic() < deadline and snapshot.state is DeviceRuntimeStatus.RUNNING:
+        time.sleep(0.01)
+        snapshot = manager.current("phone")
+
+    assert snapshot.state is DeviceRuntimeStatus.COMPLETED
+    node_events = [
+        event for event in manager.events.history("phone")
+        if event.type in {"macro.node.started", "macro.node.completed", "macro.node.failed"}
+    ]
+    starts = [event for event in node_events if event.type == "macro.node.started"]
+    completions = [event for event in node_events if event.type == "macro.node.completed"]
+    assert [(event.payload["graph_id"], event.node_id) for event in starts] == [
+        ("main", "call-outer"),
+        ("function:outer", "entry"),
+        ("function:outer", "call-inner"),
+        ("function:inner", "entry"),
+        ("function:inner", "work"),
+        ("function:inner", "return"),
+        ("function:outer", "return"),
+    ]
+    assert (completions[-1].payload["graph_id"], completions[-1].node_id) == (
+        "main", "call-outer",
+    )
+    inner_started = next(event for event in starts if event.node_id == "work")
+    assert inner_started.payload == {
+        "node_type": "debug_print",
+        "graph_id": "function:inner",
+        "graph_path": ["main", "outer", "inner"],
+        "function_id": "inner",
+        "function_name": "Inner",
+        "call_depth": 2,
+    }
+    edge_events = [
+        event for event in manager.events.history("phone")
+        if event.type == "macro.edge.traversed"
+    ]
+    assert any(
+        event.edge_id == "inner-work"
+        and event.payload["graph_id"] == "function:inner"
+        and event.payload["call_depth"] == 2
+        for event in edge_events
+    )
+    assert any(trace.graph_id == "function:inner" for trace in snapshot.trace)
+    assert [(trace.graph_id, trace.node_id) for trace in snapshot.trace] == [
+        ("function:outer", "entry"),
+        ("function:inner", "entry"),
+        ("function:inner", "work"),
+        ("function:inner", "return"),
+        ("function:outer", "call-inner"),
+        ("function:outer", "return"),
+        ("main", "call-outer"),
+    ]
+    assert snapshot.node_states["function:outer::entry"] == "success"
+    assert snapshot.node_states["function:inner::entry"] == "success"
+    assert snapshot.node_states["main::call-outer"] == "success"
+    manager.close()
+
+
 def test_one_active_runtime_per_device_and_offline_pause(tmp_path: Path) -> None:
     _repository, _bindings, manager = setup(tmp_path)
     manager.step("a")
@@ -272,10 +383,10 @@ def test_screen_runtime_refreshes_tree_and_orders_exit_before_next_enter(tmp_pat
     repository = MacroRepository(FileMacroDefinitionStore(
         tmp_path / "screens", validator=GraphValidator(registry)
     ))
-    repository.create(screen_definition("reservation_home"))
-    repository.create(screen_definition("reservation_detail"))
+    repository.create(screen_definition("study_room_list"))
+    repository.create(screen_definition("study_room_detail"))
     bindings = DeviceMacroBindingRepository(tmp_path / "screen-bindings.json")
-    bindings.set(DeviceMacroBinding("phone", "reservation_home-graph"))
+    bindings.set(DeviceMacroBinding("phone", "study_room_list-graph"))
     ui = CyclingUi()
     manager = RuntimeManager(
         repository,
@@ -295,14 +406,14 @@ def test_screen_runtime_refreshes_tree_and_orders_exit_before_next_enter(tmp_pat
             for event in manager.events.history("phone")
             if event.type.startswith("macro.screen.")
         ]
-        if ("macro.screen.enter", "reservation_detail") in transitions:
+        if ("macro.screen.enter", "study_room_detail") in transitions:
             break
         time.sleep(0.01)
     manager.stop("phone")
 
     assert transitions[:4] == [
-        ("macro.screen.enter", "reservation_home"),
-        ("macro.screen.update", "reservation_home"),
-        ("macro.screen.exit", "reservation_home"),
-        ("macro.screen.enter", "reservation_detail"),
+        ("macro.screen.enter", "study_room_list"),
+        ("macro.screen.update", "study_room_list"),
+        ("macro.screen.exit", "study_room_list"),
+        ("macro.screen.enter", "study_room_detail"),
     ]

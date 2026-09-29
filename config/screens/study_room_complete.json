@@ -1,0 +1,19 @@
+{
+  "id": "study_room_complete",
+  "label": "예약 완료",
+  "screen_type": "result_screen",
+  "supports_scroll": false,
+  "match": {
+    "all": [
+      {"text": "예약 성공"},
+      {"text": "예약 화면으로"}
+    ]
+  },
+  "elements": {
+    "success_title": {"label": "예약 완료 제목", "selector": {"text": "예약 성공"}},
+    "room_name": {"label": "스터디룸 이름"},
+    "date": {"label": "예약 날짜"},
+    "time_range": {"label": "예약 시간"},
+    "back_to_reservation": {"label": "예약 화면으로 돌아가기", "selector": {"text": "예약 화면으로"}}
+  }
+}

@@ -37,7 +37,7 @@ class Actions:
 
 
 class Ui:
-    def __init__(self, *, exists: bool = True, screen: str = "reservation_home") -> None:
+    def __init__(self, *, exists: bool = True, screen: str = "study_room_list") -> None:
         self.exists = exists
         self.screen = screen
 
@@ -56,7 +56,7 @@ class Ui:
     def resolve_screen_element(self, screen_id, element_id, params):
         if screen_id != self.screen:
             raise RuntimeError("screen mismatch")
-        suffix = f"[{params['index']}]" if element_id in {"quick_date", "time_slot"} else ""
+        suffix = f"[{params['index']}]" if element_id in {"date_chip", "time_slot"} else ""
         return GraphElement(f"{element_id}{suffix}", TapBounds(20, 40, 120, 140))
 
 
@@ -208,7 +208,7 @@ def test_find_screen_element_returns_semantic_collection_element() -> None:
     }))
 
     assert actions.taps == []
-    assert result.runtime.variables["one"]["element_id"] == "quick_date[2]"
+    assert result.runtime.variables["one"]["element_id"] == "date_chip[2]"
     assert result.runtime.variables["one"]["found"] is True
 
 

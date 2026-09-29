@@ -5,6 +5,10 @@ export function traceGraphPath(trace: RuntimeTrace): string[] {
   return normalizeGraphPath(trace.graph_path)
 }
 
+export function traceGraphId(trace: RuntimeTrace): string {
+  return runtimeGraphId(trace.graph_id, trace.graph_path)
+}
+
 export function normalizeGraphPath(value: unknown): string[] {
   if (!Array.isArray(value)) return []
   const path = value.filter((id): id is string => typeof id === 'string')
@@ -61,16 +65,27 @@ export function collectRuntimeErrors(traces: RuntimeTrace[]): RuntimeTrace[] {
   return [...errors.values()]
 }
 
-export function runtimeNodeKey(nodeId: string, graphPath: unknown): string {
+export function runtimeGraphId(graphId: unknown, graphPath: unknown): string {
+  if (typeof graphId === 'string' && graphId) return graphId
   const path = normalizeGraphPath(graphPath)
-  return path.length > 0 ? JSON.stringify([...path, nodeId]) : nodeId
+  return path.length > 0 ? `function:${path.at(-1)}` : 'main'
+}
+
+export function runtimeNodeKey(graphId: string, nodeId: string): string {
+  return `${graphId}::${nodeId}`
+}
+
+export function runtimeEdgeKey(graphId: string, edgeId: string): string {
+  return `${graphId}::${edgeId}`
 }
 
 export function emptyRuntimeGraphOverlay(): RuntimeGraphOverlay {
   return {
     runtimeId: null,
     macroDefinitionId: null,
-    graphPath: [],
+    currentGraphId: 'main',
+    currentGraphPath: ['main'],
+    currentFunctionId: null,
     activeScreenId: null,
     currentNodeId: null,
     currentEdgeId: null,
@@ -79,6 +94,7 @@ export function emptyRuntimeGraphOverlay(): RuntimeGraphOverlay {
     error: null,
     errors: [],
     errorEdgeId: null,
+    errorGraphId: null,
     traces: [],
   }
 }
@@ -89,25 +105,44 @@ export function runtimeGraphOverlayFromSnapshot(
 ): RuntimeGraphOverlay {
   if (runtime.state === 'idle') return emptyRuntimeGraphOverlay()
   const traces = runtime.trace as RuntimeTrace[]
-  const nodeStates: Record<string, RuntimeNodeState> = {}
+  const snapshotNodeStates = runtime.node_states
+  const nodeStates: Record<string, RuntimeNodeState> = snapshotNodeStates
+    ? Object.fromEntries(Object.entries(snapshotNodeStates).filter(
+        (entry): entry is [string, RuntimeNodeState] => isRuntimeNodeState(entry[1]),
+      ))
+    : {}
   for (const trace of traces) {
     const nodeId = stringValue(trace.node_id)
     const status = stringValue(trace.status)
     if (!nodeId) continue
-    nodeStates[runtimeNodeKey(nodeId, trace.graph_path)] = status === 'failure'
-      ? 'failure'
-      : status === 'skipped' ? 'skipped' : 'success'
+    const key = runtimeNodeKey(traceGraphId(trace), nodeId)
+    if (!(key in nodeStates)) {
+      nodeStates[key] = status === 'failure'
+        ? 'failure'
+        : status === 'skipped' ? 'skipped' : 'success'
+    }
   }
-  const lastTracePath = traces.length > 0 ? traceGraphPath(traces[traces.length - 1]!) : []
-  const graphPath = previous.runtimeId === runtime.runtime_id ? previous.graphPath : lastTracePath
-  if (runtime.current_node_id && (runtime.state === 'running' || runtime.state === 'paused')) {
-    nodeStates[runtimeNodeKey(runtime.current_node_id, graphPath)] = 'running'
+  const lastTrace = traces.at(-1)
+  const previousApplies = previous.runtimeId === runtime.runtime_id
+  const currentGraphPath = fullGraphPath(runtime.current_graph_path)
+    ?? (previousApplies ? previous.currentGraphPath : fullGraphPath(lastTrace?.graph_path))
+    ?? ['main']
+  const currentGraphId = runtimeGraphId(
+    runtime.current_graph_id ?? (previousApplies ? previous.currentGraphId : lastTrace?.graph_id),
+    currentGraphPath,
+  )
+  const currentFunctionId = runtime.current_function_id
+    ?? (currentGraphId.startsWith('function:') ? currentGraphId.slice('function:'.length) : null)
+  if (!snapshotNodeStates && runtime.current_node_id && (runtime.state === 'running' || runtime.state === 'paused')) {
+    nodeStates[runtimeNodeKey(currentGraphId, runtime.current_node_id)] = 'running'
   }
   return finalizeOverlay({
     ...previous,
     runtimeId: runtime.runtime_id,
     macroDefinitionId: runtime.macro_definition_id,
-    graphPath,
+    currentGraphId,
+    currentGraphPath,
+    currentFunctionId,
     activeScreenId: runtime.active_screen_id ?? null,
     currentNodeId: runtime.current_node_id,
     currentEdgeId: runtime.current_edge_id,
@@ -125,26 +160,35 @@ export function applyEventToRuntimeGraphOverlay(
   const isNewRuntime = current.runtimeId !== event.runtime_id
   const base = isNewRuntime ? emptyRuntimeGraphOverlay() : current
   const nodeStates = { ...base.nodeStates }
-  const eventPath = event.payload.graph_path === undefined ? base.graphPath : normalizeGraphPath(event.payload.graph_path)
-  let graphPath = base.graphPath
+  const eventGraphPath = fullGraphPath(event.payload.graph_path) ?? base.currentGraphPath
+  const eventGraphId = runtimeGraphId(event.payload.graph_id, eventGraphPath)
+  let currentGraphId = base.currentGraphId
+  let currentGraphPath = base.currentGraphPath
+  let currentFunctionId = base.currentFunctionId
   let currentNodeId = base.currentNodeId
   let currentEdgeId = base.currentEdgeId
 
   if (event.type.startsWith('macro.node.') && event.node_id) {
-    graphPath = eventPath
+    currentGraphId = eventGraphId
+    currentGraphPath = eventGraphPath
+    currentFunctionId = stringValue(event.payload.function_id)
+      ?? (eventGraphId.startsWith('function:') ? eventGraphId.slice('function:'.length) : null)
     currentNodeId = event.node_id
     if (event.type === 'macro.node.started') {
-      nodeStates[runtimeNodeKey(event.node_id, eventPath)] = 'running'
+      nodeStates[runtimeNodeKey(eventGraphId, event.node_id)] = 'running'
       currentEdgeId = null
     } else if (event.type === 'macro.node.completed') {
-      nodeStates[runtimeNodeKey(event.node_id, eventPath)] = 'success'
+      nodeStates[runtimeNodeKey(eventGraphId, event.node_id)] = 'success'
     } else if (event.type === 'macro.node.failed') {
-      nodeStates[runtimeNodeKey(event.node_id, eventPath)] = 'failure'
+      nodeStates[runtimeNodeKey(eventGraphId, event.node_id)] = 'failure'
     } else if (event.type === 'macro.node.skipped') {
-      nodeStates[runtimeNodeKey(event.node_id, eventPath)] = 'skipped'
+      nodeStates[runtimeNodeKey(eventGraphId, event.node_id)] = 'skipped'
     }
   } else if (event.type === 'macro.edge.traversed') {
-    graphPath = eventPath
+    currentGraphId = eventGraphId
+    currentGraphPath = eventGraphPath
+    currentFunctionId = stringValue(event.payload.function_id)
+      ?? (eventGraphId.startsWith('function:') ? eventGraphId.slice('function:'.length) : null)
     currentEdgeId = event.edge_id
   }
 
@@ -152,7 +196,9 @@ export function applyEventToRuntimeGraphOverlay(
     ...base,
     runtimeId: event.runtime_id,
     macroDefinitionId: event.macro_id,
-    graphPath,
+    currentGraphId,
+    currentGraphPath,
+    currentFunctionId,
     activeScreenId: stringValue(event.payload.screen_id)
       ?? stringValue(event.payload.active_screen_id)
       ?? runtime?.active_screen_id
@@ -160,21 +206,20 @@ export function applyEventToRuntimeGraphOverlay(
     currentNodeId,
     currentEdgeId,
     nodeStates,
-    traces: (runtime?.trace ?? base.traces) as RuntimeTrace[],
+    traces: runtime?.trace ?? base.traces,
   })
 }
 
-export function runtimeNodeState(overlay: RuntimeGraphOverlay, graphPath: string[], nodeId: string): RuntimeNodeState {
-  return overlay.nodeStates[runtimeNodeKey(nodeId, graphPath)] ?? 'pending'
+export function runtimeNodeState(overlay: RuntimeGraphOverlay, graphId: string, nodeId: string): RuntimeNodeState {
+  return overlay.nodeStates[runtimeNodeKey(graphId, nodeId)] ?? 'pending'
 }
 
-export function runtimeNodeError(overlay: RuntimeGraphOverlay, graphPath: string[], nodeId: string): RuntimeTrace | null {
-  return overlay.nodeErrors[runtimeNodeKey(nodeId, graphPath)] ?? null
+export function runtimeNodeError(overlay: RuntimeGraphOverlay, graphId: string, nodeId: string): RuntimeTrace | null {
+  return overlay.nodeErrors[runtimeNodeKey(graphId, nodeId)] ?? null
 }
 
-export function runtimeGraphMatches(overlay: RuntimeGraphOverlay, graphPath: string[]): boolean {
-  return overlay.graphPath.length === graphPath.length
-    && overlay.graphPath.every((id, index) => id === graphPath[index])
+export function runtimeGraphMatches(overlay: RuntimeGraphOverlay, graphId: string): boolean {
+  return overlay.currentGraphId === graphId
 }
 
 function finalizeOverlay(overlay: RuntimeGraphOverlay): RuntimeGraphOverlay {
@@ -182,7 +227,7 @@ function finalizeOverlay(overlay: RuntimeGraphOverlay): RuntimeGraphOverlay {
   const nodeErrors: Record<string, RuntimeTrace> = {}
   for (const error of errors) {
     const nodeId = stringValue(error.node_id)
-    if (nodeId) nodeErrors[runtimeNodeKey(nodeId, error.graph_path)] = error
+    if (nodeId) nodeErrors[runtimeNodeKey(traceGraphId(error), nodeId)] = error
   }
   const error = errors.at(-1) ?? null
   const payload = error ? traceErrorPayload(error) : null
@@ -192,9 +237,22 @@ function finalizeOverlay(overlay: RuntimeGraphOverlay): RuntimeGraphOverlay {
     nodeErrors,
     error,
     errorEdgeId: stringValue(payload?.edge_id),
+    errorGraphId: error ? traceGraphId(error) : null,
   }
+}
+
+function fullGraphPath(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  const path = value.filter((id): id is string => typeof id === 'string')
+  if (path.length === 0) return ['main']
+  return path[0]?.toLowerCase() === 'main' ? ['main', ...path.slice(1)] : ['main', ...path]
 }
 
 function stringValue(value: unknown): string | null {
   return typeof value === 'string' ? value : null
+}
+
+function isRuntimeNodeState(value: unknown): value is RuntimeNodeState {
+  return value === 'pending' || value === 'running' || value === 'success'
+    || value === 'failure' || value === 'skipped'
 }

@@ -1,5 +1,9 @@
 import { BLOCK_BY_TYPE } from './blocks'
-import { SCREEN_OPTIONS } from './screen-elements'
+import {
+  SCREEN_OPTIONS,
+  canonicalElementId,
+  canonicalScreenId,
+} from './screen-elements'
 import type {
   JsonValue,
   MacroDefinition,
@@ -70,7 +74,7 @@ export function flowToMacroDefinition(
   const completeEntries = Object.fromEntries(
     Object.entries(screenEntries).filter(([, value]) => value.enter && value.update && value.exit),
   )
-  return {
+  return normalizeSemanticScreenIds({
     id: base.id,
     name: base.name,
     version: base.version,
@@ -96,7 +100,7 @@ export function flowToMacroDefinition(
       kind: edge.data?.kind ?? 'exec',
       ...(edge.data?.condition ? { condition: edge.data.condition } : {}),
     })),
-  }
+  })
 }
 
 export function macroFunctionToFlow(functionDefinition: MacroFunctionDefinition): FlowGraph {
@@ -141,13 +145,13 @@ export function flowToMacroFunction(
 ): MacroFunctionDefinition {
   return {
     ...structuredClone(base),
-    nodes: nodes.map((node) => ({
+    nodes: normalizeNodeScreenIds(nodes.map((node) => ({
       id: node.id,
       type: node.data.nodeType,
       config: structuredClone(node.data.config),
       position: { x: node.position.x, y: node.position.y },
       ...(node.data.definitionLabel === undefined ? {} : { label: node.data.definitionLabel }),
-    })),
+    }))),
     edges: edges.map((edge) => ({
       id: edge.id,
       source: edge.source,
@@ -167,6 +171,7 @@ function legacySourceHandle(sourceType: MacroNodeType | undefined, edge: MacroDe
 
 /** Normalize both single-entry and global-lifecycle drafts into per-screen lifecycle nodes. */
 export function migrateLegacyEntry(definition: MacroDefinition): MacroDefinition {
+  definition = normalizeSemanticScreenIds(definition)
   definition = migrateLegacyClickScreenElements(definition)
   const usedNodeIds = new Set(definition.nodes.map((node) => node.id))
   const entries: NonNullable<MacroDefinition['screen_event_entry_node_ids']> = structuredClone(
@@ -185,7 +190,7 @@ export function migrateLegacyEntry(definition: MacroDefinition): MacroDefinition
     EVENT_KINDS.forEach((kind, kindIndex) => {
       let nodeId = current[kind]
       if (!nodeId || nodeById.get(nodeId)?.type !== EVENT_TYPES[kind]) {
-        nodeId = uniqueId(`event-${screen.id.replace('reservation_', '')}-${kind}`, usedNodeIds)
+        nodeId = uniqueId(`event-${screen.id.replaceAll('_', '-')}-${kind}`, usedNodeIds)
         usedNodeIds.add(nodeId)
         generated.push({
           id: nodeId,
@@ -240,6 +245,55 @@ export function migrateLegacyEntry(definition: MacroDefinition): MacroDefinition
     nodes: allNodes,
     edges,
   }
+}
+
+export function normalizeSemanticScreenIds(definition: MacroDefinition): MacroDefinition {
+  const entries = definition.screen_event_entry_node_ids
+    ? Object.fromEntries(Object.entries(definition.screen_event_entry_node_ids).map(
+      ([screenId, value]) => [canonicalScreenId(screenId), structuredClone(value)],
+    ))
+    : undefined
+  const metadata = structuredClone(definition.metadata)
+  const rawNodeScreens = metadata.editor_screen_node_ids
+  if (rawNodeScreens && typeof rawNodeScreens === 'object' && !Array.isArray(rawNodeScreens)) {
+    metadata.editor_screen_node_ids = Object.fromEntries(
+      Object.entries(rawNodeScreens).map(([screenId, nodeIds]) => [
+        canonicalScreenId(screenId), nodeIds,
+      ]),
+    )
+  }
+  return {
+    ...structuredClone(definition),
+    ...(definition.screen
+      ? { screen: { ...structuredClone(definition.screen), id: canonicalScreenId(definition.screen.id) } }
+      : {}),
+    ...(entries ? { screen_event_entry_node_ids: entries } : {}),
+    metadata,
+    nodes: normalizeNodeScreenIds(definition.nodes),
+    functions: (definition.functions ?? []).map((item) => ({
+      ...structuredClone(item),
+      nodes: normalizeNodeScreenIds(item.nodes),
+    })),
+  }
+}
+
+function normalizeNodeScreenIds(nodes: MacroDefinition['nodes']): MacroDefinition['nodes'] {
+  return nodes.map((node) => {
+    const rawScreenId = node.config.screen_id
+    if (typeof rawScreenId !== 'string') return structuredClone(node)
+    const screenId = canonicalScreenId(rawScreenId)
+    const rawElementId = node.config.element_id
+    return {
+      ...structuredClone(node),
+      config: {
+        ...structuredClone(node.config),
+        screen_id: screenId,
+        ...(typeof rawElementId === 'string'
+          ? { element_id: canonicalElementId(screenId, rawElementId) }
+          : {}),
+      },
+    }
+  })
 }
 
 export function migrateLegacyClickScreenElements(

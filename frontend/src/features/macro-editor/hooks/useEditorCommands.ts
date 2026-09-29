@@ -75,8 +75,11 @@ export interface EditorCommandDependencies {
   setBusy: Dispatch<SetStateAction<boolean>>
   setMessage: Dispatch<SetStateAction<string | null>>
   setMessageIntent: Dispatch<SetStateAction<MessageIntent>>
-  enterFunctionGraph: (functionId: string | undefined) => void
-  navigateToGraphPath: (path: string[], focusNode?: MacroFlowNode) => void
+  openMain: (focusNode?: MacroFlowNode) => void
+  openFunction: (functionId: string | undefined) => void
+  openPath: (path: string[], focusNode?: MacroFlowNode) => boolean
+  goBack: () => void
+  goToBreadcrumb: (index: number) => void
   guardUnsavedChanges: (hasUnsavedChanges: boolean, action: () => void | Promise<void>) => void
   markChanged: () => void
   selectedScreenId: string
@@ -479,8 +482,11 @@ export function useEditorCommands(deps: EditorCommandDependencies) {
     duplicateFunction,
     requestDeleteFunction,
     updateFunctionPorts,
-    enterFunction: deps.enterFunctionGraph,
-    navigateGraph: deps.navigateToGraphPath,
+    openMain: deps.openMain,
+    openFunction: deps.openFunction,
+    openPath: deps.openPath,
+    goBack: deps.goBack,
+    goToBreadcrumb: deps.goToBreadcrumb,
     submitName,
     requestCreateMacro,
     requestRenameMacro,

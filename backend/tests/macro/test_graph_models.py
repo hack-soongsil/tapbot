@@ -149,11 +149,11 @@ def test_global_screen_events_migrate_to_screen_scoped_entries_on_save() -> None
 
     assert definition.entry_for("enter", screen_id="reservation_home") == "enter"
     assert definition.nodes[0].config == {
-        "screen_id": "reservation_home", "event": "enter",
+        "screen_id": "study_room_list", "event": "enter",
     }
     saved = definition.to_dict()
     assert saved["screen_event_entry_node_ids"] == {
-        "reservation_home": {
+        "study_room_list": {
             "enter": "enter", "update": "update", "exit": "exit",
         }
     }
@@ -193,7 +193,7 @@ def test_legacy_click_screen_element_migrates_to_find_and_click_pair() -> None:
         ("done", "stop"),
     ]
     assert definition.nodes[0].config == {
-        "screen_id": "reservation_detail",
+        "screen_id": "study_room_detail",
         "element_id": "time_slot",
         "params": {"index": 2},
     }
@@ -208,6 +208,50 @@ def test_legacy_click_screen_element_migrates_to_find_and_click_pair() -> None:
         and edge.kind == "data"
         for edge in definition.edges
     )
+
+
+def test_legacy_screen_ids_normalize_in_functions_metadata_and_saved_json() -> None:
+    definition = MacroDefinition.from_dict({
+        "id": "legacy-all",
+        "name": "Legacy all",
+        "version": 1,
+        "nodes": [],
+        "edges": [],
+        "metadata": {
+            "editor_screen_node_ids": {"reservation_detail": ["find-slot"]},
+        },
+        "screen_event_entry_node_ids": {
+            "reservation_home": {"enter": "enter", "update": "update", "exit": "exit"},
+        },
+        "functions": [{
+            "id": "select-slot",
+            "name": "SelectSlot",
+            "inputs": [],
+            "outputs": [],
+            "entry_node_id": "entry",
+            "return_node_id": "return",
+            "nodes": [
+                {"id": "entry", "type": "function_entry", "config": {}},
+                {"id": "find-slot", "type": "find_screen_element", "config": {
+                    "screen_id": "reservation_detail",
+                    "element_id": "time_slot_by_time",
+                    "params": {"name": "18:30"},
+                }},
+                {"id": "return", "type": "function_return", "config": {}},
+            ],
+            "edges": [],
+        }],
+    })
+
+    assert tuple(definition.screen_event_entry_node_ids or {}) == ("study_room_list",)
+    assert definition.metadata["editor_screen_node_ids"] == {
+        "study_room_detail": ["find-slot"],
+    }
+    find_slot = definition.functions[0].nodes[1]
+    assert find_slot.config["screen_id"] == "study_room_detail"
+    saved = definition.to_json()
+    assert "reservation_home" not in saved
+    assert "reservation_detail" not in saved
     assert all(node.type != "click_screen_element" for node in definition.nodes)
 
 

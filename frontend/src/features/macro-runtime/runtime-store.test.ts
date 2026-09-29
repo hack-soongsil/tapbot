@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { MacroRuntime } from '../macro-editor/types'
 import { applyRuntimeEvent, emptyRuntimeView, EVENT_LOG_LIMIT, syncRuntimeSnapshot } from './runtime-store'
+import { runtimeEdgeKey, runtimeGraphMatches, runtimeNodeKey } from './runtime-overlay'
 import type { MacroRuntimeEvent } from './types'
 
 const runtime: MacroRuntime = {
@@ -50,9 +51,10 @@ describe('macro runtime store', () => {
     view = applyRuntimeEvent(view, failed)
     view = applyRuntimeEvent(view, failed)
     expect(view.runtime?.trace).toHaveLength(1)
-    expect(view.graphOverlay.nodeStates.one).toBe('running')
-    expect(view.graphOverlay.nodeStates[JSON.stringify(['reserve', 'slot', 'one'])]).toBe('failure')
-    expect(view.graphOverlay.graphPath).toEqual(['reserve', 'slot'])
+    expect(view.graphOverlay.nodeStates[runtimeNodeKey('main', 'one')]).toBe('running')
+    expect(view.graphOverlay.nodeStates[runtimeNodeKey('function:slot', 'one')]).toBe('failure')
+    expect(view.graphOverlay.currentGraphPath).toEqual(['main', 'reserve', 'slot'])
+    expect(view.graphOverlay.currentGraphId).toBe('function:slot')
     expect(view.graphOverlay.error?.node_id).toBe('one')
     view = applyRuntimeEvent(view, event(2, 'macro.runtime.failed', { payload: { error: 'failed' } }))
     expect(view.runtime?.error).toBe('failed')
@@ -75,23 +77,24 @@ describe('macro runtime store', () => {
   it('decorates node and edge transitions from ordered events', () => {
     let view = syncRuntimeSnapshot(emptyRuntimeView(), runtime)
     view = applyRuntimeEvent(view, event(1, 'macro.node.started', {
-      node_id: 'one', payload: { graph_path: ['main', 'reserve'] },
+      node_id: 'one', payload: { graph_id: 'function:reserve', graph_path: ['main', 'reserve'], function_id: 'reserve' },
     }))
-    expect(view.graphOverlay.nodeStates[JSON.stringify(['reserve', 'one'])]).toBe('running')
-    expect(view.graphOverlay.graphPath).toEqual(['reserve'])
+    expect(view.graphOverlay.nodeStates[runtimeNodeKey('function:reserve', 'one')]).toBe('running')
+    expect(view.graphOverlay.currentGraphPath).toEqual(['main', 'reserve'])
     view = applyRuntimeEvent(view, event(2, 'android.tap.planned', {
       node_id: 'one',
       payload: { bounds: [10, 20, 80, 60], tap_point: [44, 39] },
     }))
     view = applyRuntimeEvent(view, event(3, 'macro.node.completed', {
-      node_id: 'one', payload: { graph_path: ['main', 'reserve'] },
+      node_id: 'one', payload: { graph_id: 'function:reserve', graph_path: ['main', 'reserve'] },
     }))
     view = applyRuntimeEvent(view, event(4, 'macro.edge.traversed', {
-      edge_id: 'next', payload: { graph_path: ['main', 'reserve'] },
+      edge_id: 'next', payload: { graph_id: 'function:reserve', graph_path: ['main', 'reserve'] },
     }))
 
-    expect(view.graphOverlay.nodeStates[JSON.stringify(['reserve', 'one'])]).toBe('success')
+    expect(view.graphOverlay.nodeStates[runtimeNodeKey('function:reserve', 'one')]).toBe('success')
     expect(view.graphOverlay.currentEdgeId).toBe('next')
+    expect(runtimeEdgeKey(view.graphOverlay.currentGraphId, view.graphOverlay.currentEdgeId!)).toBe('function:reserve::next')
     expect(view.overlay.bounds).toEqual([10, 20, 80, 60])
     expect(view.overlay.tapPoint).toEqual([44, 39])
   })
@@ -103,7 +106,7 @@ describe('macro runtime store', () => {
     }
     view = applyRuntimeEvent(view, event(EVENT_LOG_LIMIT + 21, 'macro.node.failed', { node_id: 'two' }))
 
-    expect(view.graphOverlay.nodeStates.two).toBe('failure')
+    expect(view.graphOverlay.nodeStates[runtimeNodeKey('main', 'two')]).toBe('failure')
     expect(view.events).toHaveLength(EVENT_LOG_LIMIT)
     expect(view.events.at(-1)?.sequence).toBe(EVENT_LOG_LIMIT + 21)
   })
@@ -114,7 +117,7 @@ describe('macro runtime store', () => {
     view = applyRuntimeEvent(view, event(2, 'macro.runtime.paused', { node_id: 'one' }))
     expect(view.runtime?.state).toBe('paused')
     expect(view.graphOverlay.currentNodeId).toBe('one')
-    expect(view.graphOverlay.nodeStates.one).toBe('running')
+    expect(view.graphOverlay.nodeStates[runtimeNodeKey('main', 'one')]).toBe('running')
 
     view = applyRuntimeEvent(view, event(3, 'macro.node.failed', { node_id: 'one' }))
     const restored = syncRuntimeSnapshot(view, {
@@ -124,6 +127,67 @@ describe('macro runtime store', () => {
       trace: [{ node_id: 'one', status: 'success' }],
     })
     expect(restored.runtime?.state).toBe('completed')
-    expect(restored.graphOverlay.nodeStates.one).toBe('success')
+    expect(restored.graphOverlay.nodeStates[runtimeNodeKey('main', 'one')]).toBe('success')
+  })
+
+  it('keeps identical node ids isolated across main and nested function graphs', () => {
+    const restored = syncRuntimeSnapshot(emptyRuntimeView(), {
+      ...runtime,
+      current_node_id: 'shared',
+      current_graph_id: 'function:inner',
+      current_graph_path: ['main', 'outer', 'inner'],
+      current_function_id: 'inner',
+      trace: [
+        { node_id: 'shared', graph_id: 'main', graph_path: ['main'], status: 'success' },
+        { node_id: 'shared', graph_id: 'function:outer', graph_path: ['main', 'outer'], status: 'failure', error: 'outer failed' },
+        { node_id: 'shared', graph_id: 'function:inner', graph_path: ['main', 'outer', 'inner'], status: 'success' },
+      ],
+    })
+
+    expect(restored.graphOverlay.nodeStates[runtimeNodeKey('main', 'shared')]).toBe('success')
+    expect(restored.graphOverlay.nodeStates[runtimeNodeKey('function:outer', 'shared')]).toBe('failure')
+    expect(restored.graphOverlay.nodeStates[runtimeNodeKey('function:inner', 'shared')]).toBe('running')
+    expect(restored.graphOverlay.currentFunctionId).toBe('inner')
+    expect(runtimeGraphMatches(restored.graphOverlay, 'function:inner')).toBe(true)
+    expect(runtimeGraphMatches(restored.graphOverlay, 'main')).toBe(false)
+  })
+
+  it('produces the same graph-aware overlay from SSE and a reconnect snapshot', () => {
+    const context = {
+      graph_id: 'function:reserve', graph_path: ['main', 'reserve'],
+      function_id: 'reserve', function_name: 'Reserve', call_depth: 1,
+    }
+    let streamed = syncRuntimeSnapshot(emptyRuntimeView(), runtime)
+    streamed = applyRuntimeEvent(streamed, event(1, 'macro.node.started', {
+      node_id: 'inside', payload: context,
+    }))
+    streamed = applyRuntimeEvent(streamed, event(2, 'macro.node.completed', {
+      node_id: 'inside', payload: { ...context, status: 'success', step: 1 },
+    }))
+    streamed = applyRuntimeEvent(streamed, event(3, 'macro.edge.traversed', {
+      edge_id: 'inside-next', payload: { ...context, target: 'return' },
+    }))
+
+    const restored = syncRuntimeSnapshot(emptyRuntimeView(), {
+      ...runtime,
+      current_node_id: 'return',
+      current_edge_id: 'inside-next',
+      current_graph_id: 'function:reserve',
+      current_graph_path: ['main', 'reserve'],
+      current_function_id: 'reserve',
+      node_states: {
+        [runtimeNodeKey('main', 'one')]: 'running',
+        [runtimeNodeKey('function:reserve', 'inside')]: 'success',
+      },
+      trace: [{ node_id: 'inside', ...context, status: 'success', step: 1 }],
+    })
+
+    expect(restored.graphOverlay).toMatchObject({
+      currentGraphId: streamed.graphOverlay.currentGraphId,
+      currentGraphPath: streamed.graphOverlay.currentGraphPath,
+      currentFunctionId: streamed.graphOverlay.currentFunctionId,
+      currentEdgeId: streamed.graphOverlay.currentEdgeId,
+      nodeStates: streamed.graphOverlay.nodeStates,
+    })
   })
 })

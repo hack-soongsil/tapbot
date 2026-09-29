@@ -617,14 +617,20 @@ describe('MacroCanvas', () => {
   })
 
   it('creates contextual variable blocks selected by variable name in Quick Search', async () => {
-    const onDropQuickBlock = vi.fn()
+    const createVariableBlock = vi.fn(() => ({
+      id: 'get-variable-created', type: 'get_variable' as const, config: { name: 'count', type: 'int' },
+    }))
     let instance: ReactFlowInstance<MacroFlowNode, MacroFlowEdge> | null = null
     const variableBlock = {
-      ...BLOCK_BY_TYPE.get('get_variable')!,
+      id: 'variable:get:count',
+      type: 'get_variable' as const,
+      category: 'utility' as const,
+      categoryPath: ['유틸리티'],
       label: 'count 가져오기',
       keywords: ['count', 'variable'],
-      presetConfig: { name: 'count', type: 'int' as const },
-      presetLabel: 'count',
+      description: '변수 가져오기',
+      defaultConfig: { name: 'count', type: 'int' as const },
+      create: createVariableBlock,
     }
     const { container } = render(
       <div style={{ width: 800, height: 600 }}>
@@ -636,8 +642,7 @@ describe('MacroCanvas', () => {
           onConnect={vi.fn()}
           onSelectNode={vi.fn()}
           onDropBlock={vi.fn()}
-          quickSearchBlocks={[variableBlock]}
-          onDropQuickBlock={onDropQuickBlock}
+          quickSearchItems={[variableBlock]}
           onReady={(next) => { instance = next }}
         />
       </div>,
@@ -653,7 +658,7 @@ describe('MacroCanvas', () => {
     })
     fireEvent.click(screen.getByText('count 가져오기'))
 
-    expect(onDropQuickBlock).toHaveBeenCalledWith(variableBlock, { x: 45, y: 55 })
+    expect(createVariableBlock).toHaveBeenCalledWith({ x: 45, y: 55 })
   })
 
   it('edits a key property inline and keeps the Inspector synchronized', () => {

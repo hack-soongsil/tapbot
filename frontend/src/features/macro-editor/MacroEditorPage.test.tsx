@@ -119,8 +119,8 @@ describe('MacroEditorPage', () => {
       nodes?: unknown[]
     }
     expect(saved.nodes).toHaveLength(7)
-    expect(saved).toHaveProperty('screen_event_entry_node_ids.reservation_home.enter', 'event-home-enter')
-    expect(saved).toHaveProperty('screen_event_entry_node_ids.reservation_detail.enter', 'event-detail-enter')
+    expect(saved).toHaveProperty('screen_event_entry_node_ids.study_room_list.enter', 'event-study-room-list-enter')
+    expect(saved).toHaveProperty('screen_event_entry_node_ids.study_room_detail.enter', 'event-study-room-detail-enter')
     expect(saved).not.toHaveProperty('event_entry_node_ids')
 
     first.unmount()

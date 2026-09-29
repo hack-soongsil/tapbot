@@ -41,10 +41,10 @@ class Ui:
         return self.element
 
     def resolve_screen_element(self, screen_id, element_id, params):
-        assert screen_id == "reservation_home"
-        assert element_id == "quick_date"
+        assert screen_id == "study_room_list"
+        assert element_id == "date_chip"
         self.screen_indexes.append(params["index"])
-        return GraphElement(f"quick_date[{params['index']}]", TapBounds(10, 20, 30, 40))
+        return GraphElement(f"date_chip[{params['index']}]", TapBounds(10, 20, 30, 40))
 
     def read_ui_tree(self):
         return {"nodes": []}
@@ -138,7 +138,7 @@ def test_for_index_drives_find_screen_element_collection_index() -> None:
 def test_for_index_overrides_time_slot_literal_index() -> None:
     class SlotUi(Ui):
         def resolve_screen_element(self, screen_id, element_id, params):
-            assert screen_id == "reservation_detail"
+            assert screen_id == "study_room_detail"
             assert element_id == "time_slot"
             self.screen_indexes.append(params["index"])
             return GraphElement(
@@ -233,7 +233,7 @@ def test_find_screen_element_reference_drives_click_element() -> None:
 def test_disabled_screen_element_is_found_with_metadata_but_click_fails() -> None:
     class DisabledSlotUi(Ui):
         def resolve_screen_element(self, screen_id, element_id, params):
-            assert screen_id == "reservation_detail"
+            assert screen_id == "study_room_detail"
             assert element_id == "time_slot"
             assert params["index"] == 6
             return GraphElement(

@@ -1,5 +1,10 @@
+import json
+from pathlib import Path
+
 from tapbot.ui_resolution.screens import (
+    SCREEN_ELEMENT_TEMPLATES,
     ScreenRecognizer,
+    screen_element_semantic_id,
     validate_screen_element_reference,
 )
 
@@ -73,9 +78,11 @@ def test_recognizes_home_and_deduplicates_accessibility_button() -> None:
     recognition = ScreenRecognizer().recognize(home_tree())
 
     assert recognition is not None
-    assert recognition.screen_id == "reservation_home"
+    assert recognition.screen_id == "study_room_list"
     assert [item.semantic_id for item in recognition.elements].count("reservation_history") == 1
-    assert len(recognition.elements) == 10
+    assert {"date_chip[0]", "date_picker", "reservation_history"} <= {
+        item.semantic_id for item in recognition.elements
+    }
     assert next(item for item in recognition.elements if item.semantic_id == "reservation_history").class_name == "android.widget.Button"
 
 
@@ -84,8 +91,8 @@ def test_dynamic_home_dates_keep_semantic_ids() -> None:
     second = ScreenRecognizer().recognize(home_tree("수 30"))
 
     assert first is not None and second is not None
-    assert next(item for item in first.elements if item.semantic_id.startswith("quick_date")).semantic_id == "quick_date[0]"
-    assert next(item for item in second.elements if item.semantic_id.startswith("quick_date")).semantic_id == "quick_date[0]"
+    assert next(item for item in first.elements if item.semantic_id.startswith("date_chip[")).semantic_id == "date_chip[0]"
+    assert next(item for item in second.elements if item.semantic_id.startswith("date_chip[")).semantic_id == "date_chip[0]"
 
 
 def test_detail_slots_remain_semantic_when_disabled_and_cta_text_changes() -> None:
@@ -93,8 +100,8 @@ def test_detail_slots_remain_semantic_when_disabled_and_cta_text_changes() -> No
     after = ScreenRecognizer().recognize(detail_tree("이 시간으로 예약하기"))
 
     assert before is not None and after is not None
-    assert before.screen_id == "reservation_detail"
-    slots = [item for item in before.elements if item.semantic_id.startswith("time_slot")]
+    assert before.screen_id == "study_room_detail"
+    slots = [item for item in before.elements if item.semantic_id.startswith("time_slot[")]
     assert len(slots) == 32
     assert any(not slot.enabled and not slot.tappable for slot in slots)
     assert slots[3].metadata == {
@@ -103,17 +110,31 @@ def test_detail_slots_remain_semantic_when_disabled_and_cta_text_changes() -> No
         "family": "time_slot",
         "index": 3,
         "time": "07:30",
+        "start_time": "07:30",
+        "end_time": "08:00",
         "state": "reserved",
+        "booked": True,
         "selected": False,
     }
     assert slots[6].metadata["index"] == 6
     assert slots[6].metadata["enabled"] is True
     assert slots[6].metadata["visible"] is True
     assert next(item for item in before.elements if item.semantic_id == "reserve_cta").enabled is False
+    assert next(item for item in before.elements if item.semantic_id == "reserve_cta").metadata == {
+        "enabled": False,
+        "visible": True,
+        "state": "idle",
+        "text": "시간을 선택하세요",
+        "selected_slot_index": None,
+        "selected_time": None,
+    }
     assert next(item for item in after.elements if item.semantic_id == "reserve_cta").semantic_id == "reserve_cta"
 
 
 def test_study_room_detail_template_validates_semantic_collections() -> None:
+    assert validate_screen_element_reference(
+        "study_room_detail", "date_picker", {}
+    ) == ()
     assert validate_screen_element_reference(
         "study_room_detail", "time_slot", {"index": 3}
     ) == ()
@@ -123,6 +144,21 @@ def test_study_room_detail_template_validates_semantic_collections() -> None:
     assert validate_screen_element_reference(
         "study_room_detail", "time_slot", {}
     ) == ("params.index must be a non-negative integer",)
+    assert validate_screen_element_reference(
+        "study_room_detail", "time_slot", {"index": 32}
+    ) == ("params.index must be between 0 and 31",)
+    assert validate_screen_element_reference(
+        "study_room_detail", "time_slot_by_time", {"name": "18:30"}
+    ) == ()
+    assert validate_screen_element_reference(
+        "study_room_detail", "time_slot_by_time", {"name": "18:45"}
+    ) == ("params.name must be a half-hour time between 06:00 and 21:30",)
+    assert validate_screen_element_reference(
+        "study_room_detail", "time_slot_by_end_time", {"name": "19:30"}
+    ) == ()
+    assert validate_screen_element_reference(
+        "study_room_detail", "time_slot_by_end_time", {"name": "06:00"}
+    ) == ("params.name must be a half-hour time between 06:30 and 22:00",)
 
 
 def test_study_room_list_template_validates_index_and_name_collections() -> None:
@@ -138,3 +174,40 @@ def test_study_room_list_template_validates_index_and_name_collections() -> None
     assert validate_screen_element_reference(
         "study_room_list", "room_card_by_name", {"name": ""}
     ) == ("params.name must be a non-empty string",)
+
+
+def test_semantic_screen_manifest_exposes_only_canonical_templates() -> None:
+    assert tuple(SCREEN_ELEMENT_TEMPLATES) == (
+        "study_room_list",
+        "study_room_detail",
+        "study_room_confirm",
+        "study_room_complete",
+    )
+    assert validate_screen_element_reference(
+        "reservation_home", "quick_date", {"index": 2}
+    ) == ()
+    assert screen_element_semantic_id(
+        "reservation_home", "quick_date", {"index": 2}
+    ) == "date_chip[2]"
+    assert screen_element_semantic_id(
+        "reservation_detail", "time_slot_by_time", {"name": "18:30"}
+    ) == "time_slot_by_time[18:30]"
+
+
+def test_actual_ssutoday_tree_keeps_all_slots_with_semantic_times() -> None:
+    fixture = Path(__file__).parents[3] / "ssutoday" / "reservation.json"
+    recognition = ScreenRecognizer().recognize(json.loads(fixture.read_text("utf-8")))
+
+    assert recognition is not None
+    assert recognition.screen_id == "study_room_detail"
+    slots = [
+        element for element in recognition.elements
+        if element.semantic_id.startswith("time_slot[")
+    ]
+    assert len(slots) == 32
+    assert slots[-1].semantic_id == "time_slot[31]"
+    by_time = next(
+        element for element in recognition.elements
+        if element.semantic_id == "time_slot_by_time[18:30]"
+    )
+    assert by_time.metadata["index"] == 25

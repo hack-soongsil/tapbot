@@ -6,6 +6,7 @@ import {
   Elevation,
   Spinner,
   Tag,
+  Tooltip,
 } from '@blueprintjs/core'
 import type {
   CSSProperties,
@@ -853,12 +854,8 @@ export function AndroidDebugWorkspace({ controller }: AndroidDebugWorkspaceProps
           elevation={Elevation.ONE}
           data-editor-pane="live"
         >
-          <header className="android-card-heading">
-            <div>
-              <span>기준 화면 소스</span>
-              <strong>{ko.panels.androidLiveScreen}</strong>
-            </div>
-            <div>
+          <header className="android-live-header">
+            <div className="android-live-header__inspect">
               <Button
                 minimal
                 small
@@ -874,13 +871,13 @@ export function AndroidDebugWorkspace({ controller }: AndroidDebugWorkspaceProps
                   setInspectMode((current) => !current)
                 }}
               />
-              {frameWidth > 0 && frameHeight > 0 && (
-                <Tag minimal>
-                  {frameWidth} × {frameHeight}
-                </Tag>
-              )}
-              <Tag minimal>{status?.stream?.fps?.toFixed(1) ?? '—'} FPS</Tag>
-              <Tag minimal>{status?.stream?.frame_age_ms?.toFixed(0) ?? '—'} ms</Tag>
+            </div>
+            <div className="android-live-header__metadata" aria-label="실시간 화면 상태">
+              <span>{frameWidth > 0 && frameHeight > 0 ? `${frameWidth}×${frameHeight}` : '—×—'}</span>
+              <i aria-hidden="true">·</i>
+              <span>{formatCompactMetric(status?.stream?.fps, 1)} FPS</span>
+              <i aria-hidden="true">·</i>
+              <span>{formatCompactMetric(status?.stream?.frame_age_ms, 0)} ms</span>
             </div>
           </header>
 
@@ -949,30 +946,44 @@ export function AndroidDebugWorkspace({ controller }: AndroidDebugWorkspaceProps
             </div>
           </div>
 
-          <div className="android-control-bar">
+          <div className={`android-control-bar${controller.streamFailed ? ' has-reconnect' : ''}`}>
+            <div className="android-live-action-group" aria-label="실시간 화면 액션">
+              <Tooltip content="스크린샷" compact hoverOpenDelay={250} openOnTargetFocus>
+                <Button
+                  className="android-live-action-button"
+                  minimal
+                  icon="camera"
+                  aria-label="스크린샷"
+                  loading={controller.busy === 'Screenshot'}
+                  disabled={!status?.connected}
+                  onClick={() => void controller.saveScreenshot()}
+                />
+              </Tooltip>
+              <Tooltip content="뒤로" compact hoverOpenDelay={250} openOnTargetFocus>
+                <Button
+                  className="android-live-action-button"
+                  minimal
+                  icon="undo"
+                  aria-label="뒤로"
+                  loading={controller.busy === 'Back'}
+                  disabled={!canControl}
+                  onClick={() => void controller.back()}
+                />
+              </Tooltip>
+              <Tooltip content="홈" compact hoverOpenDelay={250} openOnTargetFocus>
+                <Button
+                  className="android-live-action-button"
+                  minimal
+                  icon="home"
+                  aria-label="홈"
+                  loading={controller.busy === 'Home'}
+                  disabled={!canControl}
+                  onClick={() => void controller.home()}
+                />
+              </Tooltip>
+            </div>
             <Button
-              icon="camera"
-              text="스크린샷"
-              loading={controller.busy === 'Screenshot'}
-              disabled={!status?.connected}
-              onClick={() => void controller.saveScreenshot()}
-            />
-            <Button
-              icon="undo"
-              text="뒤로"
-              loading={controller.busy === 'Back'}
-              disabled={!canControl}
-              onClick={() => void controller.back()}
-            />
-            <Button
-              icon="home"
-              text="홈"
-              loading={controller.busy === 'Home'}
-              disabled={!canControl}
-              onClick={() => void controller.home()}
-            />
-            <Button
-              className={controller.streamFailed ? '' : 'is-placeholder-control'}
+              className={`android-control-bar__reconnect${controller.streamFailed ? '' : ' is-placeholder-control'}`}
               icon="refresh"
               text="스트림 다시 연결"
               disabled={!controller.streamFailed}
@@ -1963,6 +1974,11 @@ function userDebugLevel(event: MacroRuntimeEvent): Exclude<UserDebugLevel, 'all'
 
 function userDebugMessage(event: MacroRuntimeEvent) {
   return typeof event.payload.message === 'string' ? event.payload.message : ''
+}
+
+function formatCompactMetric(value: number | null | undefined, maximumFractionDigits: number) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return '—'
+  return value.toLocaleString('ko-KR', { maximumFractionDigits })
 }
 
 function userDebugIntent(level: Exclude<UserDebugLevel, 'all'>) {

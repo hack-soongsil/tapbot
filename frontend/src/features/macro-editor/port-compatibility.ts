@@ -1,4 +1,5 @@
-import { getNodePorts, type SearchItem } from './blocks'
+import { getNodePorts } from './blocks'
+import type { SearchItem } from './search-provider'
 import type { JsonValue, MacroFlowNode, MacroNodeType, PortDefinition, PortType } from './types'
 
 export interface PortConnection {
@@ -90,7 +91,7 @@ export function compatiblePorts(
 }
 
 export function blockSupportsPortContext(
-  block: SearchItem,
+  block: Pick<SearchItem, 'type' | 'defaultConfig'>,
   context: SourcePortContext,
 ): boolean {
   return compatiblePorts(block.type, block.defaultConfig, context).length > 0

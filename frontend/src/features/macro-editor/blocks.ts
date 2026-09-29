@@ -15,7 +15,7 @@ export type NodeVisualKind = MacroNodeCategory | 'variable' | 'function'
 export type PaletteGroup = 'input' | 'flow' | 'ui' | 'validation' | 'utility' | 'action'
 export type CustomInspectorEditor = 'function' | 'variable' | 'branch' | 'sequence' | 'screen-element'
 
-export interface SearchItem {
+export interface NodeSearchDescriptor {
   type: MacroNodeType
   label: string
   category: MacroNodeCategory
@@ -45,7 +45,7 @@ export interface InspectorFieldDefinition {
   visibleWhen?: { key: string; equals?: JsonValue; notEquals?: JsonValue }
 }
 
-export interface NodeDefinition extends SearchItem {
+export interface NodeDefinition extends NodeSearchDescriptor {
   ports: (config: Record<string, JsonValue>) => NodePorts
   inputs: readonly PortDefinition[]
   outputs: readonly PortDefinition[]
@@ -78,7 +78,7 @@ export interface InlinePropertyDefinition {
   visible?: 'screen-element-collection'
 }
 
-interface NodeDefinitionInput extends SearchItem {
+interface NodeDefinitionInput extends NodeSearchDescriptor {
   ports?: (config: Record<string, JsonValue>) => NodePorts
   inlineProperties?: readonly InlinePropertyDefinition[]
   inspectorSchema?: readonly InspectorFieldDefinition[]
@@ -307,15 +307,20 @@ const NODE_DEFINITION_INPUTS: readonly NodeDefinitionInput[] = [
   },
   {
     type: 'find_screen_element', label: 'Find Screen Element', category: 'ui',
-    defaultConfig: { screen_id: 'reservation_home', element_id: 'quick_date', params: { index: 0 } },
+    defaultConfig: { screen_id: 'study_room_list', element_id: 'reservation_history', params: {} },
     palette: true, keywords: ['screen', 'semantic', 'element', 'find', '화면', '요소', '찾기'],
     description: 'Resolve a semantic element from the current screen',
-    ports: fixedPorts([execIn, { id: 'index', type: 'int', optional: true }], [
+    ports: fixedPorts([
+      execIn,
+      { id: 'index', type: 'int', optional: true },
+      { id: 'name', type: 'string', optional: true },
+    ], [
       execOut, { id: 'element', type: 'element' }, { id: 'found', type: 'bool' },
     ]),
     inlineProperties: [
       { key: 'element_id', label: '요소', editor: 'screen-element' },
       { key: 'params.index', label: '인덱스', editor: 'number', inputPortId: 'index', min: 0, step: 1, visible: 'screen-element-collection' },
+      { key: 'params.name', label: '이름', editor: 'text', inputPortId: 'name', visible: 'screen-element-collection' },
     ], customInspector: 'screen-element', paletteGroup: 'ui',
   },
   {

@@ -7,7 +7,9 @@ export type RuntimeTrace = Record<string, JsonValue>
 export interface RuntimeGraphOverlay {
   runtimeId: string | null
   macroDefinitionId: string | null
-  graphPath: string[]
+  currentGraphId: string
+  currentGraphPath: string[]
+  currentFunctionId: string | null
   activeScreenId: string | null
   currentNodeId: string | null
   currentEdgeId: string | null
@@ -16,6 +18,7 @@ export interface RuntimeGraphOverlay {
   error: RuntimeTrace | null
   errors: RuntimeTrace[]
   errorEdgeId: string | null
+  errorGraphId: string | null
   traces: RuntimeTrace[]
 }
 

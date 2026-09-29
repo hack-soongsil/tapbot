@@ -49,6 +49,10 @@ export function applyRuntimeEvent(
           definition_version: numberValue(event.payload.definition_version),
           current_node_id: stringValue(event.payload.entry_node_id),
           current_edge_id: null,
+          current_graph_id: 'main',
+          current_graph_path: ['main'],
+          current_function_id: null,
+          node_states: {},
           state: 'idle' as const,
           step_count: 0,
           variables: {},
@@ -68,6 +72,7 @@ export function applyRuntimeEvent(
     overlay = { bounds: null, tapPoint: null, nodeId: event.node_id }
   } else if (event.type === 'macro.edge.traversed') {
     currentEdgeId = event.edge_id
+    currentNodeId = stringValue(event.payload.target) ?? currentNodeId
   } else if (event.type === 'android.element.resolved') {
     overlay = {
       ...overlay,
@@ -96,18 +101,27 @@ export function applyRuntimeEvent(
         runtime_id: event.runtime_id,
         current_node_id: currentNodeId,
         current_edge_id: currentEdgeId,
+        current_graph_id: stringValue(event.payload.graph_id) ?? base.runtime.current_graph_id,
+        current_graph_path: stringArray(event.payload.graph_path) ?? base.runtime.current_graph_path,
+        current_function_id: stringValue(event.payload.function_id) ?? (
+          event.payload.function_id === null ? null : base.runtime.current_function_id
+        ),
+        node_states: base.runtime.node_states,
         state: normalizeRuntimeState(runtimeState, base.runtime.state),
       }
     : base.runtime
   if (runtime) {
-    if ((event.type === 'macro.node.completed' || event.type === 'macro.node.failed') && event.node_id) {
+    if (['macro.node.completed', 'macro.node.failed', 'macro.node.skipped'].includes(event.type) && event.node_id) {
       const entry = {
         ...event.payload,
         node_id: event.node_id,
         timestamp: event.payload.timestamp ?? event.timestamp,
         step: event.payload.step ?? runtime.trace.length + 1,
         graph_path: event.payload.graph_path ?? ['main'],
-        status: event.payload.status ?? (event.type === 'macro.node.failed' ? 'failure' : 'success'),
+        status: event.payload.status ?? (
+          event.type === 'macro.node.failed' ? 'failure'
+            : event.type === 'macro.node.skipped' ? 'skipped' : 'success'
+        ),
       }
       const alreadyPresent = runtime.trace.some((trace) => trace.step === entry.step && trace.timestamp === entry.timestamp)
       const trace = alreadyPresent ? runtime.trace : [...runtime.trace, entry]
@@ -163,4 +177,9 @@ function stringValue(value: unknown) {
 
 function numberValue(value: unknown) {
   return typeof value === 'number' ? value : null
+}
+
+function stringArray(value: unknown): string[] | null {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+    ? value : null
 }

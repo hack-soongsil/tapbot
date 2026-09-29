@@ -13,6 +13,7 @@ import {
   runtimeGraphMatches,
   runtimeNodeError,
   runtimeNodeState,
+  traceGraphId,
 } from '../macro-runtime/runtime-overlay'
 import { ConfirmDialog } from '../../components/AppDialog'
 import { BlockPalette } from './BlockPalette'
@@ -20,10 +21,8 @@ import { MacroActionButton } from './MacroActionButton'
 import { traceErrorCode, traceErrorEdgeId, traceErrorMessage, traceErrorOrigin, traceErrorSummary, traceGraphPath, type RuntimeTrace } from './runtime-trace'
 import { BlueprintInspector } from './BlueprintInspector'
 import {
-  NODE_DEFINITIONS,
   BLOCK_BY_TYPE,
   getNodePorts,
-  type SearchItem,
 } from './blocks'
 import { MacroCanvas } from './MacroCanvas'
 import {
@@ -35,7 +34,11 @@ import {
   NameEditorDialog,
   VariableEditorDialog,
 } from './MacroEditorDialogs'
-import { SCREEN_OPTIONS, SEMANTIC_SCREEN_OPTIONS } from './screen-elements'
+import {
+  SCREEN_OPTIONS,
+  SEMANTIC_SCREEN_OPTIONS,
+  canonicalScreenId,
+} from './screen-elements'
 import type {
   JsonValue,
   MacroDefinition,
@@ -49,11 +52,10 @@ import { useMacroValidation } from './hooks/useMacroValidation'
 import { useGraphNavigation } from './hooks/useGraphNavigation'
 import { useGraphEditor } from './hooks/useGraphEditor'
 import { useFunctionGraphs } from './hooks/useFunctionGraphs'
-import { functionCallConfig } from './function-model'
 import { MAIN_GRAPH_ID, graphIdFromFunctionId } from './graph-store'
 import { useMacroDocument } from './hooks/useMacroDocument'
-import { variableNodeConfig } from './macro-document-model'
 import { useEditorCommands } from './hooks/useEditorCommands'
+import { createSearchItems } from './search-provider'
 import {
   EXPANDED_BLUEPRINT_MAX_WIDTH,
   EXPANDED_BLUEPRINT_MIN_WIDTH,
@@ -112,6 +114,7 @@ export const IntegratedMacroPanel = forwardRef<
   const [pendingErrorFocus, setPendingErrorFocus] = useState<RuntimeTrace | null>(null)
   const handledFailure = useRef<string | null>(null)
   const errorFocusRequestEpoch = useRef(0)
+  const saveInProgress = useRef(false)
   const {
     runSetupMacro, setRunSetupMacro,
     variableDialog, setVariableDialog,
@@ -161,11 +164,15 @@ export const IntegratedMacroPanel = forwardRef<
   })
   const {
     graphNavigationStack,
+    breadcrumbs,
     graphNavigationError,
     setGraphNavigationError,
     flowRef,
-    navigateToGraphPath,
-    enterFunctionGraph,
+    openMain,
+    openFunction,
+    openPath,
+    goBack,
+    goToBreadcrumb,
     resetGraphNavigation,
     forgetGraphView,
   } = useGraphNavigation({
@@ -196,7 +203,9 @@ export const IntegratedMacroPanel = forwardRef<
     mapGraphs,
     activeFunctionId,
     graphNavigationStack,
-    navigateToGraphPath,
+    openFunction,
+    openMain,
+    goToBreadcrumb,
     forgetGraphView,
     selectedBlueprint,
     setSelectedBlueprint,
@@ -299,12 +308,35 @@ export const IntegratedMacroPanel = forwardRef<
     setBusy,
     setMessage,
     setMessageIntent,
-    enterFunctionGraph,
-    navigateToGraphPath,
+    openMain,
+    openFunction,
+    openPath,
+    goBack,
+    goToBreadcrumb,
     guardUnsavedChanges,
     markChanged,
     selectedScreenId,
   })
+
+  const saveMacro = useCallback(() => {
+    if (!definition || busy || saveInProgress.current) return
+    saveInProgress.current = true
+    void commands.saveMacro().finally(() => {
+      saveInProgress.current = false
+    })
+  }, [busy, commands, definition])
+
+  useEffect(() => {
+    const handleSaveShortcut = (event: KeyboardEvent) => {
+      if (panelTab !== 'canvas' && !canvasExpanded) return
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 's') return
+      event.preventDefault()
+      if (editorDialogOpen) return
+      saveMacro()
+    }
+    window.addEventListener('keydown', handleSaveShortcut)
+    return () => window.removeEventListener('keydown', handleSaveShortcut)
+  }, [canvasExpanded, editorDialogOpen, panelTab, saveMacro])
 
   useEffect(() => {
     onAvailabilityChange?.(Boolean(definition))
@@ -328,7 +360,7 @@ export const IntegratedMacroPanel = forwardRef<
     : activeGraph.nodes)
     .map((node) => {
       const runtimeError = runtimeBelongsToDefinition
-        ? runtimeNodeError(runtimeOverlay, graphNavigationStack, node.id) ?? undefined : undefined
+        ? runtimeNodeError(runtimeOverlay, activeGraphId, node.id) ?? undefined : undefined
       return {
         ...node,
         data: {
@@ -336,10 +368,10 @@ export const IntegratedMacroPanel = forwardRef<
           errors: issues.filter((item) => item.nodeId === node.id).map((item) => item.message),
           runtimeError,
           runtimeState: runtimeError ? 'failure' as const : runtimeBelongsToDefinition
-            ? runtimeNodeState(runtimeOverlay, graphNavigationStack, node.id) : 'pending',
+            ? runtimeNodeState(runtimeOverlay, activeGraphId, node.id) : 'pending',
         },
       }
-    }), [activeGraph.nodes, activeGraphId, graphNavigationStack, issues, runtimeBelongsToDefinition, runtimeOverlay, visibleNodeIds])
+    }), [activeGraph.nodes, activeGraphId, issues, runtimeBelongsToDefinition, runtimeOverlay, visibleNodeIds])
 
   const shownEdges = useMemo(() => {
     const graphNodes = activeGraph.nodes
@@ -361,27 +393,27 @@ export const IntegratedMacroPanel = forwardRef<
       className: [
         edge.data?.kind === 'data' ? 'macro-edge--data' : '',
         portType ? `macro-edge--type-${portType}` : '',
-        runtimeBelongsToDefinition && runtimeGraphMatches(runtimeOverlay, graphNavigationStack)
+        runtimeBelongsToDefinition && runtimeGraphMatches(runtimeOverlay, activeGraphId)
           && edge.id === runtimeOverlay.currentEdgeId ? 'runtime-current-edge' : '',
-        runtimeErrorTrace && traceGraphPath(runtimeErrorTrace).at(-1) === (activeFunctionId ?? undefined)
+        runtimeErrorTrace && traceGraphId(runtimeErrorTrace) === activeGraphId
           && traceErrorEdgeId(runtimeErrorTrace) === edge.id
           ? 'runtime-error-edge' : '',
       ].filter(Boolean).join(' ') || undefined,
-      animated: runtimeBelongsToDefinition && runtimeGraphMatches(runtimeOverlay, graphNavigationStack)
+      animated: runtimeBelongsToDefinition && runtimeGraphMatches(runtimeOverlay, activeGraphId)
         && edge.id === runtimeOverlay.currentEdgeId,
       }
     })
-  }, [activeFunctionId, activeGraph.edges, activeGraph.nodes, activeGraphId, graphNavigationStack, issues, runtimeBelongsToDefinition, runtimeErrorTrace, runtimeOverlay, visibleNodeIds])
+  }, [activeGraph.edges, activeGraph.nodes, activeGraphId, issues, runtimeBelongsToDefinition, runtimeErrorTrace, runtimeOverlay, visibleNodeIds])
 
   const selectedNode = shownNodes.find((node) => node.id === selectedNodeId) ?? null
   const selectedRuntimeError = selectedNode?.data.runtimeError ?? (
     runtimeErrorTrace?.node_id === selectedNodeId
-      && traceGraphPath(runtimeErrorTrace).at(-1) === (activeFunctionId ?? undefined)
+      && traceGraphId(runtimeErrorTrace) === activeGraphId
       ? runtimeErrorTrace : null
   )
-  const quickSearchBlocks = useMemo(
-    () => contextualQuickSearchBlocks(definition),
-    [definition],
+  const quickSearchItems = useMemo(
+    () => createSearchItems(definition, commands.createNode),
+    [commands.createNode, definition],
   )
 
 
@@ -406,27 +438,6 @@ export const IntegratedMacroPanel = forwardRef<
 
   const state = runtime.runtime?.state ?? 'idle'
   const runtimeActive = state === 'running' || state === 'paused'
-  const followedRuntimeLocation = useRef<string | null>(null)
-  useEffect(() => {
-    if (!runtimeActive || panelTab !== 'canvas' || !runtimeBelongsToDefinition || !definition) return
-    const path = runtimeOverlay.graphPath
-    if (path.some((id) => !definition.functions?.some((item) => item.id === id))) return
-    const locationKey = JSON.stringify([
-      runtimeOverlay.runtimeId,
-      path,
-      path.length === 0 ? runtimeOverlay.activeScreenId : null,
-    ])
-    if (followedRuntimeLocation.current === locationKey) return
-    followedRuntimeLocation.current = locationKey
-    if (path.length === 0 && runtimeOverlay.activeScreenId && runtimeOverlay.activeScreenId !== selectedScreenId) {
-      setSelectedScreenId(runtimeOverlay.activeScreenId)
-    }
-    if (path.length !== graphNavigationStack.length
-      || path.some((id, index) => id !== graphNavigationStack[index])) {
-      navigateToGraphPath(path)
-    }
-  }, [definition, graphNavigationStack, navigateToGraphPath, panelTab, runtimeActive, runtimeBelongsToDefinition, runtimeOverlay.activeScreenId, runtimeOverlay.graphPath, selectedScreenId])
-
   useEffect(() => {
     const timer = window.setTimeout(() => {
       setRuntimeErrorTrace(null)
@@ -504,7 +515,8 @@ export const IntegratedMacroPanel = forwardRef<
       }
       if (!functionId) {
         const screenId = typeof pendingErrorFocus.screen_id === 'string'
-          ? pendingErrorFocus.screen_id : node.data.eventScreenId ?? nodeScreens[node.id]
+          ? canonicalScreenId(pendingErrorFocus.screen_id)
+          : node.data.eventScreenId ?? nodeScreens[node.id]
         if (screenId) setSelectedScreenId(screenId)
       }
       const select = (items: MacroFlowNode[]) => items.map((item) => ({ ...item, selected: item.id === node.id }))
@@ -512,11 +524,11 @@ export const IntegratedMacroPanel = forwardRef<
       setPanelTab('canvas')
       setRuntimeDetailOpen(false)
       setRuntimeErrorTrace(pendingErrorFocus)
-      navigateToGraphPath(path, node)
+      openPath(path, node)
       setPendingErrorFocus(null)
     })
     return () => window.cancelAnimationFrame(frame)
-  }, [definition, definitions, getGraph, loadDefinition, navigateToGraphPath, nodeScreens, pendingErrorFocus, replaceGraph, runtime.runtime?.macro_definition_id, setGraphNavigationError])
+  }, [definition, definitions, getGraph, loadDefinition, nodeScreens, openPath, pendingErrorFocus, replaceGraph, runtime.runtime?.macro_definition_id, setGraphNavigationError])
 
   useEffect(() => {
     if (state !== 'idle') return
@@ -586,7 +598,7 @@ export const IntegratedMacroPanel = forwardRef<
           <ButtonGroup className="integrated-macro-toolbar__actions" minimal>
             <MacroActionButton icon="tick" label={ko.actions.validate} disabled={!definition || busy} onClick={() => void commands.validateMacro()} />
             <MacroActionButton icon="zoom-to-fit" label={ko.actions.fitView} disabled={!definition} onClick={() => void flowRef.current?.fitView({ duration: 200, padding: 0.2 })} />
-            <MacroActionButton icon="floppy-disk" label={ko.actions.save} intent="primary" disabled={!definition || busy} onClick={() => void commands.saveMacro()} />
+            <MacroActionButton icon="floppy-disk" label={ko.actions.save} intent="primary" disabled={!definition || busy} onClick={saveMacro} />
             <MacroActionButton
               icon="maximize"
               label="확대"
@@ -599,7 +611,8 @@ export const IntegratedMacroPanel = forwardRef<
               disabled={!definition}
               onChange={(event) => {
                 const functionId = event.target.value === '__main__' ? null : event.target.value
-                commands.navigateGraph(functionId ? [functionId] : [])
+                if (functionId) commands.openFunction(functionId)
+                else commands.openMain()
               }}
             >
               <option value="__main__">메인</option>
@@ -684,7 +697,7 @@ export const IntegratedMacroPanel = forwardRef<
               <span />
               <MacroActionButton icon="tick" label={ko.actions.validate} disabled={!definition || busy} onClick={() => void commands.validateMacro()} />
               <MacroActionButton icon="zoom-to-fit" label={ko.actions.fitView} disabled={!definition} onClick={() => void flowRef.current?.fitView({ duration: 200, padding: 0.2 })} />
-              <MacroActionButton icon="floppy-disk" label={ko.actions.save} intent="primary" disabled={!definition || busy} onClick={() => void commands.saveMacro()} />
+              <MacroActionButton icon="floppy-disk" label={ko.actions.save} intent="primary" disabled={!definition || busy} onClick={saveMacro} />
               <MacroActionButton
                 minimal
                 icon="cross"
@@ -711,26 +724,20 @@ export const IntegratedMacroPanel = forwardRef<
           } : undefined}
         >
           <nav className="macro-graph-breadcrumb" aria-label="매크로 그래프 경로">
-            {graphNavigationStack.length === 0 ? (
-              <span className="macro-graph-breadcrumb__item is-current" aria-current="page" title="Main">Main</span>
-            ) : (
-              <button type="button" className="macro-graph-breadcrumb__item" title="Main" onClick={() => commands.navigateGraph([])}>Main</button>
-            )}
-            {graphNavigationStack.map((functionId, index) => {
-              const label = definition?.functions?.find((item) => item.id === functionId)?.name ?? functionId
-              const current = index === graphNavigationStack.length - 1
+            {breadcrumbs.map((item, index) => {
+              const current = index === breadcrumbs.length - 1
               return (
-                <span className="macro-graph-breadcrumb__segment" key={functionId}>
-                  <span className="macro-graph-breadcrumb__separator" aria-hidden="true">›</span>
+                <span className="macro-graph-breadcrumb__segment" key={`${item.graphId}-${index}`}>
+                  {index > 0 && <span className="macro-graph-breadcrumb__separator" aria-hidden="true">›</span>}
                   {current ? (
-                    <span className="macro-graph-breadcrumb__item is-current" aria-current="page" title={label}>{label}</span>
+                    <span className="macro-graph-breadcrumb__item is-current" aria-current="page" title={item.label}>{item.label}</span>
                   ) : (
                     <button
                       type="button"
                       className="macro-graph-breadcrumb__item"
-                      title={label}
-                      onClick={() => commands.navigateGraph(graphNavigationStack.slice(0, index + 1))}
-                    >{label}</button>
+                      title={item.label}
+                      onClick={() => commands.goToBreadcrumb(index)}
+                    >{item.label}</button>
                   )}
                 </span>
               )
@@ -746,11 +753,10 @@ export const IntegratedMacroPanel = forwardRef<
             </div>
             <div hidden={sidebarTab !== 'blueprint'} className="macro-sidebar__panel">
               <MyBlueprintPanel
-                variables={definition?.variables ?? []}
-                functions={definition?.functions ?? []}
+                definition={definition}
                 selection={selectedBlueprint}
                 onSelect={commands.selectBlueprint}
-                onOpenFunction={commands.enterFunction}
+                onOpenFunction={commands.openFunction}
                 onAddVariable={commands.requestCreateVariable}
                 onEditVariable={commands.requestEditVariable}
                 onDeleteVariable={commands.requestDeleteVariable}
@@ -790,19 +796,13 @@ export const IntegratedMacroPanel = forwardRef<
             onDropBlock={commands.createNode}
             onDropBlueprintItem={commands.createNodeFromBlueprint}
             onPromoteToVariable={commands.requestPromoteVariable}
-            quickSearchBlocks={quickSearchBlocks}
-            onDropQuickBlock={(block, position) => commands.createNode(
-              block.type,
-              position,
-              block.presetConfig,
-              block.presetLabel,
-            )}
+            quickSearchItems={quickSearchItems}
             variables={definition.variables ?? []}
             onUpdateNodeConfig={(nodeId, config) => {
               commands.updateNodeConfig(nodeId, config)
             }}
             dialogOpen={editorDialogOpen}
-            onOpenFunction={commands.enterFunction}
+            onOpenFunction={commands.openFunction}
             onReady={(instance) => { flowRef.current = instance }}
             />
           ) : (
@@ -837,7 +837,7 @@ export const IntegratedMacroPanel = forwardRef<
               onDeleteVariable={commands.requestDeleteVariable}
               onRenameFunction={commands.requestRenameFunction}
               onUpdateFunctionPorts={commands.updateFunctionPorts}
-              onOpenFunction={commands.enterFunction}
+              onOpenFunction={commands.openFunction}
               onDeleteFunction={commands.requestDeleteFunction}
             />
           ) : <NodeInspector
@@ -1574,46 +1574,6 @@ function formatRuntimeValue(value: JsonValue | Record<string, JsonValue>): strin
 }
 
 function screenLabel(screenId: string) {
-  return SEMANTIC_SCREEN_OPTIONS.find((screen) => screen.id === screenId)?.label ?? screenId
-}
-
-function contextualQuickSearchBlocks(definition: MacroDefinition | null): SearchItem[] {
-  const staticBlocks = NODE_DEFINITIONS.filter((block) => ![
-    'get_variable', 'set_variable', 'call_function',
-  ].includes(block.type))
-  if (!definition) return staticBlocks
-  const variableBlocks = (definition.variables ?? []).flatMap((variable): SearchItem[] => [
-    {
-      ...BLOCK_BY_TYPE.get('get_variable')!,
-      palette: true,
-      quickSearch: true,
-      label: `${variable.name} 가져오기`,
-      keywords: [variable.name, variable.type, 'get', 'variable', '변수', '가져오기'],
-      presetConfig: variableNodeConfig('get_variable', variable),
-      presetLabel: variableNodeLabel('get', variable.name),
-    },
-    {
-      ...BLOCK_BY_TYPE.get('set_variable')!,
-      palette: true,
-      quickSearch: true,
-      label: `${variable.name} 설정`,
-      keywords: [variable.name, variable.type, 'set', 'variable', '변수', '설정'],
-      presetConfig: variableNodeConfig('set_variable', variable),
-      presetLabel: variableNodeLabel('set', variable.name),
-    },
-  ])
-  const functionBlocks = (definition.functions ?? []).map((item): SearchItem => ({
-    ...BLOCK_BY_TYPE.get('call_function')!,
-    palette: true,
-    quickSearch: true,
-    label: item.name,
-    keywords: [item.name, 'call', 'function', '함수', '호출'],
-    presetConfig: functionCallConfig(item),
-    presetLabel: item.name,
-  }))
-  return [...staticBlocks, ...variableBlocks, ...functionBlocks]
-}
-
-function variableNodeLabel(mode: 'get' | 'set', name: string) {
-  return mode === 'get' ? name : `${name} 설정`
+  const canonicalId = canonicalScreenId(screenId)
+  return SEMANTIC_SCREEN_OPTIONS.find((screen) => screen.id === canonicalId)?.label ?? canonicalId
 }

@@ -220,6 +220,10 @@ export interface MacroRuntime {
   definition_version: number | null
   current_node_id: string | null
   current_edge_id: string | null
+  current_graph_id?: string | null
+  current_graph_path?: string[]
+  current_function_id?: string | null
+  node_states?: Record<string, JsonValue>
   state: 'idle' | 'running' | 'paused' | 'completed' | 'stopped' | 'error'
   active_screen_id?: string | null
   step_count: number

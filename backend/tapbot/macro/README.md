@@ -122,6 +122,28 @@ Legacy `entry_node_id` definitions remain readable. They are exposed as an
 Enter-compatible entry and the React editor migrates them to protected event
 nodes when opened and saved.
 
+## Blueprint soak validation
+
+The SSUTODAY reservation regression smoke runs three consecutive executions,
+save/reload, controlled-error recovery, and an SSE reconnect check in the
+normal test suite:
+
+```powershell
+python -m pytest backend/tests/macro/test_blueprint_soak.py -m "not blueprint_soak"
+```
+
+The longer state-isolation test is deliberately separated by the
+`blueprint_soak` marker. Manual or nightly validation enables 30 iterations
+explicitly:
+
+```powershell
+$env:TAPBOT_RUN_BLUEPRINT_SOAK = "1"
+python -m pytest backend/tests/macro/test_blueprint_soak.py -m blueprint_soak
+```
+
+`TAPBOT_BLUEPRINT_SOAK_ITERATIONS` may raise the iteration count but cannot
+reduce the marked test below 30.
+
 ## Typed data wires
 
 Graph edges distinguish control flow (`kind: "exec"`) from typed values
