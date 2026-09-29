@@ -9,7 +9,7 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { ko, macroCategoryLabels } from '../../i18n/ko'
-import type { BlockDefinition } from './blocks'
+import type { SearchItem } from './blocks'
 import { blockSupportsPortContext, type SourcePortContext } from './port-compatibility'
 import type { MacroNodeCategory, MacroNodeType } from './types'
 
@@ -34,10 +34,10 @@ export interface QuickBlockSearchProps {
   open: boolean
   screenPosition: { x: number; y: number }
   flowPosition: { x: number; y: number }
-  blocks: readonly BlockDefinition[]
+  blocks: readonly SearchItem[]
   sourcePortContext?: SourcePortContext | null
   onSelect: (type: MacroNodeType, position: { x: number; y: number }) => void
-  onSelectDefinition?: (block: BlockDefinition, position: { x: number; y: number }) => void
+  onSelectDefinition?: (block: SearchItem, position: { x: number; y: number }) => void
   onClose: () => void
 }
 
@@ -51,7 +51,7 @@ interface CategoryItem {
 interface BlockItem {
   id: string
   kind: 'block'
-  block: BlockDefinition
+  block: SearchItem
   location: 'recent' | 'category' | 'search'
 }
 
@@ -211,7 +211,7 @@ function OpenQuickBlockSearch({
     optionRefs.current[visibleActiveIndex]?.scrollIntoView?.({ block: 'nearest' })
   }, [navigationItems, visibleActiveIndex])
 
-  const selectBlock = (block: BlockDefinition) => {
+  const selectBlock = (block: SearchItem) => {
     const nextRecent = [block.type, ...validRecent.filter((type) => type !== block.type)].slice(0, MAX_RECENT)
     setRecent(nextRecent)
     writeRecent(nextRecent)
@@ -365,7 +365,7 @@ function normalize(value: string) {
   return value.toLocaleLowerCase().replaceAll('_', ' ').trim().replace(/\s+/g, ' ')
 }
 
-function scoreBlock(block: BlockDefinition, query: string) {
+function scoreBlock(block: SearchItem, query: string) {
   const label = normalize(block.label)
   const type = normalize(block.type)
   const keywords = block.keywords?.map(normalize) ?? []

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import math
 import time
+from tapbot.macro.errors import MacroExecutionError
 
 from tapbot.macro.graph_models import (
     GraphElement,
@@ -285,12 +286,20 @@ class ClickElementNode:
         supplied = context.input_values.get("element")
         if supplied is not None:
             if not isinstance(supplied, GraphElement):
-                raise RuntimeError("click element data input must be an element")
+                raise MacroExecutionError(
+                    "click element data input must be an element", code="PORT_TYPE_MISMATCH",
+                    port="element", expected="element", value=supplied,
+                    hint="엘리먼트 찾기 노드의 element 출력을 연결하세요.",
+                )
             element = supplied
         else:
             ui = _require_ui(context)
             if not config.get("selector"):
-                raise RuntimeError("click element requires element input or selector fallback")
+                raise MacroExecutionError(
+                    "click element requires element input or selector fallback", code="ELEMENT_INPUT_MISSING",
+                    port="element", expected="element", actual="missing",
+                    hint="element 입력을 연결하거나 selector fallback을 설정하세요.",
+                )
             resolve = _object(config, "resolve", {})
             finder = ui.find_element
             selector = dict(_selector(config))
@@ -308,11 +317,26 @@ class ClickElementNode:
                 # Compatibility with older/test GraphUiPort implementations.
                 element = finder(selector)
         if element is None:
-            raise RuntimeError("click element target was not found or was ambiguous")
+            raise MacroExecutionError(
+                "click element target was not found or was ambiguous", code="ELEMENT_NOT_FOUND",
+                summary="엘리먼트 클릭 실패: 대상을 찾을 수 없거나 여러 개입니다.",
+                port="element", expected="unique element", value=None,
+                hint="현재 화면과 선택자 조건을 확인하고, 대상이 나타난 뒤 실행하세요.",
+            )
         if element.metadata.get("visible") is False:
-            raise RuntimeError(f"click element target {element.id!r} is not visible")
+            raise MacroExecutionError(
+                f"click element target {element.id!r} is not visible", code="ELEMENT_NOT_VISIBLE",
+                summary="엘리먼트 클릭 실패: 대상이 화면에 보이지 않습니다.",
+                port="element", expected="visible", actual="hidden", value=element,
+                hint="대상이 보이도록 스크롤하거나 화면 전환을 기다리세요.",
+            )
         if element.metadata.get("enabled") is False:
-            raise RuntimeError(f"click element target {element.id!r} is disabled")
+            raise MacroExecutionError(
+                f"click element target {element.id!r} is disabled", code="ELEMENT_DISABLED",
+                summary="엘리먼트 클릭 실패: 대상이 비활성 상태입니다.",
+                port="element", expected="enabled", actual="disabled", value=element,
+                hint="필수 입력이나 선행 단계를 완료하고 대상이 활성화된 뒤 다시 실행하세요.",
+            )
         context.last_resolved_element = element
         click = _object(config, "click", {})
         mode_value = config.get("sampling_mode", click.get("mode", "center"))

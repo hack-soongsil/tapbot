@@ -2,6 +2,23 @@ import type { JsonValue, MacroRuntime } from '../macro-editor/types'
 
 export type RuntimeNodeState = 'pending' | 'running' | 'success' | 'failure' | 'skipped'
 
+export type RuntimeTrace = Record<string, JsonValue>
+
+export interface RuntimeGraphOverlay {
+  runtimeId: string | null
+  macroDefinitionId: string | null
+  graphPath: string[]
+  activeScreenId: string | null
+  currentNodeId: string | null
+  currentEdgeId: string | null
+  nodeStates: Record<string, RuntimeNodeState>
+  nodeErrors: Record<string, RuntimeTrace>
+  error: RuntimeTrace | null
+  errors: RuntimeTrace[]
+  errorEdgeId: string | null
+  traces: RuntimeTrace[]
+}
+
 export interface MacroRuntimeEvent {
   event_id: string
   device_id: string
@@ -23,9 +40,7 @@ export interface MacroOverlayState {
 
 export interface MacroRuntimeView {
   runtime: MacroRuntime | null
-  nodeState: Record<string, RuntimeNodeState>
-  currentNodeId: string | null
-  currentEdgeId: string | null
+  graphOverlay: RuntimeGraphOverlay
   events: MacroRuntimeEvent[]
   overlay: MacroOverlayState
   connected: boolean

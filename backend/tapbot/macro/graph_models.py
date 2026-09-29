@@ -178,22 +178,53 @@ _FUNCTION_PORT_TYPES = {
 class FunctionPortDefinition:
     id: str
     type: str
+    required: bool = False
+    default: JsonValue = None
+    has_default: bool = field(default=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("function port id must not be empty")
         if self.type not in _FUNCTION_PORT_TYPES:
             raise ValueError(f"unsupported function port type: {self.type!r}")
+        if not isinstance(self.required, bool):
+            raise ValueError("function port required must be a boolean")
+        if not isinstance(self.has_default, bool):
+            raise ValueError("function port has_default must be a boolean")
+        assert_json_value(self.default, name="function port default")
+        if self.default is not None and not self.has_default:
+            object.__setattr__(self, "has_default", True)
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> FunctionPortDefinition:
+        raw_required = value.get("required")
+        raw_optional = value.get("optional")
+        if raw_required is not None and not isinstance(raw_required, bool):
+            raise ValueError("function port required must be a boolean")
+        if raw_optional is not None and not isinstance(raw_optional, bool):
+            raise ValueError("function port optional must be a boolean")
+        required = (
+            raw_required
+            if isinstance(raw_required, bool)
+            else not raw_optional
+            if isinstance(raw_optional, bool)
+            else False
+        )
         return cls(
             id=_text(value.get("id", ""), "function port id"),
             type=_text(value.get("type", ""), "function port type"),
+            required=required,
+            default=_json_copy(value.get("default")),
+            has_default="default" in value,
         )
 
     def to_dict(self) -> JsonObject:
-        return {"id": self.id, "type": self.type}
+        result: JsonObject = {"id": self.id, "type": self.type}
+        if self.required:
+            result["required"] = True
+        if self.has_default:
+            result["default"] = _json_copy(self.default)
+        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -880,17 +911,45 @@ class GraphNodeTrace:
     input_summary: JsonObject
     output_summary: JsonObject
     error: str | None = None
+    step: int = 0
+    graph_path: tuple[str, ...] = ("main",)
+    screen_id: str | None = None
+    macro_definition_id: str | None = None
+    error_payload: JsonObject | None = None
+    node_label: str | None = None
+    graph_path_labels: tuple[str, ...] = ("Main",)
+    function_id: str | None = None
+    function_name: str | None = None
+    caller_node_id: str | None = None
+    resolved_inputs: JsonObject = field(default_factory=dict)
+    input_sources: JsonObject = field(default_factory=dict)
+    function_input_summary: JsonObject = field(default_factory=dict)
 
     def to_dict(self) -> JsonObject:
         return {
+            "timestamp": self.completed_at.isoformat(),
+            "step": self.step,
+            "graph_path": list(self.graph_path),
+            "graph_path_labels": list(self.graph_path_labels),
+            "screen_id": self.screen_id,
+            "active_screen": self.screen_id,
+            "macro_definition_id": self.macro_definition_id,
             "node_id": self.node_id,
             "node_type": self.node_type,
+            "node_label": self.node_label,
+            "function_id": self.function_id,
+            "function_name": self.function_name,
+            "caller_node_id": self.caller_node_id,
             "started_at": self.started_at.isoformat(),
             "completed_at": self.completed_at.isoformat(),
             "status": self.status.value,
             "input_summary": _json_copy(self.input_summary),
+            "resolved_inputs": _json_copy(self.resolved_inputs),
+            "input_sources": _json_copy(self.input_sources),
+            "function_inputs": _json_copy(self.function_input_summary),
             "output_summary": _json_copy(self.output_summary),
             "error": self.error,
+            "error_payload": _json_copy(self.error_payload),
         }
 
 

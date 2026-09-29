@@ -70,8 +70,8 @@ export function MyBlueprintPanel({
       <div className="macro-section-heading my-blueprint__heading">
         <span>My Blueprint</span>
         <div>
-          <Button small minimal aria-label="새 변수" title="Variable 추가" onClick={onAddVariable}>+ Variable</Button>
-          <Button small minimal aria-label="새 함수" title="Function 추가" onClick={onAddFunction}>+ Function</Button>
+          <Button minimal icon="add" aria-label="새 변수" title="변수 추가" onClick={onAddVariable}>변수</Button>
+          <Button minimal icon="add" aria-label="새 함수" title="함수 추가" onClick={onAddFunction}>함수</Button>
         </div>
       </div>
       <div className="my-blueprint__body">
@@ -83,6 +83,7 @@ export function MyBlueprintPanel({
               key={variable.name}
               className={`my-blueprint__item${selection?.kind === 'variable' && selection.id === variable.name ? ' is-selected' : ''}`}
               aria-label={`${variable.name} 변수 ${variable.type}`}
+              title={variable.name}
               onClick={() => onSelect({ kind: 'variable', id: variable.name })}
               onContextMenu={(event) => {
                 event.preventDefault()
@@ -106,6 +107,7 @@ export function MyBlueprintPanel({
               key={item.id}
               className={`my-blueprint__item is-function${selection?.kind === 'function' && selection.id === item.id ? ' is-selected' : ''}`}
               aria-label={`${item.name} 함수`}
+              title={item.name}
               onClick={() => onSelect({ kind: 'function', id: item.id })}
               onDoubleClick={() => onOpenFunction(item.id)}
               onContextMenu={(event) => openFunctionMenu(event, item.id, setMenu)}

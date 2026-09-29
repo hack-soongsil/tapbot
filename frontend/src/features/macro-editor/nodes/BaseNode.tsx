@@ -7,10 +7,12 @@ import {
   type NodeProps,
 } from '@xyflow/react'
 import { useState } from 'react'
+import { Icon } from '@blueprintjs/core'
 import {
-  BLOCK_BY_TYPE,
+  getNodeDefinition,
   getNodePorts,
   type InlinePropertyDefinition,
+  type NodeVisualKind,
 } from '../blocks'
 import { useInlineEditing } from '../inline-editing'
 import { portTypesAreCompatible } from '../port-compatibility'
@@ -34,14 +36,14 @@ type PortDirection = 'input' | 'output'
 
 export function BaseNode({ id, data, selected }: NodeProps<MacroFlowNode>) {
   const ports = getNodePorts(data.nodeType, data.config)
+  const definition = getNodeDefinition(data.nodeType)
   const inlineEditing = useInlineEditing()
   const inputConnections = useNodeConnections({ id, handleType: 'target' })
-  const inlineProperties = BLOCK_BY_TYPE.get(data.nodeType)?.inlineProperties ?? []
+  const inlineProperties = definition?.inlineProperties ?? []
   const isEvent = data.category === 'event'
   const inputPorts = isEvent ? [] : ports.inputs
   const hasLegacyExecOutput = ports.outputs.length === 0
-    && data.nodeType !== 'stop'
-    && data.nodeType !== 'function_return'
+    && (definition?.runtimePolicy.implicitExecOutput ?? true)
   const rowCount = Math.max(inputPorts.length, ports.outputs.length, hasLegacyExecOutput ? 1 : 0)
   const connection = useConnection<MacroFlowNode>()
   const connectedPortType = connection.inProgress
@@ -63,11 +65,12 @@ export function BaseNode({ id, data, selected }: NodeProps<MacroFlowNode>) {
     return undefined
   }
   const displayLabel = localizeNodeLabel(data.label, data.nodeType)
-  const visualKind = nodeVisualKind(data.nodeType, data.category)
+  const visualKind = definition?.visualKind ?? data.category
+  const runtimeState = data.runtimeError ? 'failure' : data.runtimeState
 
   return (
     <div
-      className={`macro-node macro-node--${data.category} macro-node--kind-${visualKind}${selected ? ' is-selected' : ''}${data.errors.length > 0 ? ' has-error' : ''}${data.runtimeState ? ` runtime-${data.runtimeState}` : ''}`}
+      className={`macro-node macro-node--${data.category} macro-node--kind-${visualKind}${selected ? ' is-selected' : ''}${data.errors.length > 0 ? ' has-error' : ''}${runtimeState ? ` runtime-${runtimeState}` : ''}`}
       tabIndex={0}
       aria-label={`${displayLabel} 매크로 노드`}
       data-node-type={data.nodeType}
@@ -78,12 +81,16 @@ export function BaseNode({ id, data, selected }: NodeProps<MacroFlowNode>) {
           <span className="macro-node__eyebrow">{visualKindLabel(visualKind, data.category)}</span>
           <span className="macro-node__badges">
             {data.isEntry && !isEvent && <span className="macro-node__badge is-entry">시작점</span>}
-            {data.runtimeState && data.runtimeState !== 'pending' && (
-              <span className="macro-node__badge is-runtime">{runtimeStateLabels[data.runtimeState]}</span>
+            {runtimeState === 'failure' ? (
+              <span className="macro-node__badge is-runtime-error" aria-label="런타임 오류">
+                <Icon icon="error" size={12} /> 실행 오류
+              </span>
+            ) : runtimeState && runtimeState !== 'pending' && (
+              <span className="macro-node__badge is-runtime">{runtimeStateLabels[runtimeState]}</span>
             )}
             {data.errors.length > 0 && (
               <span className="macro-node__badge is-error" title={data.errors.join('\n')}>
-                오류 {data.errors.length}개
+                검증 오류 {data.errors.length}개
               </span>
             )}
           </span>
@@ -485,19 +492,6 @@ function PortRow({
       {!isInput && <VisualPin type={port.type} />}
     </div>
   )
-}
-
-type NodeVisualKind = MacroFlowNode['data']['category'] | 'variable' | 'function'
-
-function nodeVisualKind(
-  type: MacroFlowNode['data']['nodeType'],
-  category: MacroFlowNode['data']['category'],
-): NodeVisualKind {
-  if (type === 'set_variable' || type === 'get_variable') return 'variable'
-  if (type === 'function_entry' || type === 'function_return' || type === 'call_function') {
-    return 'function'
-  }
-  return category
 }
 
 function visualKindLabel(

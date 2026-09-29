@@ -58,6 +58,19 @@ describe('BlueprintInspector', () => {
       'inputs',
       [{ id: 'slot', type: 'int' }],
     )
+    fireEvent.click(screen.getByLabelText('Outputs 1 필수'))
+    expect(shared.onUpdateFunctionPorts).toHaveBeenCalledWith(
+      'reserve',
+      'outputs',
+      [{ id: 'success', type: 'bool', required: true }],
+    )
+    fireEvent.change(screen.getByLabelText('Outputs 1 기본값'), { target: { value: 'true' } })
+    fireEvent.blur(screen.getByLabelText('Outputs 1 기본값'))
+    expect(shared.onUpdateFunctionPorts).toHaveBeenCalledWith(
+      'reserve',
+      'outputs',
+      [{ id: 'success', type: 'bool', default: true }],
+    )
     fireEvent.click(screen.getByRole('button', { name: '함수 그래프 열기' }))
     expect(shared.onOpenFunction).toHaveBeenCalledWith('reserve')
     fireEvent.click(screen.getByRole('button', { name: '이름 변경' }))

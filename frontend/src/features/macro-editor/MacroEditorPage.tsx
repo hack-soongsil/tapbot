@@ -133,10 +133,10 @@ export function MacroEditorPage() {
         ...node.data,
         isEntry: Boolean(meta.entry_node_id) && node.id === meta.entry_node_id,
         errors: issues.filter((issue) => issue.nodeId === node.id).map((issue) => issue.message),
-        runtimeState: liveRuntime.nodeState[node.id] ?? 'pending',
+        runtimeState: liveRuntime.graphOverlay.nodeStates[node.id] ?? 'pending',
       },
     })),
-    [issues, liveRuntime.nodeState, meta.entry_node_id, nodes],
+    [issues, liveRuntime.graphOverlay.nodeStates, meta.entry_node_id, nodes],
   )
   const selectedNode = shownNodes.find((node) => node.id === selectedNodeId) ?? null
   const shownEdges = useMemo(
@@ -148,14 +148,14 @@ export function MacroEditorPage() {
       },
       className: [
         edge.data?.kind === 'data' ? 'macro-edge--data' : '',
-        edge.id === liveRuntime.currentEdgeId ? 'runtime-current-edge' : '',
+        edge.id === liveRuntime.graphOverlay.currentEdgeId ? 'runtime-current-edge' : '',
       ].filter(Boolean).join(' ') || undefined,
-      animated: edge.id === liveRuntime.currentEdgeId || issues.some((issue) => issue.edgeId === edge.id),
+      animated: edge.id === liveRuntime.graphOverlay.currentEdgeId || issues.some((issue) => issue.edgeId === edge.id),
       style: issues.some((issue) => issue.edgeId === edge.id)
         ? { stroke: 'var(--danger)' }
         : undefined,
     })),
-    [edges, issues, liveRuntime.currentEdgeId],
+    [edges, issues, liveRuntime.graphOverlay.currentEdgeId],
   )
 
   useEffect(() => {

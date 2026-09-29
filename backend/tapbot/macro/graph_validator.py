@@ -327,6 +327,25 @@ class GraphValidator:
                 ):
                     if message.startswith("params.index"):
                         errors.append(f"node {node.id!r}: {message}")
+            if node.type == "function_return":
+                raw_outputs = node.config.get("outputs", [])
+                if isinstance(raw_outputs, list):
+                    for port in raw_outputs:
+                        if not isinstance(port, dict):
+                            continue
+                        required = port.get("required")
+                        optional = port.get("optional")
+                        is_required = required is True or (
+                            required is None and optional is False
+                        )
+                        if not is_required:
+                            continue
+                        port_id = port.get("id")
+                        if isinstance(port_id, str) and port_id not in inputs:
+                            errors.append(
+                                f"node {node.id!r}: required function output "
+                                f"{port_id!r} is not connected"
+                            )
 
         exec_edges = tuple(
             edge for edge in definition.edges if edge.effective_kind == "exec"
@@ -507,7 +526,28 @@ class GraphValidator:
                     f"function {function.id!r}: duplicate {kind} ports: "
                     + ", ".join(duplicates)
                 )
+            for port in ports:
+                if (
+                    kind == "output"
+                    and port.has_default
+                    and not _function_default_matches_type(
+                        port.default,
+                        port.type,
+                    )
+                ):
+                    errors.append(
+                        f"function {function.id!r}: {kind} port {port.id!r} "
+                        f"default must match type {port.type}"
+                    )
         return errors
+
+
+def _function_default_matches_type(value: object, port_type: str) -> bool:
+    if port_type == "any":
+        return True
+    if value is None:
+        return port_type in {"position", "rect", "element"}
+    return default_matches_type(value, port_type)
 
 
 def _function_cycle(graph: dict[str, set[str]]) -> tuple[str, ...]:

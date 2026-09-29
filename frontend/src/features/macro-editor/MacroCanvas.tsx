@@ -19,7 +19,7 @@ import {
   MACRO_BLUEPRINT_MIME,
   type BlueprintDragItem,
 } from './blueprint-dnd'
-import { BLOCKS, type BlockDefinition } from './blocks'
+import { NODE_DEFINITIONS, type SearchItem } from './blocks'
 import { InlineEditingContext } from './inline-editing'
 import { QuickBlockSearch } from './QuickBlockSearch'
 import {
@@ -61,6 +61,7 @@ export interface MacroCanvasProps {
   onEdgesChange: (changes: EdgeChange<MacroFlowEdge>[]) => void
   onConnect: (connection: Connection, kind?: 'exec' | 'data') => void
   onSelectNode: (nodeId: string | null) => void
+  onOpenFunction?: (functionId: string | undefined) => void
   onDropBlock: (
     type: MacroNodeType,
     position: { x: number; y: number },
@@ -74,9 +75,9 @@ export interface MacroCanvasProps {
     port: PromoteVariablePort,
     position: { x: number; y: number },
   ) => void
-  quickSearchBlocks?: readonly BlockDefinition[]
+  quickSearchBlocks?: readonly SearchItem[]
   onDropQuickBlock?: (
-    block: BlockDefinition,
+    block: SearchItem,
     position: { x: number; y: number },
   ) => CreatedMacroNode | null | undefined
   variables?: readonly MacroVariableDefinition[]
@@ -98,11 +99,12 @@ export function MacroCanvas({
   onEdgesChange,
   onConnect,
   onSelectNode,
+  onOpenFunction,
   onDropBlock,
   onReady,
   onDropBlueprintItem,
   onPromoteToVariable,
-  quickSearchBlocks = BLOCKS,
+  quickSearchBlocks = NODE_DEFINITIONS,
   onDropQuickBlock,
   variables = [],
   onUpdateNodeConfig,
@@ -126,6 +128,28 @@ export function MacroCanvas({
     screenPosition: { x: number; y: number }
     flowPosition: { x: number; y: number }
   } | null>(null)
+
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || typeof ResizeObserver === 'undefined') return
+    let animationFrame = 0
+    const observer = new ResizeObserver(() => {
+      const instance = flowInstance.current
+      if (!instance) return
+      const viewport = instance.getViewport()
+      window.cancelAnimationFrame(animationFrame)
+      animationFrame = window.requestAnimationFrame(() => {
+        if (flowInstance.current === instance) {
+          void instance.setViewport(viewport, { duration: 0 })
+        }
+      })
+    })
+    observer.observe(canvas)
+    return () => {
+      observer.disconnect()
+      window.cancelAnimationFrame(animationFrame)
+    }
+  }, [])
 
   useEffect(() => {
     if (!dialogOpen) return
@@ -256,6 +280,12 @@ export function MacroCanvas({
           })
         }}
         onNodeClick={(_, node) => onSelectNode(node.id)}
+        onNodeDoubleClick={(event, node) => {
+          if (dialogOpen || node.data.nodeType !== 'call_function' || !onOpenFunction) return
+          event.stopPropagation()
+          const functionId = node.data.config.function_id
+          onOpenFunction(typeof functionId === 'string' ? functionId : undefined)
+        }}
         onPaneClick={() => {
           setQuickSearch(null)
           onSelectNode(null)

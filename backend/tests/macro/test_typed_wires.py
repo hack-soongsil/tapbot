@@ -239,7 +239,7 @@ def test_disabled_screen_element_is_found_with_metadata_but_click_fails() -> Non
             return GraphElement(
                 "time_slot[6]",
                 TapBounds(10, 20, 30, 40),
-                metadata={"index": 6, "enabled": False, "visible": True},
+                metadata={"index": 6, "enabled": False, "visible": True, "state": "reserved"},
             )
 
     ui = DisabledSlotUi()
@@ -265,10 +265,32 @@ def test_disabled_screen_element_is_found_with_metadata_but_click_fails() -> Non
     assert context.node_outputs["start"]["found"] is True
     element = context.node_outputs["start"]["element"]
     assert isinstance(element, GraphElement)
-    assert element.metadata == {"index": 6, "enabled": False, "visible": True}
+    assert element.metadata == {"index": 6, "enabled": False, "visible": True, "state": "reserved"}
     assert result.runtime.variables["start"]["metadata"] == element.metadata
     assert result.runtime.state is GraphRuntimeStatus.ERROR
-    assert result.runtime.error == "click element target 'time_slot[6]' is disabled"
+    assert result.runtime.error == "엘리먼트 클릭 실패: 대상이 비활성 상태입니다."
+    payload = result.traces[-1].error_payload
+    assert payload["code"] == "ELEMENT_DISABLED"
+    assert payload["summary"] == "엘리먼트 클릭 실패: 대상이 비활성 상태입니다."
+    assert payload["port"] == "element"
+    assert payload["port_id"] == "element"
+    assert payload["expected"] == "enabled"
+    assert payload["actual"] == "disabled"
+    assert payload["actual_type"] == "element"
+    assert payload["actual_value"]["id"] == "time_slot[6]"
+    assert result.traces[-1].input_summary["element"]["metadata"]["enabled"] is False
+    assert result.traces[-1].resolved_inputs["element"]["id"] == "time_slot[6]"
+    assert result.traces[-1].input_sources["element"]["source_node_id"] == "start"
+    assert payload["source_node_id"] == "start"
+    assert payload["source_port_id"] == "element"
+    assert payload["element"] == {
+        "element_id": "time_slot[6]",
+        "semantic_id": "time_slot",
+        "index": 6,
+        "bounds": [10, 20, 30, 40],
+        "metadata": {"index": 6, "enabled": False, "visible": True, "state": "reserved"},
+    }
+    assert payload["hint"]
     assert actions.taps == []
 
 

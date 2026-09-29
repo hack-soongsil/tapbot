@@ -1,5 +1,6 @@
-import { Button, ButtonGroup, Tag } from '@blueprintjs/core'
+import { ButtonGroup, Tag } from '@blueprintjs/core'
 import { ko, runtimeStateLabels } from '../../i18n/ko'
+import { MacroActionButton } from './MacroActionButton'
 
 export interface MacroToolbarProps {
   name: string
@@ -66,18 +67,18 @@ export function MacroToolbar({
         )}
       </div>
       <ButtonGroup className="macro-toolbar__actions" minimal>
-        <Button onClick={onNew}>{ko.actions.newMacro}</Button>
-        <Button onClick={onLoad}>{ko.actions.loadDraft}</Button>
-        <Button onClick={onDuplicate}>{ko.actions.duplicate}</Button>
-        <Button onClick={onValidate}>{ko.actions.validate}</Button>
-        <Button onClick={onFitView}>{ko.actions.fitView}</Button>
-        <Button className="macro-save-button" intent="primary" loading={busy} onClick={onSave}>{ko.actions.save}</Button>
-        <Button intent="success" disabled={busy || runStatus === 'running' || runStatus === 'paused'} onClick={onRun}>{ko.actions.run}</Button>
-        <Button disabled={busy || runStatus !== 'running'} onClick={onPause}>{ko.actions.pause}</Button>
-        <Button disabled={busy || runStatus !== 'paused'} onClick={onResume}>{ko.actions.resume}</Button>
-        <Button disabled={busy || (runStatus !== 'paused' && runStatus !== 'idle' && runStatus !== null)} onClick={onStep}>{ko.actions.step}</Button>
-        <Button intent="danger" disabled={busy || (runStatus !== 'running' && runStatus !== 'paused')} onClick={onStop}>{ko.actions.stop}</Button>
-        <Button disabled={busy || runStatus !== 'error'} onClick={onReset}>{ko.actions.reset}</Button>
+        <MacroActionButton icon="add" label={ko.actions.newMacro} onClick={onNew} />
+        <MacroActionButton icon="folder-open" label={ko.actions.loadDraft} onClick={onLoad} />
+        <MacroActionButton icon="duplicate" label={ko.actions.duplicate} onClick={onDuplicate} />
+        <MacroActionButton icon="tick" label={ko.actions.validate} onClick={onValidate} />
+        <MacroActionButton icon="zoom-to-fit" label={ko.actions.fitView} onClick={onFitView} />
+        <MacroActionButton icon="floppy-disk" label={ko.actions.save} className="macro-save-button" intent="primary" loading={busy} onClick={onSave} />
+        <MacroActionButton icon="play" label={ko.actions.run} intent="success" disabled={busy || runStatus === 'running' || runStatus === 'paused'} onClick={onRun} />
+        <MacroActionButton icon="pause" label={ko.actions.pause} disabled={busy || runStatus !== 'running'} onClick={onPause} />
+        <MacroActionButton icon="play" label={ko.actions.resume} disabled={busy || runStatus !== 'paused'} onClick={onResume} />
+        <MacroActionButton icon="step-forward" label={ko.actions.step} disabled={busy || (runStatus !== 'paused' && runStatus !== 'idle' && runStatus !== null)} onClick={onStep} />
+        <MacroActionButton icon="stop" label={ko.actions.stop} intent="danger" disabled={busy || (runStatus !== 'running' && runStatus !== 'paused')} onClick={onStop} />
+        <MacroActionButton icon="reset" label={ko.actions.reset} disabled={busy || runStatus !== 'error'} onClick={onReset} />
       </ButtonGroup>
     </header>
   )

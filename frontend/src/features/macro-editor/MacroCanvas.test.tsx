@@ -46,6 +46,23 @@ const node: MacroFlowNode = {
 }
 
 describe('MacroCanvas', () => {
+  it('prioritizes a runtime error badge over running and distinguishes validation errors', () => {
+    const failed = structuredClone(node)
+    failed.data.runtimeState = 'running'
+    failed.data.runtimeError = { node_id: node.id, status: 'failure', error: 'action failed' }
+    failed.data.errors = ['invalid config']
+    failed.selected = true
+    render(<div style={{ width: 800, height: 600 }}><MacroCanvas
+      nodes={[failed]} edges={[]} onNodesChange={vi.fn()} onEdgesChange={vi.fn()}
+      onConnect={vi.fn()} onSelectNode={vi.fn()} onDropBlock={vi.fn()} onReady={vi.fn()}
+    /></div>)
+    const badge = screen.getByLabelText('런타임 오류')
+    const shell = badge.closest('.macro-node')!
+    expect(shell.classList.contains('runtime-failure')).toBe(true)
+    expect(shell.classList.contains('runtime-running')).toBe(false)
+    expect(shell.classList.contains('is-selected')).toBe(true)
+    expect(within(shell as HTMLElement).getByText('검증 오류 1개')).toBeTruthy()
+  })
   it('accepts only equal typed data ports and exec-to-exec connections', () => {
     const typedNodes: MacroFlowNode[] = [
       flowNode('exists', 'element_exists'),
@@ -353,6 +370,48 @@ describe('MacroCanvas', () => {
     expect(within(renderedEvent).getByText('실행')).toBeTruthy()
     expect(within(renderedEvent).getByText('스터디룸 예약 메인 / 화면 진입')).toBeTruthy()
     expect(within(renderedEvent).getByText('이벤트')).toBeTruthy()
+  })
+
+  it('opens only call nodes on double click, leaving selection and node movement independent', () => {
+    const call = flowNode('call', 'call_function')
+    call.measured = { width: 220, height: 100 }
+    call.data.config = { function_id: 'reserve' }
+    const onOpenFunction = vi.fn()
+    const onSelectNode = vi.fn()
+    const props = {
+      nodes: [call, node], edges: [], onNodesChange: vi.fn(), onEdgesChange: vi.fn(),
+      onConnect: vi.fn(), onSelectNode, onOpenFunction, onDropBlock: vi.fn(), onReady: vi.fn(),
+    }
+    const { container, rerender } = render(<MacroCanvas {...props} />)
+    const callElement = container.querySelector<HTMLElement>('.react-flow__node[data-id="call"]')!
+    fireEvent.click(callElement)
+    expect(onSelectNode).toHaveBeenCalledWith('call')
+    expect(onOpenFunction).not.toHaveBeenCalled()
+    expect(callElement.classList.contains('draggable')).toBe(true)
+    const mouse = (target: HTMLElement | Window, type: string, clientX: number, clientY: number) => {
+      const event = new MouseEvent(type, { bubbles: true, button: 0, buttons: 1, clientX, clientY })
+      Object.defineProperty(event, 'view', { value: window })
+      fireEvent(target, event)
+    }
+    mouse(callElement, 'mousedown', 10, 10)
+    mouse(window, 'mousemove', 60, 70)
+    mouse(window, 'mousemove', 100, 110)
+    mouse(window, 'mouseup', 100, 110)
+    expect(props.onNodesChange).toHaveBeenCalledWith(expect.arrayContaining([
+      expect.objectContaining({ id: 'call', type: 'position' }),
+    ]))
+    expect(onOpenFunction).not.toHaveBeenCalled()
+    fireEvent.doubleClick(callElement)
+    expect(onOpenFunction).toHaveBeenCalledExactlyOnceWith('reserve')
+    fireEvent.doubleClick(container.querySelector('.react-flow__node[data-id="back-1"]')!)
+    expect(onOpenFunction).toHaveBeenCalledTimes(1)
+
+    rerender(<MacroCanvas {...props} nodes={[{ ...call, data: { ...call.data, config: {} } }]} />)
+    fireEvent.doubleClick(callElement)
+    expect(onOpenFunction).toHaveBeenLastCalledWith(undefined)
+    rerender(<MacroCanvas {...props} dialogOpen />)
+    fireEvent.doubleClick(callElement)
+    expect(onOpenFunction).toHaveBeenCalledTimes(2)
   })
 
   it('styles variable and function nodes with dedicated Blueprint categories', () => {

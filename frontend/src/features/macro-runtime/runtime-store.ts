@@ -1,17 +1,16 @@
 import type { MacroRuntime } from '../macro-editor/types'
-import type {
-  MacroRuntimeEvent,
-  MacroRuntimeView,
-  RuntimeNodeState,
-} from './types'
+import {
+  applyEventToRuntimeGraphOverlay,
+  emptyRuntimeGraphOverlay,
+  runtimeGraphOverlayFromSnapshot,
+} from './runtime-overlay'
+import type { MacroRuntimeEvent, MacroRuntimeView } from './types'
 
 export const EVENT_LOG_LIMIT = 500
 
 export const emptyRuntimeView = (): MacroRuntimeView => ({
   runtime: null,
-  nodeState: {},
-  currentNodeId: null,
-  currentEdgeId: null,
+  graphOverlay: emptyRuntimeGraphOverlay(),
   events: [],
   overlay: { bounds: null, tapPoint: null, nodeId: null },
   connected: false,
@@ -22,24 +21,10 @@ export function syncRuntimeSnapshot(
   current: MacroRuntimeView,
   runtime: MacroRuntime,
 ): MacroRuntimeView {
-  const nodeState: Record<string, RuntimeNodeState> = {}
-  for (const trace of runtime.trace) {
-    const nodeId = stringValue(trace.node_id)
-    const status = stringValue(trace.status)
-    if (nodeId) nodeState[nodeId] = status === 'failure' ? 'failure' : 'success'
-  }
-  if (
-    runtime.current_node_id &&
-    (runtime.state === 'running' || runtime.state === 'paused')
-  ) {
-    nodeState[runtime.current_node_id] = 'running'
-  }
   return {
     ...current,
     runtime,
-    nodeState,
-    currentNodeId: runtime.current_node_id,
-    currentEdgeId: runtime.current_edge_id,
+    graphOverlay: runtimeGraphOverlayFromSnapshot(runtime, current.graphOverlay),
     overlay:
       runtime.state === 'idle' || current.runtime?.runtime_id !== runtime.runtime_id
         ? { bounds: null, tapPoint: null, nodeId: null }
@@ -73,22 +58,14 @@ export function applyRuntimeEvent(
         },
       }
     : current
-  const nodeState = { ...base.nodeState }
-  let currentNodeId = base.currentNodeId
-  let currentEdgeId = base.currentEdgeId
+  let currentNodeId = base.graphOverlay.currentNodeId
+  let currentEdgeId = base.graphOverlay.currentEdgeId
   let overlay = base.overlay
 
   if (event.type === 'macro.node.started' && event.node_id) {
-    nodeState[event.node_id] = 'running'
     currentNodeId = event.node_id
     currentEdgeId = null
     overlay = { bounds: null, tapPoint: null, nodeId: event.node_id }
-  } else if (event.type === 'macro.node.completed' && event.node_id) {
-    nodeState[event.node_id] = 'success'
-  } else if (event.type === 'macro.node.failed' && event.node_id) {
-    nodeState[event.node_id] = 'failure'
-  } else if (event.type === 'macro.node.skipped' && event.node_id) {
-    nodeState[event.node_id] = 'skipped'
   } else if (event.type === 'macro.edge.traversed') {
     currentEdgeId = event.edge_id
   } else if (event.type === 'android.element.resolved') {
@@ -108,7 +85,12 @@ export function applyRuntimeEvent(
   const runtimeState = event.type.startsWith('macro.runtime.')
     ? event.type.slice('macro.runtime.'.length)
     : undefined
-  const runtime = base.runtime
+  if (runtimeState === 'reset') {
+    currentNodeId = null
+    currentEdgeId = null
+    overlay = { bounds: null, tapPoint: null, nodeId: null }
+  }
+  let runtime = base.runtime
     ? {
         ...base.runtime,
         runtime_id: event.runtime_id,
@@ -117,12 +99,31 @@ export function applyRuntimeEvent(
         state: normalizeRuntimeState(runtimeState, base.runtime.state),
       }
     : base.runtime
+  if (runtime) {
+    if ((event.type === 'macro.node.completed' || event.type === 'macro.node.failed') && event.node_id) {
+      const entry = {
+        ...event.payload,
+        node_id: event.node_id,
+        timestamp: event.payload.timestamp ?? event.timestamp,
+        step: event.payload.step ?? runtime.trace.length + 1,
+        graph_path: event.payload.graph_path ?? ['main'],
+        status: event.payload.status ?? (event.type === 'macro.node.failed' ? 'failure' : 'success'),
+      }
+      const alreadyPresent = runtime.trace.some((trace) => trace.step === entry.step && trace.timestamp === entry.timestamp)
+      const trace = alreadyPresent ? runtime.trace : [...runtime.trace, entry]
+      runtime = { ...runtime, trace, step_count: trace.length }
+    }
+    if (event.type === 'macro.runtime.failed') {
+      runtime = { ...runtime, error: stringValue(event.payload.error) }
+    }
+    if (event.type === 'macro.runtime.reset') {
+      runtime = { ...runtime, trace: [], step_count: 0, error: null }
+    }
+  }
   return {
     ...base,
     runtime,
-    nodeState,
-    currentNodeId,
-    currentEdgeId,
+    graphOverlay: applyEventToRuntimeGraphOverlay(base.graphOverlay, event, runtime),
     overlay,
     lastSequence: event.sequence,
     events: [...base.events, event].slice(-EVENT_LOG_LIMIT),

@@ -12,12 +12,12 @@
 .macro-toolbar {
   display: flex;
   min-width: 0;
-  min-height: 54px;
+  min-height: 44px;
   flex: 0 0 auto;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 8px 14px;
+  padding: 5px 10px;
   border-bottom: 1px solid #383e47;
   background: #1c2127;
 }
@@ -196,14 +196,85 @@
   background: #10151a;
 }
 
+.macro-action-button.bp6-button {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  flex: 0 0 32px;
+  padding: 0;
+}
+
+.macro-action-button.bp6-button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.macro-runtime-error {
+  padding: 10px;
+  border: 1px solid #934349;
+  border-radius: 4px;
+}
+
+.macro-runtime-error h3 {
+  margin: 0 0 8px;
+  color: #ff999c;
+  font-size: 14px;
+}
+
+.macro-runtime-error pre {
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.macro-runtime-error dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.macro-runtime-error dl {
+  display: grid;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.macro-runtime-error dt {
+  margin-bottom: 3px;
+  color: #ffacb5;
+  font-weight: 700;
+}
+
+.macro-canvas .react-flow__edge.runtime-error-edge .react-flow__edge-path {
+  stroke: #ff656d;
+  stroke-width: 3px;
+}
+
+.runtime-trace-error {
+  cursor: pointer;
+}
+
+.runtime-trace-error:hover,
+.runtime-trace-error:focus-visible {
+  outline: 1px solid #ff656d;
+  background: rgb(180 52 61 / 18%);
+}
+
 .macro-sidebar {
   display: grid;
   min-width: 0;
   min-height: 0;
-  grid-template-rows: 34px minmax(0, 1fr);
+  grid-template-rows: 38px minmax(0, 1fr);
   overflow: hidden;
   border-right: 1px solid #383e47;
   background: #181d23;
+}
+
+.macro-graph-navigation-error {
+  color: #f0b45a;
+  font-size: 11px;
 }
 
 .macro-sidebar__tabs {
@@ -218,7 +289,7 @@
   color: #929daa;
   background: #151a20;
   font: inherit;
-  font-size: 11px;
+  font-size: 13px;
   cursor: pointer;
 }
 
@@ -247,58 +318,74 @@
   background: #181d23;
 }
 
-.my-blueprint__heading { min-height: 48px; padding: 5px 7px 5px 10px; }
-.my-blueprint__heading > div { display: flex; min-width: 0; gap: 1px; }
-.my-blueprint__heading .bp6-button { padding-inline: 5px; font-size: 10px; }
+.my-blueprint__heading {
+  min-height: 48px;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.my-blueprint__heading > span { white-space: nowrap; }
+.my-blueprint__heading > div { display: flex; flex-shrink: 0; gap: 4px; }
+.my-blueprint__heading .bp6-button {
+  min-width: 32px;
+  min-height: 32px;
+  gap: 4px;
+  padding: 6px;
+  font-size: 12px;
+}
 
 .my-blueprint__body {
   min-height: 0;
-  padding: 6px;
+  padding: 10px 8px;
   overflow: auto;
   overscroll-behavior: contain;
 }
 
-.my-blueprint__group + .my-blueprint__group { margin-top: 10px; }
+.my-blueprint__group + .my-blueprint__group { margin-top: 16px; }
 
 .my-blueprint__group h2 {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin: 0 4px 4px;
+  margin: 0 8px 6px;
   color: #aab4c0;
-  font-size: 11px;
+  font-size: 13px;
+  line-height: 1.5;
   letter-spacing: .03em;
   text-transform: uppercase;
 }
 
 .my-blueprint__group h2 small {
-  color: #697582;
-  font-size: 10px;
+  color: #929daa;
+  font-size: 12px;
 }
 
 .my-blueprint__item {
   display: grid;
   width: 100%;
   min-width: 0;
-  min-height: 30px;
+  min-height: 36px;
   grid-template-columns: 14px minmax(0, 1fr) auto;
   align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
+  gap: 8px;
+  padding: 6px 8px;
   border: 1px solid transparent;
   border-radius: 3px;
   color: #dce3ea;
   background: transparent;
   text-align: left;
+  line-height: 1.5;
   cursor: grab;
 }
 
 .my-blueprint__item:hover { border-color: #3d4651; background: #222932; }
 .my-blueprint__item.is-selected { border-color: #907a48; background: rgb(228 189 97 / 11%); }
-.my-blueprint__item strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.my-blueprint__item code { color: #8f9aa7; font-size: 10px; }
+.my-blueprint__item strong { min-width: 0; overflow: hidden; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.my-blueprint__item code { color: #aab4c0; font-size: 12px; white-space: nowrap; }
 .my-blueprint__function-icon { color: #e4bd61; font-size: 16px; font-weight: 700; text-align: center; }
-.my-blueprint__empty { padding: 8px; color: #707b88; font-size: 11px; }
+.my-blueprint__empty { padding: 10px 8px; color: #929daa; font-size: 12px; line-height: 1.5; }
 
 .blueprint-type-dot {
   display: inline-block;
@@ -343,6 +430,7 @@
 }
 
 .macro-canvas-context-menu strong { padding: 5px 8px; color: #e4bd61; font-size: 11px; }
+.my-blueprint__context-menu button { min-height: 32px; font-size: 13px; line-height: 1.5; }
 .my-blueprint__context-menu button:hover,
 .macro-canvas-context-menu button:hover { background: #2a333d; }
 .my-blueprint__context-menu button.is-danger { color: #ff999c; }
@@ -356,6 +444,11 @@
 .blueprint-signature__row { display: grid; grid-template-columns: 12px minmax(0, 1fr) 84px 26px; align-items: center; gap: 5px; }
 .blueprint-signature__row input,
 .blueprint-signature__row select { min-width: 0; }
+.blueprint-signature__options { display: grid; grid-column: 2 / -1; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: 6px; }
+.blueprint-signature__options > label { display: flex; align-items: center; gap: 4px; color: #aab4c0; font-size: 10px; white-space: nowrap; }
+.blueprint-signature__default { display: grid; min-width: 0; gap: 2px; }
+.blueprint-signature__default input { width: 100%; }
+.blueprint-signature__default small { color: #ff8f92; font-size: 9px; line-height: 1.25; }
 
 .macro-canvas > .react-flow {
   position: absolute;
@@ -465,7 +558,51 @@
 }
 
 .macro-node.runtime-success { border-color: #52b788; }
-.macro-node.runtime-failure { border-color: #fa777a; }
+.macro-node.runtime-failure,
+.macro-node.runtime-failure:hover,
+.macro-node.runtime-failure.is-selected {
+  --node-accent: #ff4556;
+  --node-accent-soft: rgb(255 69 86 / 24%);
+  border-color: #ff4556;
+  outline: 2px solid #ff4556;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgb(255 69 86 / 30%), 0 0 24px rgb(255 69 86 / 45%);
+}
+
+.macro-node__badge.is-runtime-error {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #fff;
+  background: #b5172b;
+  font-size: 11px;
+}
+
+.macro-runtime-error-list {
+  max-height: 140px;
+  flex-shrink: 0;
+  padding: 8px;
+  overflow: auto;
+  border-block: 1px solid #934349;
+  background: #25191e;
+}
+
+.macro-runtime-error-list button {
+  display: block;
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 8px;
+  border: 0;
+  color: #ffc5cb;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.macro-runtime-error-list button:hover,
+.macro-runtime-error-list button:focus-visible {
+  background: #4a252d;
+}
 .macro-node.runtime-skipped { opacity: 0.55; }
 
 .macro-canvas .runtime-current-edge .react-flow__edge-path {

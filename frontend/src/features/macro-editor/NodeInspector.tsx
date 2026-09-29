@@ -1,5 +1,14 @@
 import { Button, Callout } from '@blueprintjs/core'
-import type { ChangeEvent, ReactNode } from 'react'
+import { useEffect, useRef, type ChangeEvent, type ReactNode } from 'react'
+import { ko } from '../../i18n/ko'
+import {
+  getNodeDefinition,
+  type CustomInspectorEditor,
+  type InspectorFieldDefinition,
+} from './blocks'
+import { RuntimeErrorSection } from './RuntimeErrorSection'
+import type { RuntimeTrace } from './runtime-trace'
+import { SCREEN_ELEMENTS, SEMANTIC_SCREEN_OPTIONS } from './screen-elements'
 import type {
   JsonValue,
   MacroFlowNode,
@@ -7,8 +16,6 @@ import type {
   MacroVariableDefinition,
   ValidationIssue,
 } from './types'
-import { SCREEN_ELEMENTS, SEMANTIC_SCREEN_OPTIONS } from './screen-elements'
-import { ko } from '../../i18n/ko'
 
 export interface NodeInspectorProps {
   node: MacroFlowNode | null
@@ -20,6 +27,17 @@ export interface NodeInspectorProps {
   allowLegacyEntry?: boolean
   functions?: readonly MacroFunctionDefinition[]
   variables?: readonly MacroVariableDefinition[]
+  runtimeError?: RuntimeTrace | null
+  onFocusErrorNode?: (nodeId: string) => void
+}
+
+interface InspectorContext {
+  node: MacroFlowNode
+  functions: readonly MacroFunctionDefinition[]
+  variables: readonly MacroVariableDefinition[]
+  update: (key: string, value: JsonValue) => void
+  updateMany: (values: Record<string, JsonValue>) => void
+  updateObject: (key: string, field: string, value: JsonValue) => void
 }
 
 export function NodeInspector({
@@ -32,7 +50,13 @@ export function NodeInspector({
   allowLegacyEntry = true,
   functions = [],
   variables = [],
+  runtimeError,
+  onFocusErrorNode,
 }: NodeInspectorProps) {
+  const bodyRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (runtimeError && bodyRef.current) bodyRef.current.scrollTop = 0
+  }, [runtimeError])
   if (!node) {
     return (
       <aside className="macro-inspector" aria-label="선택한 노드 설정">
@@ -42,16 +66,16 @@ export function NodeInspector({
     )
   }
 
+  const definition = getNodeDefinition(node.data.nodeType)
   const update = (key: string, value: JsonValue) =>
-    onUpdateConfig({ ...node.data.config, [key]: value })
+    onUpdateConfig(setConfigPath(node.data.config, key, value))
   const updateMany = (values: Record<string, JsonValue>) =>
     onUpdateConfig({ ...node.data.config, ...values })
-  const updateSelector = (key: string, value: JsonValue) => {
-    const current = selector(node.data.config.selector)
-    update('selector', { ...current, [key]: value })
-  }
   const updateObject = (key: string, field: string, value: JsonValue) =>
-    update(key, { ...selector(node.data.config[key]), [field]: value })
+    update(key, { ...jsonObject(getConfigPath(node.data.config, key)), [field]: value })
+  const context: InspectorContext = {
+    node, functions, variables, update, updateMany, updateObject,
+  }
 
   return (
     <aside className="macro-inspector" aria-label="선택한 노드 설정">
@@ -59,240 +83,22 @@ export function NodeInspector({
         <span>{ko.inspector.configuration}</span>
         <code>{node.data.nodeType}</code>
       </div>
-      <div className="macro-inspector__body">
+      <div className="macro-inspector__body" ref={bodyRef}>
+        {runtimeError && (
+          <RuntimeErrorSection trace={runtimeError} node={node} functions={functions} onFocusNode={onFocusErrorNode} />
+        )}
         <Field label={ko.inspector.label}>
-          <input
-            value={node.data.label}
-            onChange={(event) => onUpdateLabel(event.target.value)}
-          />
+          <input value={node.data.label} onChange={(event) => onUpdateLabel(event.target.value)} />
         </Field>
         <Field label={ko.inspector.nodeId}><input className="node-id" value={node.id} disabled /></Field>
 
-        {node.data.nodeType === 'call_function' && (
-          <Field label="함수">
-            <select
-              aria-label="호출할 함수"
-              value={text(node.data.config.function_id)}
-              onChange={(event) => {
-                const selected = functions.find((item) => item.id === event.target.value)
-                updateMany({
-                  function_id: event.target.value,
-                  inputs: structuredClone(selected?.inputs ?? []),
-                  outputs: structuredClone(selected?.outputs ?? []),
-                })
-              }}
-            >
-              <option value="">함수 선택…</option>
-              {functions.map((item) => (
-                <option key={item.id} value={item.id}>{item.name}</option>
-              ))}
-            </select>
-          </Field>
-        )}
-
-        {(node.data.nodeType === 'set_variable' || node.data.nodeType === 'get_variable') && (
-          <Field label="변수">
-            <select
-              aria-label="변수 이름"
-              value={text(node.data.config.name)}
-              onChange={(event) => {
-                const selected = variables.find((item) => item.name === event.target.value)
-                if (!selected) {
-                  updateMany({ name: '', type: 'int' })
-                  return
-                }
-                updateMany({
-                  name: selected.name,
-                  type: selected.type,
-                  ...(node.data.nodeType === 'set_variable'
-                    ? { default: selected.default ?? null }
-                    : {}),
-                })
-              }}
-            >
-              <option value="">변수 선택…</option>
-              {variables.map((item) => (
-                <option key={item.name} value={item.name}>{item.name} · {item.type}</option>
-              ))}
-            </select>
-          </Field>
-        )}
-
-        {node.data.nodeType === 'tap_element' && (
-          <Field label="소스">
-            <select
-              value={text(node.data.config.source, 'selector')}
-              onChange={(event) => update('source', event.target.value)}
-            >
-              <option value="selector">선택자</option>
-              <option value="previous">이전에 찾은 엘리먼트</option>
-            </select>
-          </Field>
-        )}
-
-        {usesSelector(node) && node.data.nodeType !== 'click_element' &&
-          !(node.data.nodeType === 'tap_element' && node.data.config.source === 'previous') && (
-            <SelectorFields config={node.data.config} onChange={updateSelector} />
-          )}
-
-        {node.data.nodeType === 'tap_point' && (
-          <>
-            <NumberField label="X" value={number(node.data.config.x)} onChange={(v) => update('x', v)} />
-            <NumberField label="Y" value={number(node.data.config.y)} onChange={(v) => update('y', v)} />
-          </>
-        )}
-        {node.data.nodeType === 'click_point' && (
-          <>
-            <CoordinateSpace value={text(node.data.config.coordinate_space, 'pixel')} onChange={(value) => update('coordinate_space', value)} />
-            <NumberField label="X" value={number(node.data.config.x)} onChange={(v) => update('x', v)} />
-            <NumberField label="Y" value={number(node.data.config.y)} onChange={(v) => update('y', v)} />
-            <NumberField label="지속 시간(ms)" min={1} value={number(node.data.config.duration_ms, 70)} onChange={(v) => update('duration_ms', v)} />
-          </>
-        )}
-        {node.data.nodeType === 'drag_point' && (
-          <>
-            <CoordinateSpace value={text(node.data.config.coordinate_space, 'pixel')} onChange={(value) => update('coordinate_space', value)} />
-            <PointFields label="시작" value={selector(node.data.config.start)} onChange={(field, value) => updateObject('start', field, value)} />
-            <PointFields label="끝" value={selector(node.data.config.end)} onChange={(field, value) => updateObject('end', field, value)} />
-            <NumberField label="지속 시간(ms)" min={1} value={number(node.data.config.duration_ms, 450)} onChange={(v) => update('duration_ms', v)} />
-          </>
-        )}
-        {node.data.nodeType === 'random_click_area' && (
-          <>
-            <CoordinateSpace value={text(node.data.config.coordinate_space, 'pixel')} onChange={(value) => update('coordinate_space', value)} />
-            <AreaFields label="영역" value={selector(node.data.config.area)} onChange={(field, value) => updateObject('area', field, value)} />
-            <SamplingFields label="샘플링" value={selector(node.data.config.sampling)} onChange={(field, value) => updateObject('sampling', field, value)} />
-            <NumberField label="지속 시간(ms)" min={1} value={number(node.data.config.duration_ms, 70)} onChange={(v) => update('duration_ms', v)} />
-          </>
-        )}
-        {node.data.nodeType === 'random_drag_area' && (
-          <>
-            <CoordinateSpace value={text(node.data.config.coordinate_space, 'pixel')} onChange={(value) => update('coordinate_space', value)} />
-            <AreaFields label="시작 영역" value={selector(node.data.config.start_area)} onChange={(field, value) => updateObject('start_area', field, value)} />
-            <SamplingFields label="시작 샘플링" value={selector(node.data.config.start_sampling)} onChange={(field, value) => updateObject('start_sampling', field, value)} />
-            <AreaFields label="끝 영역" value={selector(node.data.config.end_area)} onChange={(field, value) => updateObject('end_area', field, value)} />
-            <SamplingFields label="끝 샘플링" value={selector(node.data.config.end_sampling)} onChange={(field, value) => updateObject('end_sampling', field, value)} />
-            <NumberField label="지속 시간(ms)" min={1} value={number(node.data.config.duration_ms, 450)} onChange={(v) => update('duration_ms', v)} />
-          </>
-        )}
-        {node.data.nodeType === 'swipe' &&
-          (['x1', 'y1', 'x2', 'y2'] as const).map((key) => (
-            <NumberField key={key} label={key.toUpperCase()} value={number(node.data.config[key])} onChange={(v) => update(key, v)} />
-          ))}
-        {hasDuration(node) && (
-          <NumberField label="지속 시간(ms)" min={0} value={number(node.data.config.duration_ms)} onChange={(v) => update('duration_ms', v)} />
-        )}
-        {node.data.nodeType === 'branch' && (
-          <>
-            <Field label="조건">
-              <select
-                value={text(selector(node.data.config.condition).type, 'variable_equals')}
-                onChange={(event) => updateObject('condition', 'type', event.target.value)}
-              >
-                <option value="variable_equals">변수 값과 같음</option>
-                <option value="variable_not_equals">변수 값과 다름</option>
-                <option value="variable_truthy">변수가 참임</option>
-              </select>
-            </Field>
-            <TextField label="변수" value={text(selector(node.data.config.condition).variable)} onChange={(v) => updateObject('condition', 'variable', v)} />
-            {selector(node.data.config.condition).type !== 'variable_truthy' && (
-              <TextField label="비교 값" value={displayValue(selector(node.data.config.condition).value)} onChange={(v) => updateObject('condition', 'value', parseValue(v))} />
-            )}
-          </>
-        )}
-        {node.data.nodeType === 'for_loop' && (
-          <>
-            <NumberField label="시작" value={number(node.data.config.start)} onChange={(v) => update('start', v)} />
-            <NumberField label="끝" value={number(node.data.config.end, 5)} onChange={(v) => update('end', v)} />
-            <NumberField label="증가값" value={number(node.data.config.step, 1)} onChange={(v) => update('step', v)} />
-            <TextField label="인덱스 변수" value={text(node.data.config.index_variable, 'i')} onChange={(v) => update('index_variable', v)} />
-            <label className="macro-checkbox"><input type="checkbox" checked={node.data.config.inclusive_end === true} onChange={(event) => update('inclusive_end', event.target.checked)} />끝 값 포함</label>
-          </>
-        )}
-        {node.data.nodeType === 'sequence' && (
-          <div className="macro-sequence-config">
-            <NumberField label="출력 수" min={2} value={number(node.data.config.outputs, 2)} onChange={(v) => update('outputs', Math.max(2, Math.min(16, Math.trunc(v))))} />
-            <div className="macro-inspector__actions">
-              <Button small onClick={() => update('outputs', Math.min(16, number(node.data.config.outputs, 2) + 1))}>+ 출력</Button>
-              <Button small disabled={number(node.data.config.outputs, 2) <= 2} onClick={() => update('outputs', Math.max(2, number(node.data.config.outputs, 2) - 1))}>− 출력</Button>
-            </div>
-          </div>
-        )}
-        {node.data.nodeType === 'click_element' && (
-          <>
-            <TextField
-              label={ko.inspector.text}
-              value={text(selector(node.data.config.selector).text)}
-              onChange={(value) => updateSelector('text', value)}
-            />
-            <TextField
-              label={ko.inspector.uiTreePath}
-              value={text(selector(node.data.config.selector).ui_tree_path)}
-              onChange={(value) => updateSelector('ui_tree_path', value || null)}
-              code
-            />
-            <Field label={ko.inspector.clickSamplingMode}>
-              <select
-                value={text(node.data.config.sampling_mode, text(selector(node.data.config.click).mode, 'center'))}
-                onChange={(event) => update('sampling_mode', event.target.value)}
-              >
-                <option value="center">중앙</option>
-                <option value="uniform">균등 분포</option>
-                <option value="normal">정규 분포</option>
-              </select>
-            </Field>
-          </>
-        )}
-        {node.data.nodeType === 'find_screen_element' && (
-          <ScreenElementFields config={node.data.config} updateMany={updateMany} updateObject={updateObject} />
-        )}
-        {node.data.nodeType === 'retry' && (
-          <NumberField label="최대 시도 횟수" min={1} value={number(node.data.config.max_attempts, 3)} onChange={(v) => update('max_attempts', v)} />
-        )}
-        {node.data.nodeType === 'repeat' && (
-          <NumberField label="반복 횟수" min={0} value={number(node.data.config.count, 1)} onChange={(v) => update('count', v)} />
-        )}
-        {(node.data.nodeType === 'wait_for_element' || node.data.nodeType === 'wait_for_state') && (
-          <>
-            <NumberField label="시간 제한(ms)" min={1} value={number(node.data.config.timeout_ms, 5_000)} onChange={(v) => update('timeout_ms', v)} />
-            <NumberField label="확인 간격(ms)" min={1} value={number(node.data.config.poll_interval_ms, 100)} onChange={(v) => update('poll_interval_ms', v)} />
-          </>
-        )}
-        {(node.data.nodeType === 'wait_for_state' || node.data.nodeType === 'state_equals') && (
-          <TextField label="상태" value={text(node.data.config.state)} onChange={(v) => update('state', v)} />
-        )}
-        {node.data.nodeType === 'element_text_equals' && (
-          <TextField label="예상 텍스트" value={text(node.data.config.text)} onChange={(v) => update('text', v)} />
-        )}
-        {node.data.nodeType === 'screen_update' && (
-          <>
-            <NumberField label="실행 간격(ms)" min={1} value={number(node.data.config.interval_ms, 1_000)} onChange={(v) => update('interval_ms', v)} />
-            <label className="macro-checkbox">
-              <input type="checkbox" checked disabled />
-              실행 중에는 다음 틱 건너뛰기
-            </label>
-          </>
-        )}
-        {node.data.nodeType === 'debug_print' && (
-          <>
-            <Field label="레벨">
-              <select
-                value={text(node.data.config.level, 'info')}
-                onChange={(event) => update('level', event.target.value)}
-              >
-                <option value="debug">디버그</option>
-                <option value="info">정보</option>
-                <option value="warning">경고</option>
-                <option value="error">오류</option>
-              </select>
-            </Field>
-            <TextField
-              label="메시지"
-              value={text(node.data.config.message)}
-              onChange={(value) => update('message', value)}
-            />
-          </>
-        )}
+        {definition?.customInspector && renderCustomInspector(definition.customInspector, context)}
+        <InspectorFields
+          config={node.data.config}
+          schema={definition?.inspectorSchema ?? []}
+          onChange={update}
+          onChangeObject={updateObject}
+        />
 
         {issues.length > 0 && (
           <Callout intent="danger" title="노드 검증">
@@ -314,6 +120,175 @@ export function NodeInspector({
   )
 }
 
+function InspectorFields({
+  config,
+  schema,
+  onChange,
+  onChangeObject,
+}: {
+  config: Record<string, JsonValue>
+  schema: readonly InspectorFieldDefinition[]
+  onChange: (key: string, value: JsonValue) => void
+  onChangeObject: (key: string, field: string, value: JsonValue) => void
+}) {
+  return schema.map((field) => {
+    if (!isFieldVisible(field, config)) return null
+    const value = getConfigPath(config, field.key)
+      ?? (field.fallbackKey ? getConfigPath(config, field.fallbackKey) : undefined)
+    if (field.editor === 'selector') {
+      return <SelectorFields key={field.key} config={jsonObject(value)} onChange={(key, next) => onChangeObject(field.key, key, next)} />
+    }
+    if (field.editor === 'coordinate-space') {
+      return <CoordinateSpace key={field.key} value={text(value, text(field.defaultValue, 'pixel'))} onChange={(next) => onChange(field.key, next)} />
+    }
+    if (field.editor === 'point') {
+      return <PointFields key={field.key} label={field.label} value={jsonObject(value)} onChange={(key, next) => onChangeObject(field.key, key, next)} />
+    }
+    if (field.editor === 'area') {
+      return <AreaFields key={field.key} label={field.label} value={jsonObject(value)} onChange={(key, next) => onChangeObject(field.key, key, next)} />
+    }
+    if (field.editor === 'sampling') {
+      return <SamplingFields key={field.key} label={field.label} value={jsonObject(value)} onChange={(key, next) => onChangeObject(field.key, key, next)} />
+    }
+    if (field.editor === 'number') {
+      return <NumberField
+        key={field.key}
+        label={field.label}
+        value={number(value, number(field.defaultValue))}
+        min={field.min}
+        max={field.max}
+        step={field.step}
+        onChange={(next) => onChange(field.key, field.integer ? Math.trunc(next) : next)}
+      />
+    }
+    if (field.editor === 'select') {
+      return (
+        <Field key={field.key} label={field.label}>
+          <select value={text(value, text(field.defaultValue))} onChange={(event) => onChange(field.key, event.target.value)}>
+            {field.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </Field>
+      )
+    }
+    if (field.editor === 'boolean') {
+      return (
+        <label className="macro-checkbox" key={field.key}>
+          <input
+            type="checkbox"
+            checked={value === undefined ? field.defaultValue === true : value === true}
+            disabled={field.disabled}
+            onChange={(event) => onChange(field.key, event.target.checked)}
+          />
+          {field.label}
+        </label>
+      )
+    }
+    return <TextField
+      key={field.key}
+      label={field.label}
+      value={text(value, text(field.defaultValue))}
+      code={field.code}
+      onChange={(next) => onChange(field.key, next || (field.emptyValue ?? next))}
+    />
+  })
+}
+
+function renderCustomInspector(editor: CustomInspectorEditor, context: InspectorContext) {
+  const editors: Record<CustomInspectorEditor, () => ReactNode> = {
+    function: () => <FunctionEditor context={context} />,
+    variable: () => <VariableEditor context={context} />,
+    branch: () => <BranchEditor context={context} />,
+    sequence: () => <SequenceEditor context={context} />,
+    'screen-element': () => <ScreenElementFields
+      config={context.node.data.config}
+      updateMany={context.updateMany}
+      updateObject={context.updateObject}
+    />,
+  }
+  return editors[editor]()
+}
+
+function FunctionEditor({ context }: { context: InspectorContext }) {
+  return (
+    <Field label="함수">
+      <select
+        aria-label="호출할 함수"
+        value={text(context.node.data.config.function_id)}
+        onChange={(event) => {
+          const selected = context.functions.find((item) => item.id === event.target.value)
+          context.updateMany({
+            function_id: event.target.value,
+            inputs: structuredClone(selected?.inputs ?? []),
+            outputs: structuredClone(selected?.outputs ?? []),
+          })
+        }}
+      >
+        <option value="">함수 선택…</option>
+        {context.functions.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+      </select>
+    </Field>
+  )
+}
+
+function VariableEditor({ context }: { context: InspectorContext }) {
+  return (
+    <Field label="변수">
+      <select
+        aria-label="변수 이름"
+        value={text(context.node.data.config.name)}
+        onChange={(event) => {
+          const selected = context.variables.find((item) => item.name === event.target.value)
+          if (!selected) {
+            context.updateMany({ name: '', type: 'int' })
+            return
+          }
+          context.updateMany({
+            name: selected.name,
+            type: selected.type,
+            ...(context.node.data.nodeType === 'set_variable' ? { default: selected.default ?? null } : {}),
+          })
+        }}
+      >
+        <option value="">변수 선택…</option>
+        {context.variables.map((item) => <option key={item.name} value={item.name}>{item.name} · {item.type}</option>)}
+      </select>
+    </Field>
+  )
+}
+
+function BranchEditor({ context }: { context: InspectorContext }) {
+  const condition = jsonObject(context.node.data.config.condition)
+  return (
+    <>
+      <Field label="조건">
+        <select value={text(condition.type, 'variable_equals')} onChange={(event) => context.updateObject('condition', 'type', event.target.value)}>
+          <option value="variable_equals">변수 값과 같음</option>
+          <option value="variable_not_equals">변수 값과 다름</option>
+          <option value="variable_truthy">변수가 참임</option>
+        </select>
+      </Field>
+      <TextField label="변수" value={text(condition.variable)} onChange={(value) => context.updateObject('condition', 'variable', value)} />
+      {condition.type !== 'variable_truthy' && (
+        <TextField label="비교 값" value={displayValue(condition.value)} onChange={(value) => context.updateObject('condition', 'value', parseValue(value))} />
+      )}
+    </>
+  )
+}
+
+function SequenceEditor({ context }: { context: InspectorContext }) {
+  const outputs = number(context.node.data.config.outputs, 2)
+  const update = (value: number) => context.update('outputs', Math.max(2, Math.min(16, Math.trunc(value))))
+  return (
+    <div className="macro-sequence-config">
+      <NumberField label="출력 수" min={2} max={16} value={outputs} onChange={update} />
+      <div className="macro-inspector__actions">
+        <Button small onClick={() => update(outputs + 1)}>+ 출력</Button>
+        <Button small disabled={outputs <= 2} onClick={() => update(outputs - 1)}>− 출력</Button>
+      </div>
+    </div>
+  )
+}
+
 function SelectorFields({
   config,
   onChange,
@@ -321,20 +296,25 @@ function SelectorFields({
   config: Record<string, JsonValue>
   onChange: (key: string, value: JsonValue) => void
 }) {
-  const value = selector(config.selector)
   return (
     <fieldset className="macro-selector-fields">
       <legend>선택자</legend>
-      <TextField label="텍스트" value={text(value.text)} onChange={(v) => onChange('text', v)} />
-      <TextField label="텍스트 정규식" value={text(value.text_regex)} onChange={(v) => onChange('text_regex', v)} code />
-      <TextField label="콘텐츠 설명" value={text(value.content_description)} onChange={(v) => onChange('content_description', v)} />
-      <TextField label="설명 정규식" value={text(value.content_description_regex)} onChange={(v) => onChange('content_description_regex', v)} code />
-      <TextField label="뷰 ID" value={text(value.view_id)} onChange={(v) => onChange('view_id', v)} code />
-      <TextField label="클래스 이름" value={text(value.class_name)} onChange={(v) => onChange('class_name', v)} code />
-      <TriState label="클릭 가능" value={value.clickable} onChange={(v) => onChange('clickable', v)} />
-      <TriState label="활성화" value={value.enabled} onChange={(v) => onChange('enabled', v)} />
-      <TriState label="표시됨" value={value.visible_to_user} onChange={(v) => onChange('visible_to_user', v)} />
-      <Field label="화면 영역"><select value={text(value.bounds_region)} onChange={(event) => onChange('bounds_region', event.target.value || null)}><option value="">전체</option>{['top_left', 'top', 'top_right', 'left', 'center', 'right', 'bottom_left', 'bottom', 'bottom_right'].map((region) => <option key={region} value={region}>{region}</option>)}</select></Field>
+      <TextField label="텍스트" value={text(config.text)} onChange={(value) => onChange('text', value)} />
+      <TextField label="텍스트 정규식" value={text(config.text_regex)} onChange={(value) => onChange('text_regex', value)} code />
+      <TextField label="콘텐츠 설명" value={text(config.content_description)} onChange={(value) => onChange('content_description', value)} />
+      <TextField label="설명 정규식" value={text(config.content_description_regex)} onChange={(value) => onChange('content_description_regex', value)} code />
+      <TextField label="뷰 ID" value={text(config.view_id)} onChange={(value) => onChange('view_id', value)} code />
+      <TextField label="클래스 이름" value={text(config.class_name)} onChange={(value) => onChange('class_name', value)} code />
+      <TriState label="클릭 가능" value={config.clickable} onChange={(value) => onChange('clickable', value)} />
+      <TriState label="활성화" value={config.enabled} onChange={(value) => onChange('enabled', value)} />
+      <TriState label="표시됨" value={config.visible_to_user} onChange={(value) => onChange('visible_to_user', value)} />
+      <Field label="화면 영역">
+        <select value={text(config.bounds_region)} onChange={(event) => onChange('bounds_region', event.target.value || null)}>
+          <option value="">전체</option>
+          {['top_left', 'top', 'top_right', 'left', 'center', 'right', 'bottom_left', 'bottom', 'bottom_right']
+            .map((region) => <option key={region} value={region}>{region}</option>)}
+        </select>
+      </Field>
     </fieldset>
   )
 }
@@ -344,17 +324,17 @@ function CoordinateSpace({ value, onChange }: { value: string; onChange: (value:
 }
 
 function PointFields({ label, value, onChange }: { label: string; value: Record<string, JsonValue>; onChange: (field: string, value: JsonValue) => void }) {
-  return <fieldset className="macro-selector-fields"><legend>{label}</legend><NumberField label="X" value={number(value.x)} onChange={(v) => onChange('x', v)} /><NumberField label="Y" value={number(value.y)} onChange={(v) => onChange('y', v)} /></fieldset>
+  return <fieldset className="macro-selector-fields"><legend>{label}</legend><NumberField label="X" value={number(value.x)} onChange={(next) => onChange('x', next)} /><NumberField label="Y" value={number(value.y)} onChange={(next) => onChange('y', next)} /></fieldset>
 }
 
 function AreaFields({ label, value, onChange }: { label: string; value: Record<string, JsonValue>; onChange: (field: string, value: JsonValue) => void }) {
   const labels = { left: '왼쪽', top: '위', right: '오른쪽', bottom: '아래' }
-  return <fieldset className="macro-selector-fields"><legend>{label}</legend>{(['left', 'top', 'right', 'bottom'] as const).map((key) => <NumberField key={key} label={labels[key]} value={number(value[key])} onChange={(v) => onChange(key, v)} />)}</fieldset>
+  return <fieldset className="macro-selector-fields"><legend>{label}</legend>{(['left', 'top', 'right', 'bottom'] as const).map((key) => <NumberField key={key} label={labels[key]} value={number(value[key])} onChange={(next) => onChange(key, next)} />)}</fieldset>
 }
 
 function SamplingFields({ label, value, onChange }: { label: string; value: Record<string, JsonValue>; onChange: (field: string, value: JsonValue) => void }) {
   const type = text(value.type, 'uniform')
-  return <fieldset className="macro-selector-fields"><legend>{label}</legend><Field label="타입"><select value={type} onChange={(event) => onChange('type', event.target.value)}><option value="uniform">균등 분포</option><option value="normal">정규 분포</option></select></Field>{type === 'normal' && <>{(['center_x', 'center_y', 'sigma_x', 'sigma_y'] as const).map((key) => <NumberField key={key} label={key} value={number(value[key], key.startsWith('center') ? 0.5 : 0.18)} onChange={(v) => onChange(key, v)} />)}</>}</fieldset>
+  return <fieldset className="macro-selector-fields"><legend>{label}</legend><Field label="타입"><select value={type} onChange={(event) => onChange('type', event.target.value)}><option value="uniform">균등 분포</option><option value="normal">정규 분포</option></select></Field>{type === 'normal' && <>{(['center_x', 'center_y', 'sigma_x', 'sigma_y'] as const).map((key) => <NumberField key={key} label={key} value={number(value[key], key.startsWith('center') ? 0.5 : 0.18)} onChange={(next) => onChange(key, next)} />)}</>}</fieldset>
 }
 
 function ScreenElementFields({ config, updateMany, updateObject }: { config: Record<string, JsonValue>; updateMany: (values: Record<string, JsonValue>) => void; updateObject: (key: string, field: string, value: JsonValue) => void }) {
@@ -362,7 +342,7 @@ function ScreenElementFields({ config, updateMany, updateObject }: { config: Rec
   const elements = SCREEN_ELEMENTS[screenId] ?? []
   const elementId = text(config.element_id, elements[0]?.id ?? '')
   const selected = elements.find((element) => element.id === elementId)
-  const params = selector(config.params)
+  const params = jsonObject(config.params)
   const defaultParams = (option: typeof selected): Record<string, JsonValue> => {
     if (!option?.collection) return {}
     return option.param === 'name' ? { name: '' } : { index: 0 }
@@ -383,21 +363,39 @@ function TextField({ label, value, onChange, code = false }: { label: string; va
   return <Field label={label}><input className={code ? 'code-text' : undefined} value={value} onChange={(event) => onChange(event.target.value)} /></Field>
 }
 
-function NumberField({ label, value, min, onChange }: { label: string; value: number; min?: number; onChange: (value: number) => void }) {
-  const changed = (event: ChangeEvent<HTMLInputElement>) => onChange(event.target.valueAsNumber || 0)
-  return <Field label={label}><input type="number" min={min} value={value} onChange={changed} /></Field>
+function NumberField({ label, value, min, max, step, onChange }: { label: string; value: number; min?: number; max?: number; step?: number; onChange: (value: number) => void }) {
+  const changed = (event: ChangeEvent<HTMLInputElement>) => onChange(Number.isNaN(event.target.valueAsNumber) ? 0 : event.target.valueAsNumber)
+  return <Field label={label}><input type="number" min={min} max={max} step={step} value={value} onChange={changed} /></Field>
 }
 
-function selector(value: JsonValue | undefined): Record<string, JsonValue> {
+function isFieldVisible(field: InspectorFieldDefinition, config: Record<string, JsonValue>) {
+  if (!field.visibleWhen) return true
+  const value = getConfigPath(config, field.visibleWhen.key)
+  if ('equals' in field.visibleWhen) return value === field.visibleWhen.equals
+  return value !== field.visibleWhen.notEquals
+}
+
+function getConfigPath(config: Record<string, JsonValue>, path: string): JsonValue | undefined {
+  let current: JsonValue | undefined = config
+  for (const part of path.split('.')) {
+    const object = jsonObject(current)
+    current = object[part]
+  }
+  return current
+}
+
+function setConfigPath(config: Record<string, JsonValue>, path: string, value: JsonValue): Record<string, JsonValue> {
+  const [key, ...rest] = path.split('.')
+  if (!key) return config
+  if (rest.length === 0) return { ...config, [key]: value }
+  return {
+    ...config,
+    [key]: setConfigPath(jsonObject(config[key]), rest.join('.'), value),
+  }
+}
+
+function jsonObject(value: JsonValue | undefined): Record<string, JsonValue> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-}
-
-function usesSelector(node: MacroFlowNode) {
-  return ['find_element', 'require_element', 'tap_element', 'click_element', 'element_exists', 'element_text_equals', 'wait_for_element', 'assert_element'].includes(node.data.nodeType)
-}
-
-function hasDuration(node: MacroFlowNode) {
-  return ['tap_element', 'tap_point', 'swipe', 'wait'].includes(node.data.nodeType)
 }
 
 function text(value: JsonValue | undefined, fallback = '') {

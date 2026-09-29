@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 import json
@@ -236,7 +236,7 @@ class RuntimeManager:
                 current_edge_id=session.current_edge_id,
                 state=session.state,
                 active_screen_id=session.active_screen_id,
-                step_count=0 if runtime is None else runtime.step_count,
+                step_count=len(session.traces),
                 variables=_snapshot_variables(session.context.variables),
                 trace=tuple(session.traces),
                 started_at=None if runtime is None else runtime.started_at,
@@ -459,6 +459,20 @@ class RuntimeManager:
     ) -> None:
         with session.condition:
             session.runtime = runtime
+            active_screen = trace.screen_id or session.active_screen_id
+            error_payload = trace.error_payload
+            if error_payload is not None:
+                error_payload = {
+                    **error_payload,
+                    "screen_id": active_screen,
+                    "active_screen": active_screen,
+                }
+            trace = replace(
+                trace,
+                step=len(session.traces) + 1,
+                screen_id=active_screen,
+                error_payload=error_payload,
+            )
             session.traces.append(trace)
             session.current_edge_id = None
             if session.step_budget is not None:
@@ -491,6 +505,7 @@ class RuntimeManager:
             "macro.node.failed" if trace.status is NodeStatus.FAILURE else "macro.node.completed",
             node_id=trace.node_id,
             payload={
+                **trace.to_dict(),
                 "node_type": trace.node_type,
                 "status": trace.status.value,
                 "duration_ms": (trace.completed_at - trace.started_at).total_seconds() * 1_000,

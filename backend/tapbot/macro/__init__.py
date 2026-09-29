@@ -79,6 +79,7 @@ from tapbot.macro.screen_lifecycle import (
     ScreenLifecycleEvent,
 )
 from tapbot.macro.graph_engine import GraphEngine, GraphRunLimits
+from tapbot.macro.errors import RuntimeErrorPayload
 from tapbot.macro.graph_validator import (
     GraphValidationError,
     GraphValidationReport,
@@ -157,6 +158,7 @@ __all__ = [
     "NodeStatus",
     "PortType",
     "RequestHumanAction",
+    "RuntimeErrorPayload",
     "ScreenshotAction",
     "StateClassification",
     "StateClassifier",

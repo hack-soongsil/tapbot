@@ -46,6 +46,10 @@ describe('macro graph converters', () => {
     const flow = macroDefinitionToFlow(definition)
     flow.nodes[0]!.selected = true
     flow.nodes[0]!.measured = { width: 180, height: 80 }
+    flow.nodes[0]!.data.runtimeState = 'failure'
+    flow.nodes[0]!.data.runtimeError = { code: 'TEST_FAILURE' }
+    flow.edges[0]!.className = 'runtime-current-edge runtime-error-edge'
+    flow.edges[0]!.animated = true
 
     const restored = flowToMacroDefinition(definition, flow.nodes, flow.edges)
 
@@ -63,6 +67,10 @@ describe('macro graph converters', () => {
     const restoredFind = restored.nodes.find((node) => node.id === 'find')!
     expect(restoredFind).not.toHaveProperty('selected')
     expect(restoredFind).not.toHaveProperty('measured')
+    expect(restoredFind).not.toHaveProperty('runtimeState')
+    expect(restoredFind).not.toHaveProperty('runtimeError')
+    expect(restored.edges[0]).not.toHaveProperty('className')
+    expect(restored.edges[0]).not.toHaveProperty('animated')
   })
 
   it('keeps position as editor metadata without changing config', () => {
@@ -325,6 +333,46 @@ describe('frontend graph validation', () => {
     }
 
     const messages = validateMacroDefinition(invalid).map((item) => item.message)
+    expect(messages).toContain('Port type mismatch: int → bool')
+  })
+
+  it('allows optional unused returns while validating required returns, defaults, and types', () => {
+    const invalid: MacroDefinition = {
+      id: 'functions', name: 'Functions', version: 1,
+      entry_node_id: 'done', metadata: {},
+      nodes: [{ id: 'done', type: 'stop', config: {} }],
+      edges: [],
+      functions: [{
+        id: 'check', name: 'Check',
+        inputs: [{ id: 'index', type: 'int' }],
+        outputs: [
+          { id: 'optional_success', type: 'bool' },
+          { id: 'required_count', type: 'int', required: true },
+          { id: 'bad_default', type: 'bool', default: 'yes' },
+        ],
+        entry_node_id: 'fn-entry', return_node_id: 'fn-return',
+        nodes: [
+          { id: 'fn-entry', type: 'function_entry', config: {
+            inputs: [{ id: 'index', type: 'int' }],
+          } },
+          { id: 'fn-return', type: 'function_return', config: { outputs: [
+            { id: 'optional_success', type: 'bool' },
+            { id: 'required_count', type: 'int', required: true },
+            { id: 'bad_default', type: 'bool', default: 'yes' },
+          ] } },
+        ],
+        edges: [
+          { id: 'exec', source: 'fn-entry', target: 'fn-return', source_handle: 'exec_out', target_handle: 'exec_in', kind: 'exec' },
+          { id: 'typed', source: 'fn-entry', target: 'fn-return', source_handle: 'index', target_handle: 'optional_success', kind: 'data' },
+        ],
+      }],
+    }
+
+    const messages = validateMacroDefinition(invalid).map((item) => item.message)
+
+    expect(messages).not.toContain('Required function output optional_success is not connected.')
+    expect(messages).toContain('Required function output required_count is not connected.')
+    expect(messages).toContain('Function output bad_default default must match bool.')
     expect(messages).toContain('Port type mismatch: int → bool')
   })
 })

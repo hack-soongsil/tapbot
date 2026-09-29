@@ -6,6 +6,7 @@ import math
 from collections.abc import Mapping
 
 from tapbot.macro.graph_models import GraphExecutionContext, JsonObject, NodeResult
+from tapbot.macro.errors import MacroExecutionError, is_sensitive_name
 from tapbot.macro.node_registry import required_text
 
 
@@ -63,12 +64,19 @@ class SetVariableNode:
         from_input = "value" in context.input_values
         value = context.input_values.get("value", config.get("default"))
         if value is None:
-            raise RuntimeError(f"variable {name!r} has no input value or default")
+            raise MacroExecutionError(
+                f"variable {name!r} has no input value or default", code="VARIABLE_VALUE_MISSING",
+                port="value", expected=variable_type, value=value,
+                hint="변수 입력 핀에 값을 연결하거나 기본값을 지정하세요.",
+            )
         if variable_type == "float" and not from_input and isinstance(value, int):
             value = float(value)
         if not value_matches_type(value, variable_type):
-            raise RuntimeError(
-                f"variable {name!r} expected {variable_type}, got {type(value).__name__}"
+            raise MacroExecutionError(
+                f"variable {name!r} expected {variable_type}, got {type(value).__name__}",
+                code="PORT_TYPE_MISMATCH", port="value", expected=variable_type, value=value,
+                sensitive=is_sensitive_name(name),
+                hint="변수 타입과 실제 입력값의 타입을 일치시키세요.",
             )
         context.variables[name] = value  # runtime values may include element references
         return NodeResult.success(
@@ -90,11 +98,18 @@ class GetVariableNode:
     def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
         name, variable_type = _identity(config)
         if name not in context.variables:
-            raise RuntimeError(f"variable {name!r} is undefined")
+            raise MacroExecutionError(
+                f"variable {name!r} is undefined", code="VARIABLE_UNDEFINED",
+                port="value", expected=variable_type, actual="missing",
+                hint="변수 기본값을 설정하거나 읽기 전에 값을 저장하세요.",
+            )
         value = context.variables[name]
         if not value_matches_type(value, variable_type):
-            raise RuntimeError(
-                f"variable {name!r} expected {variable_type}, got {type(value).__name__}"
+            raise MacroExecutionError(
+                f"variable {name!r} expected {variable_type}, got {type(value).__name__}",
+                code="PORT_TYPE_MISMATCH", port="value", expected=variable_type, value=value,
+                sensitive=is_sensitive_name(name),
+                hint="변수를 저장한 노드와 선언된 변수 타입을 확인하세요.",
             )
         return NodeResult.success(
             {"name": name, "type": variable_type},

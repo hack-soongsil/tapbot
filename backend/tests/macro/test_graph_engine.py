@@ -212,7 +212,8 @@ def test_execution_timeout_is_checked_after_node_returns() -> None:
 
     assert calls == ["ran"]
     assert result.runtime.state is GraphRuntimeStatus.ERROR
-    assert result.runtime.error == "graph execution timeout exceeded"
+    assert result.runtime.error == "매크로 실행 시간이 초과되었습니다."
+    assert result.traces[-1].error_payload["code"] == "TIMEOUT"
     assert result.traces[0].status is NodeStatus.FAILURE
 
 

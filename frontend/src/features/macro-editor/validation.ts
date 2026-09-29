@@ -43,6 +43,42 @@ export function validateMacroDefinition(
   for (const [name, count] of variableCounts) {
     if (count > 1) issues.push(issue(`Duplicate variable name: ${name}`))
   }
+  for (const functionDefinition of definition.functions ?? []) {
+    const outputIds = new Set<string>()
+    const connectedOutputs = new Set(
+      functionDefinition.edges
+        .filter((edge) => (
+          (edge.kind ?? 'exec') === 'data'
+          && edge.target === functionDefinition.return_node_id
+          && typeof edge.target_handle === 'string'
+        ))
+        .map((edge) => edge.target_handle!),
+    )
+    for (const output of functionDefinition.outputs) {
+      if (outputIds.has(output.id)) {
+        issues.push(issue(`Duplicate function output: ${output.id}`, {
+          nodeId: functionDefinition.return_node_id,
+        }))
+      }
+      outputIds.add(output.id)
+      const required = output.required === true
+        || (output.required === undefined && output.optional === false)
+      if (required && !connectedOutputs.has(output.id)) {
+        issues.push(issue(`Required function output ${output.id} is not connected.`, {
+          nodeId: functionDefinition.return_node_id,
+        }))
+      }
+      if (
+        output.default !== undefined
+        && !matchesFunctionPortDefault(output.default, output.type)
+      ) {
+        issues.push(issue(`Function output ${output.id} default must match ${output.type}.`, {
+          nodeId: functionDefinition.return_node_id,
+        }))
+      }
+    }
+    validateFunctionDataEdges(functionDefinition, issues)
+  }
   const variables = new Map((definition.variables ?? []).map((item) => [item.name, item]))
   for (const node of [
     ...definition.nodes,
@@ -288,6 +324,40 @@ function matchesVariableType(value: JsonValue, type: string) {
     ? ['x', 'y']
     : type === 'rect' ? ['left', 'top', 'right', 'bottom'] : []
   return keys.length > 0 && keys.every((key) => typeof value[key] === 'number')
+}
+
+function matchesFunctionPortDefault(value: JsonValue, type: string): boolean {
+  if (type === 'any') return true
+  if (value === null) return ['position', 'rect', 'element'].includes(type)
+  return matchesVariableType(value, type)
+}
+
+function validateFunctionDataEdges(
+  functionDefinition: NonNullable<MacroDefinition['functions']>[number],
+  issues: ValidationIssue[],
+) {
+  const nodes = new Map(functionDefinition.nodes.map((node) => [node.id, node]))
+  for (const edge of functionDefinition.edges) {
+    if ((edge.kind ?? 'exec') !== 'data' || !edge.source_handle || !edge.target_handle) continue
+    const source = nodes.get(edge.source)
+    const target = nodes.get(edge.target)
+    if (!source || !target) continue
+    const sourcePort = getNodePorts(source.type, source.config).outputs
+      .find((port) => port.id === edge.source_handle)
+    const targetPort = getNodePorts(target.type, target.config).inputs
+      .find((port) => port.id === edge.target_handle)
+    if (
+      sourcePort
+      && targetPort
+      && sourcePort.type !== 'any'
+      && targetPort.type !== 'any'
+      && sourcePort.type !== targetPort.type
+    ) {
+      issues.push(issue(`Port type mismatch: ${sourcePort.type} → ${targetPort.type}`, {
+        edgeId: edge.id,
+      }))
+    }
+  }
 }
 
 function object(value: JsonValue | undefined): Record<string, JsonValue> {

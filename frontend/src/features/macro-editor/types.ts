@@ -98,9 +98,12 @@ export interface MacroEdgeDefinition {
   condition?: 'success' | 'failure' | 'retry' | 'stopped'
 }
 
-export interface MacroFunctionPort extends Record<string, JsonValue> {
+export type MacroFunctionPort = Record<string, JsonValue> & {
   id: string
   type: Exclude<PortType, 'exec'>
+  required?: boolean
+  optional?: boolean
+  default?: JsonValue
 }
 
 export interface MacroFunctionDefinition {
@@ -160,7 +163,10 @@ export interface MacroFlowNodeData extends Record<string, unknown> {
   eventKind?: 'enter' | 'update' | 'exit'
   eventScreenId?: string
   errors: string[]
+  // Render-only projection from RuntimeGraphOverlay. Graph converters deliberately
+  // omit these fields so execution never becomes persisted editor data.
   runtimeState?: 'pending' | 'running' | 'success' | 'failure' | 'skipped'
+  runtimeError?: Record<string, JsonValue>
 }
 
 export interface MacroFlowEdgeData extends Record<string, unknown> {

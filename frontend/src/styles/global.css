@@ -1499,10 +1499,10 @@ select:focus-visible {
   display: grid;
   min-width: 0;
   min-height: 58px;
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
-  gap: 6px;
-  padding: 7px 9px;
+  gap: 4px 8px;
+  padding: 5px 9px;
   border-bottom: 1px solid #383e47;
   grid-row: 1;
 }
@@ -1521,8 +1521,10 @@ select:focus-visible {
 }
 
 .integrated-macro-toolbar__actions {
-  justify-content: flex-start;
+  justify-content: safe flex-end;
 }
+
+.integrated-macro-toolbar__selectors { grid-column: 1 / -1; }
 
 .integrated-macro-tabs {
   border-bottom: 1px solid #303740;
@@ -1631,7 +1633,7 @@ select:focus-visible {
   height: 100%;
   min-width: 0;
   min-height: 0;
-  grid-template-columns: 190px minmax(0, 1fr) 280px;
+  grid-template-columns: 280px minmax(0, 1fr) 280px;
   grid-template-rows: 32px minmax(0, 1fr);
   overflow: hidden;
 }
@@ -1691,11 +1693,11 @@ select:focus-visible {
 
 .macro-canvas-expanded-shell > header {
   display: grid;
-  height: 52px;
+  height: 44px;
   grid-template-columns: minmax(180px, auto) minmax(150px, 220px) minmax(0, 1fr) auto auto auto auto;
   align-items: center;
   gap: 7px;
-  padding: 8px 10px;
+  padding: 5px 10px;
   border-bottom: 1px solid #404954;
   background: #222930;
   pointer-events: auto;
@@ -1726,12 +1728,12 @@ select:focus-visible {
 .integrated-macro-editor.is-expanded {
   position: fixed;
   z-index: var(--z-expanded-canvas);
-  top: calc(4vh + 52px);
+  top: calc(4vh + 44px);
   right: auto;
   bottom: auto;
   left: 2.5vw;
   width: 95vw;
-  height: calc(92vh - 52px);
+  height: calc(92vh - 44px);
   overflow: hidden;
   border: 1px solid #4a5561;
   border-top: 0;
@@ -1903,7 +1905,7 @@ body.macro-canvas-is-resizing canvas {
   font-size: 11px;
 }
 
-.integrated-macro-card__meta > span + span::before,
+.integrated-macro-card__meta > * + span::before,
 .integrated-macro-card__progress > span + span::before {
   margin-right: 8px;
   color: #4b5561;
@@ -1922,6 +1924,24 @@ body.macro-canvas-is-resizing canvas {
   height: 7px;
   border-radius: 50%;
   background: #66717d;
+}
+
+button.macro-status {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.macro-status:hover {
+  text-decoration: underline;
+}
+
+button.macro-status:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 
 .macro-status--running,
@@ -1966,7 +1986,7 @@ body.macro-canvas-is-resizing canvas {
 .integrated-macro-card__actions {
   align-self: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .integrated-macro-card__actions > .bp6-button {
@@ -2035,6 +2055,12 @@ body.macro-canvas-is-resizing canvas {
 .integrated-macro-card__menu button.is-danger:hover,
 .integrated-macro-card__menu button.is-danger:focus-visible {
   background: rgb(180 52 61 / 18%);
+}
+
+.integrated-macro-card__menu button:disabled {
+  opacity: 0.4;
+  background: transparent;
+  cursor: not-allowed;
 }
 
 .integrated-macro-execution__empty {

@@ -1,12 +1,100 @@
 {
   "edges": [
     {
-      "id": "event-home-update-call_function-1-1",
+      "id": "event-home-update-find_screen_element-1-1",
       "kind": "exec",
       "source": "event-home-update",
       "source_handle": "exec_out",
-      "target": "call_function-1",
+      "target": "find_screen_element-1",
       "target_handle": "exec_in"
+    },
+    {
+      "id": "find_screen_element-1-click_element-1-2",
+      "kind": "data",
+      "source": "find_screen_element-1",
+      "source_handle": "element",
+      "target": "click_element-1",
+      "target_handle": "element"
+    },
+    {
+      "id": "find_screen_element-1-branch-1-1",
+      "kind": "exec",
+      "source": "find_screen_element-1",
+      "source_handle": "exec_out",
+      "target": "branch-1",
+      "target_handle": "exec_in"
+    },
+    {
+      "id": "find_screen_element-1-branch-1-2",
+      "kind": "data",
+      "source": "find_screen_element-1",
+      "source_handle": "found",
+      "target": "branch-1",
+      "target_handle": "condition"
+    },
+    {
+      "id": "branch-1-debug_print-1-1",
+      "kind": "exec",
+      "source": "branch-1",
+      "source_handle": "false",
+      "target": "debug_print-1",
+      "target_handle": "exec_in"
+    },
+    {
+      "id": "branch-1-click_element-1-1",
+      "kind": "exec",
+      "source": "branch-1",
+      "source_handle": "true",
+      "target": "click_element-1",
+      "target_handle": "exec_in"
+    },
+    {
+      "id": "event-detail-update-find_screen_element-2-1",
+      "kind": "exec",
+      "source": "event-detail-update",
+      "source_handle": "exec_out",
+      "target": "find_screen_element-2",
+      "target_handle": "exec_in"
+    },
+    {
+      "id": "find_screen_element-2-branch-2-1",
+      "kind": "exec",
+      "source": "find_screen_element-2",
+      "source_handle": "exec_out",
+      "target": "branch-2",
+      "target_handle": "exec_in"
+    },
+    {
+      "id": "branch-2-click_element-2-1",
+      "kind": "exec",
+      "source": "branch-2",
+      "source_handle": "true",
+      "target": "click_element-2",
+      "target_handle": "exec_in"
+    },
+    {
+      "id": "branch-2-debug_print-2-1",
+      "kind": "exec",
+      "source": "branch-2",
+      "source_handle": "false",
+      "target": "debug_print-2",
+      "target_handle": "exec_in"
+    },
+    {
+      "id": "find_screen_element-2-click_element-2-1",
+      "kind": "data",
+      "source": "find_screen_element-2",
+      "source_handle": "element",
+      "target": "click_element-2",
+      "target_handle": "element"
+    },
+    {
+      "id": "find_screen_element-2-branch-2-2",
+      "kind": "data",
+      "source": "find_screen_element-2",
+      "source_handle": "found",
+      "target": "branch-2",
+      "target_handle": "condition"
     }
   ],
   "functions": [
@@ -78,9 +166,16 @@
   "id": "macro-mukjsthq",
   "metadata": {
     "editor_screen_node_ids": {
-      "reservation_detail": [],
+      "reservation_detail": [
+        "find_screen_element-2",
+        "click_element-2",
+        "branch-2",
+        "debug_print-2"
+      ],
       "reservation_home": [
-        "call_function-1",
+        "find_screen_element-1",
+        "click_element-1",
+        "branch-1",
         "debug_print-1"
       ]
     }
@@ -95,8 +190,8 @@
       "id": "event-home-enter",
       "label": "스터디룸 예약 메인 / Enter",
       "position": {
-        "x": 109.37899701905064,
-        "y": -141.56905214455378
+        "x": -143.0379037697375,
+        "y": -185.11058284407443
       },
       "type": "screen_enter"
     },
@@ -110,8 +205,8 @@
       "id": "event-home-update",
       "label": "스터디룸 예약 메인 / Update",
       "position": {
-        "x": -143.66863822886572,
-        "y": 71.93480609048213
+        "x": -425.38190573396554,
+        "y": 170.33807784351376
       },
       "type": "screen_update"
     },
@@ -123,8 +218,8 @@
       "id": "event-home-exit",
       "label": "스터디룸 예약 메인 / Exit",
       "position": {
-        "x": 600.0,
-        "y": 60.0
+        "x": 852.5121030653174,
+        "y": 35.52178592734168
       },
       "type": "screen_exit"
     },
@@ -136,8 +231,8 @@
       "id": "event-detail-enter",
       "label": "스터디룸 예약 상세 / Enter",
       "position": {
-        "x": 80.0,
-        "y": 60.0
+        "x": 12.175787574381275,
+        "y": -174.85398929467976
       },
       "type": "screen_enter"
     },
@@ -151,8 +246,8 @@
       "id": "event-detail-update",
       "label": "스터디룸 예약 상세 / Update",
       "position": {
-        "x": 340.0,
-        "y": 60.0
+        "x": -171.31967152234276,
+        "y": 189.35780843781654
       },
       "type": "screen_update"
     },
@@ -164,34 +259,144 @@
       "id": "event-detail-exit",
       "label": "스터디룸 예약 상세 / Exit",
       "position": {
-        "x": 600.0,
-        "y": 60.0
+        "x": 262.9035412278949,
+        "y": -225.4690731943952
       },
       "type": "screen_exit"
     },
     {
       "config": {
-        "function_id": "function-1",
-        "inputs": [],
-        "outputs": []
+        "element_id": "quick_date",
+        "params": {
+          "index": 0
+        },
+        "screen_id": "reservation_home"
       },
-      "id": "call_function-1",
-      "label": "Function 1",
+      "id": "find_screen_element-1",
       "position": {
-        "x": 218.50496646561507,
-        "y": 109.89639460677566
+        "x": -120.41287817022337,
+        "y": 198.42055952181994
       },
-      "type": "call_function"
+      "type": "find_screen_element"
+    },
+    {
+      "config": {
+        "click": {
+          "duration_ms": 70
+        },
+        "resolve": {
+          "require_enabled": true,
+          "require_visible": true,
+          "strategy": "best_match"
+        },
+        "sampling_mode": "uniform",
+        "selector": {
+          "clickable": true,
+          "enabled": true,
+          "text": "",
+          "ui_tree_path": null,
+          "visible_to_user": true
+        }
+      },
+      "id": "click_element-1",
+      "position": {
+        "x": 604.1458331402115,
+        "y": 149.84125315508783
+      },
+      "type": "click_element"
+    },
+    {
+      "config": {
+        "condition": {
+          "type": "variable_equals",
+          "value": true,
+          "variable": ""
+        }
+      },
+      "id": "branch-1",
+      "position": {
+        "x": 235.51860933842195,
+        "y": 354.28398596647673
+      },
+      "type": "branch"
+    },
+    {
+      "config": {
+        "level": "error",
+        "message": "error"
+      },
+      "id": "debug_print-1",
+      "position": {
+        "x": 564.4418059942527,
+        "y": 493.21402801592535
+      },
+      "type": "debug_print"
+    },
+    {
+      "config": {
+        "element_id": "quick_date",
+        "params": {
+          "index": 0
+        },
+        "screen_id": "reservation_home"
+      },
+      "id": "find_screen_element-2",
+      "position": {
+        "x": 399.9232562197333,
+        "y": 160.6274216419348
+      },
+      "type": "find_screen_element"
+    },
+    {
+      "config": {
+        "click": {
+          "duration_ms": 70
+        },
+        "resolve": {
+          "require_enabled": true,
+          "require_visible": true,
+          "strategy": "best_match"
+        },
+        "sampling_mode": "uniform",
+        "selector": {
+          "clickable": true,
+          "enabled": true,
+          "text": "",
+          "ui_tree_path": null,
+          "visible_to_user": true
+        }
+      },
+      "id": "click_element-2",
+      "position": {
+        "x": 1005.2472338564252,
+        "y": 121.84175974513516
+      },
+      "type": "click_element"
+    },
+    {
+      "config": {
+        "condition": {
+          "type": "variable_equals",
+          "value": true,
+          "variable": ""
+        }
+      },
+      "id": "branch-2",
+      "position": {
+        "x": 643.9666571226683,
+        "y": 359.46298793077864
+      },
+      "type": "branch"
     },
     {
       "config": {
         "level": "info",
-        "message": "fwfw"
+        "message": ""
       },
-      "id": "debug_print-1",
+      "id": "debug_print-2",
       "position": {
-        "x": 194.27663333092357,
-        "y": 333.3383903697129
+        "x": 865.5016255369142,
+        "y": 614.3591481727124
       },
       "type": "debug_print"
     }
@@ -208,5 +413,5 @@
       "update": "event-home-update"
     }
   },
-  "version": 10
+  "version": 18
 }

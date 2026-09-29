@@ -1,17 +1,19 @@
 import { Button } from '@blueprintjs/core'
 import type { DragEvent } from 'react'
-import { BLOCKS } from './blocks'
+import { NODE_DEFINITIONS } from './blocks'
+import type { PaletteGroup } from './blocks'
 import type { MacroNodeType } from './types'
 import { macroCategoryLabels } from '../../i18n/ko'
 
 export const MACRO_BLOCK_MIME = 'application/x-tapbot-macro-node'
 
-const categories: Array<{ id: string; label: string; types: readonly MacroNodeType[] }> = [
-  { id: 'input', label: '입력', types: ['click_point', 'drag_point', 'random_click_area', 'random_drag_area'] },
-  { id: 'flow', label: macroCategoryLabels.control, types: ['for_loop', 'branch', 'sequence', 'wait', 'retry', 'repeat', 'stop'] },
-  { id: 'ui', label: macroCategoryLabels.ui, types: ['element_exists', 'find_element', 'find_screen_element', 'click_element', 'require_element'] },
-  { id: 'validation', label: macroCategoryLabels.validation, types: ['wait_for_element', 'wait_for_state', 'assert_element'] },
-  { id: 'utility', label: macroCategoryLabels.utility, types: ['debug_print'] },
+const categories: Array<{ id: PaletteGroup; label: string }> = [
+  { id: 'input', label: '입력' },
+  { id: 'flow', label: macroCategoryLabels.control },
+  { id: 'ui', label: macroCategoryLabels.ui },
+  { id: 'action', label: macroCategoryLabels.action },
+  { id: 'validation', label: macroCategoryLabels.validation },
+  { id: 'utility', label: macroCategoryLabels.utility },
 ]
 
 export interface BlockPaletteProps {
@@ -34,8 +36,8 @@ export function BlockPalette({ onAdd }: BlockPaletteProps) {
         {categories.map((category) => (
           <section className="macro-palette__group" key={category.id}>
             <h2>{category.label}</h2>
-            {BLOCKS.filter(
-              (block) => block.palette && category.types.includes(block.type),
+            {NODE_DEFINITIONS.filter(
+              (block) => block.palette && block.paletteGroup === category.id,
             ).map((block) => (
               <Button
                 className={`macro-palette__block is-${category.id}`}

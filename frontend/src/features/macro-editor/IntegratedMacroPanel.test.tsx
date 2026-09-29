@@ -11,11 +11,13 @@ import {
 import type { MacroCanvasProps } from './MacroCanvas'
 import type { MacroDefinition, MacroRuntime } from './types'
 import type { useMacroRuntime } from '../macro-runtime/useMacroRuntime'
+import { runtimeGraphOverlayFromSnapshot } from '../macro-runtime/runtime-overlay'
 
 const flowInstance = vi.hoisted(() => ({
   getViewport: vi.fn(() => ({ x: 0, y: 0, zoom: 1 })),
   setViewport: vi.fn(() => Promise.resolve(true)),
   fitView: vi.fn(() => Promise.resolve(true)),
+  setCenter: vi.fn(() => Promise.resolve(true)),
 }))
 
 vi.mock('./api', () => ({
@@ -40,6 +42,7 @@ vi.mock('./MacroCanvas', () => ({
     edges,
     onReady,
     onSelectNode,
+    onOpenFunction,
     onNodesChange,
     onDropBlueprintItem,
   }: MacroCanvasProps) => {
@@ -52,10 +55,16 @@ vi.mock('./MacroCanvas', () => ({
             type="button"
             data-state={node.data.runtimeState}
             onClick={() => onSelectNode(node.id)}
+            onDoubleClick={() => {
+              if (node.data.nodeType === 'call_function') {
+                const id = node.data.config.function_id
+                onOpenFunction?.(typeof id === 'string' ? id : undefined)
+              }
+            }}
           >{node.id}</button>
         ))}
         {edges.map((edge) => (
-          <i key={edge.id} data-current={edge.className === 'runtime-current-edge'}>{edge.id}</i>
+          <i key={edge.id} data-current={edge.className === 'runtime-current-edge'} data-error={edge.className?.includes('runtime-error-edge')}>{edge.id}</i>
         ))}
         <button
           type="button"
@@ -92,8 +101,7 @@ const definition: MacroDefinition = {
 }
 
 function runtime(state: MacroRuntime['state'] = 'running'): ReturnType<typeof useMacroRuntime> {
-  return {
-    runtime: {
+  const snapshot: MacroRuntime = {
       device_id: 'phone-a',
       runtime_id: 'run-a',
       macro_definition_id: 'shared',
@@ -114,10 +122,10 @@ function runtime(state: MacroRuntime['state'] = 'running'): ReturnType<typeof us
       }],
       started_at: '2026-09-28T00:00:00Z',
       error: null,
-    },
-    nodeState: { find: 'running' },
-    currentNodeId: 'find',
-    currentEdgeId: null,
+    }
+  return {
+    runtime: snapshot,
+    graphOverlay: runtimeGraphOverlayFromSnapshot(snapshot),
     events: [],
     overlay: { bounds: null, tapPoint: null, nodeId: null },
     connected: true,
@@ -126,12 +134,19 @@ function runtime(state: MacroRuntime['state'] = 'running'): ReturnType<typeof us
   }
 }
 
+function syncRuntimeOverlay(view: ReturnType<typeof useMacroRuntime>) {
+  if (view.runtime) view.graphOverlay = runtimeGraphOverlayFromSnapshot(view.runtime, view.graphOverlay)
+  return view
+}
+
 describe('IntegratedMacroPanel', () => {
   beforeEach(() => {
     window.sessionStorage.clear()
+    window.localStorage.clear()
     flowInstance.getViewport.mockReset().mockReturnValue({ x: 0, y: 0, zoom: 1 })
     flowInstance.setViewport.mockReset().mockResolvedValue(true)
     flowInstance.fitView.mockReset().mockResolvedValue(true)
+    flowInstance.setCenter.mockReset().mockResolvedValue(true)
     vi.mocked(macroEditorApi.list).mockResolvedValue({ macros: [definition] })
     vi.mocked(macroEditorApi.binding).mockResolvedValue({
       binding: {
@@ -164,6 +179,7 @@ describe('IntegratedMacroPanel', () => {
     cleanup()
     vi.clearAllMocks()
     window.sessionStorage.clear()
+    window.localStorage.clear()
   })
 
   it('loads the selected device binding and decorates the running node', async () => {
@@ -189,7 +205,8 @@ describe('IntegratedMacroPanel', () => {
     expect(screen.getByRole('button', { name: '일시정지' })).toBeTruthy()
     expect(screen.getByRole('button', { name: '중지' })).toBeTruthy()
 
-    fireEvent.click(screen.getByRole('button', { name: '상세' }))
+    expect(screen.queryByRole('button', { name: '상세' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Shared Flow 실행 정보 보기' }))
     expect(screen.getByText('Shared Flow')).toBeTruthy()
     expect(screen.getByText('phone-a · run-a')).toBeTruthy()
     expect(screen.getByText('Current Node').nextElementSibling?.textContent).toContain('엘리먼트 찾기')
@@ -210,7 +227,7 @@ describe('IntegratedMacroPanel', () => {
     expect(screen.getByRole('button', { name: '중지' }).hasAttribute('disabled')).toBe(false)
 
     view.rerender(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime('completed')} />)
-    fireEvent.click(screen.getByRole('button', { name: '상세' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Shared Flow 실행 정보 보기' }))
     expect(screen.getByRole('button', { name: '초기화' })).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: '매크로 목록' }))
 
@@ -236,12 +253,20 @@ describe('IntegratedMacroPanel', () => {
     const card = screen.getByText('Shared Flow').closest('article')!
     const edit = within(card).getByRole('button', { name: '편집' })
     const run = within(card).getByRole('button', { name: '실행' })
-    expect(edit.getAttribute('title')).toBe('매크로 캔버스에서 편집')
+    expect(edit.getAttribute('title')).toBe('편집')
+    expect(run.getAttribute('title')).toBe('실행')
+    expect(edit.textContent).toBe('')
+    expect(run.textContent).toBe('')
     expect(edit.querySelector('.bp6-icon-edit')).toBeTruthy()
     expect(run.querySelector('.bp6-icon-play')).toBeTruthy()
-    const menu = within(card).getByText('⋯').closest('details')!
+    const more = within(card).getByLabelText('더보기')
+    expect(more.getAttribute('title')).toBe('더보기')
+    expect(more.textContent).toBe('')
+    const menu = more.closest('details')!
     expect(within(menu).queryByText('캔버스에서 편집')).toBeNull()
+    expect(within(menu).queryByRole('button', { name: /^(편집|실행)$/ })).toBeNull()
     expect(within(menu).getByRole('button', { name: '이름 변경' })).toBeTruthy()
+    expect(within(menu).getByRole('button', { name: '바인딩 해제' })).toBeTruthy()
 
     fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
     fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
@@ -420,6 +445,57 @@ describe('IntegratedMacroPanel', () => {
     expect(document.body.style.overflow).toBe('')
   })
 
+  it('restores, constrains, saves, and resets expanded side widths', async () => {
+    window.localStorage.setItem('tapbot.macro.expandedLayout.v1', JSON.stringify({
+      blueprintWidth: 360,
+      inspectorWidth: 410,
+    }))
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
+    await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.click(screen.getByRole('button', { name: '확대' }))
+
+    const blueprintSplitter = screen.getByRole('separator', { name: 'My Blueprint/Blocks와 캔버스 크기 조절' })
+    const inspectorSplitter = screen.getByRole('separator', { name: '캔버스와 인스펙터 크기 조절' })
+    const editor = document.getElementById('integrated-macro-editor')!
+    vi.spyOn(editor, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      top: 0,
+      right: 1500,
+      bottom: 800,
+      left: 0,
+      width: 1500,
+      height: 800,
+      toJSON: () => ({}),
+    })
+    Object.defineProperty(blueprintSplitter, 'setPointerCapture', { value: vi.fn() })
+    Object.defineProperty(inspectorSplitter, 'setPointerCapture', { value: vi.fn() })
+
+    expect(blueprintSplitter.getAttribute('aria-valuenow')).toBe('360')
+    expect(inspectorSplitter.getAttribute('aria-valuenow')).toBe('410')
+
+    fireEvent.pointerDown(blueprintSplitter, { pointerId: 1, clientX: 360 })
+    fireEvent.pointerMove(window, { pointerId: 1, clientX: 1360 })
+    fireEvent.pointerUp(window, { pointerId: 1 })
+    expect(blueprintSplitter.getAttribute('aria-valuenow')).toBe('420')
+
+    fireEvent.pointerDown(inspectorSplitter, { pointerId: 2, clientX: 1000 })
+    fireEvent.pointerMove(window, { pointerId: 2, clientX: 0 })
+    fireEvent.pointerUp(window, { pointerId: 2 })
+    expect(inspectorSplitter.getAttribute('aria-valuenow')).toBe('480')
+    expect(editor.style.gridTemplateColumns).toContain('minmax(420px, 1fr)')
+
+    await waitFor(() => expect(JSON.parse(
+      window.localStorage.getItem('tapbot.macro.expandedLayout.v1') ?? '{}',
+    )).toEqual({ blueprintWidth: 420, inspectorWidth: 480 }))
+
+    fireEvent.doubleClick(blueprintSplitter)
+    fireEvent.doubleClick(inspectorSplitter)
+    expect(blueprintSplitter.getAttribute('aria-valuenow')).toBe('280')
+    expect(inspectorSplitter.getAttribute('aria-valuenow')).toBe('320')
+  })
+
   it('layers editor dialogs above the expanded canvas and closes the child first with Escape', async () => {
     render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
     await screen.findByTestId('integrated-canvas')
@@ -561,6 +637,180 @@ describe('IntegratedMacroPanel', () => {
     expect(within(breadcrumb).getByText('Main').getAttribute('aria-current')).toBe('page')
     expect(within(breadcrumb).queryByRole('button', { name: 'Main' })).toBeNull()
     await waitFor(() => expect(flowInstance.setViewport).toHaveBeenCalledWith(mainViewport, { duration: 0 }))
+  })
+
+  it('opens nested call nodes through shared navigation and restores graph selection and viewport', async () => {
+    const functions = ['first', 'second'].map((id): NonNullable<MacroDefinition['functions']>[number] => ({
+      id, name: id, inputs: [], outputs: [],
+      entry_node_id: `${id}-entry`, return_node_id: `${id}-return`,
+      nodes: [
+        { id: `${id}-entry`, type: 'function_entry', config: {} },
+        { id: `${id}-return`, type: 'function_return', config: {} },
+        ...(id === 'first' ? [{ id: 'nested-call', type: 'call_function' as const, config: { function_id: 'second' } }] : []),
+      ],
+      edges: [],
+    }))
+    vi.mocked(macroEditorApi.get).mockResolvedValue({
+      ...definition,
+      nodes: [{ id: 'main-call', type: 'call_function', config: { function_id: 'first' } }],
+      entry_node_id: 'main-call', functions,
+    })
+    const mainViewport = { x: 25, y: 40, zoom: 1.2 }
+    const firstViewport = { x: -50, y: 90, zoom: 0.8 }
+    flowInstance.getViewport.mockReturnValue(mainViewport)
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
+    const canvas = await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    const breadcrumb = screen.getByRole('navigation', { name: '매크로 그래프 경로' })
+
+    fireEvent.click(within(canvas).getByRole('button', { name: 'main-call' }))
+    expect(breadcrumb.textContent).toBe('Main')
+    fireEvent.doubleClick(within(canvas).getByRole('button', { name: 'main-call' }))
+    expect(breadcrumb.textContent).toBe('Main›first')
+    await waitFor(() => expect(flowInstance.fitView).toHaveBeenCalled())
+
+    flowInstance.getViewport.mockReturnValue(firstViewport)
+    fireEvent.click(within(canvas).getByRole('button', { name: 'nested-call' }))
+    fireEvent.doubleClick(within(canvas).getByRole('button', { name: 'nested-call' }))
+    expect(breadcrumb.textContent).toBe('Main›first›second')
+    fireEvent.click(within(breadcrumb).getByRole('button', { name: 'first' }))
+    expect(within(screen.getByLabelText('선택한 노드 설정')).getByDisplayValue('nested-call')).toBeTruthy()
+    await waitFor(() => expect(flowInstance.setViewport).toHaveBeenCalledWith(firstViewport, { duration: 0 }))
+
+    fireEvent.click(within(breadcrumb).getByRole('button', { name: 'Main' }))
+    expect(within(screen.getByLabelText('선택한 노드 설정')).getByDisplayValue('main-call')).toBeTruthy()
+    await waitFor(() => expect(flowInstance.setViewport).toHaveBeenCalledWith(mainViewport, { duration: 0 }))
+
+    fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))
+    fireEvent.doubleClick(within(screen.getByLabelText('My Blueprint')).getByRole('button', { name: 'first 함수' }))
+    expect(breadcrumb.textContent).toBe('Main›first')
+    expect(within(screen.getByLabelText('선택한 노드 설정')).getByDisplayValue('nested-call')).toBeTruthy()
+  })
+
+  it('automatically focuses the original nested failure and navigates again from its trace row', async () => {
+    const functions = ['reserve', 'slot'].map((id): NonNullable<MacroDefinition['functions']>[number] => ({
+      id, name: id === 'reserve' ? 'Reserve' : 'SelectTimeSlot', inputs: [], outputs: [],
+      entry_node_id: `${id}-entry`, return_node_id: `${id}-return`,
+      nodes: [
+        { id: `${id}-entry`, type: 'function_entry', config: {} },
+        { id: `${id}-return`, type: 'function_return', config: {} },
+        { id: 'find', type: 'wait', config: { duration_ms: 1 }, position: { x: 400, y: 200 } },
+      ], edges: [],
+    }))
+    vi.mocked(macroEditorApi.get).mockResolvedValue({ ...definition, functions })
+    const view = render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
+    await screen.findByTestId('integrated-canvas')
+    const failed = runtime('error')
+    const origin = {
+      node_id: 'find', node_type: 'wait', status: 'failure', step: 4,
+      graph_path: ['main', 'reserve', 'slot'], timestamp: '2026-09-29T01:00:00Z',
+      error: 'slot failed', input_summary: { duration_ms: 1 }, output_summary: {},
+      error_payload: { type: 'RuntimeError', message: 'slot failed' },
+    }
+    failed.runtime!.trace = [{ ...origin, node_id: 'call', graph_path: ['main'], error_payload: { cause: origin } }]
+    failed.runtime!.error = 'slot failed'
+    view.rerender(<IntegratedMacroPanel deviceId="phone-a" runtime={syncRuntimeOverlay(failed)} />)
+    await waitFor(() => expect(screen.getByLabelText<HTMLSelectElement>('매크로 그래프').value).toBe('slot'))
+    expect(screen.getByRole('navigation', { name: '매크로 그래프 경로' }).textContent).toBe('Main›Reserve›SelectTimeSlot')
+    expect(within(screen.getByLabelText('선택한 노드 설정')).getByDisplayValue('find')).toBeTruthy()
+    expect(screen.getByLabelText('Runtime Error').textContent).toContain('duration_ms')
+    await waitFor(() => expect(flowInstance.setCenter).toHaveBeenCalledWith(510, 250, { zoom: 1, duration: 200 }))
+    expect(flowInstance.fitView).not.toHaveBeenCalled()
+
+    fireEvent.click(within(screen.getByRole('navigation', { name: '매크로 그래프 경로' })).getByRole('button', { name: 'Main' }))
+    expect(screen.getByLabelText<HTMLSelectElement>('매크로 그래프').value).toBe('__main__')
+
+    fireEvent.click(screen.getByRole('tab', { name: '실행' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Shared Flow 실행 정보 보기' }))
+    fireEvent.click(screen.getByRole('tab', { name: /Trace/ }))
+    fireEvent.keyDown(screen.getByLabelText('call 오류 위치로 이동'), { key: 'Enter' })
+    await waitFor(() => expect(screen.getByLabelText<HTMLSelectElement>('매크로 그래프').value).toBe('slot'))
+    expect(screen.getByLabelText('Runtime Error').textContent).toContain('slot failed')
+  })
+
+  it('switches the error screen, highlights its edge and focuses either endpoint', async () => {
+    vi.mocked(macroEditorApi.get).mockResolvedValue({
+      ...definition,
+      nodes: [...definition.nodes, { id: 'source', type: 'wait', config: {} }],
+      edges: [{ id: 'bad-edge', source: 'source', target: 'find' }],
+      metadata: { editor_screen_node_ids: { reservation_detail: ['find', 'source'] } },
+    })
+    const failed = runtime('error')
+    failed.runtime!.trace = [{
+      node_id: 'find', status: 'failure', graph_path: ['main'], screen_id: 'reservation_detail',
+      error: 'edge failed', error_payload: { edge_id: 'bad-edge', source: 'source', target: 'find' },
+    }]
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={syncRuntimeOverlay(failed)} />)
+    await waitFor(() => expect(screen.getByLabelText<HTMLSelectElement>('매크로 화면').value).toBe('reservation_detail'))
+    expect(screen.getByLabelText('Runtime Error')).toBeTruthy()
+    expect(screen.getByText('bad-edge').getAttribute('data-error')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: '출발 노드로 이동' }))
+    await waitFor(() => expect(within(screen.getByLabelText('선택한 노드 설정')).getByDisplayValue('source')).toBeTruthy())
+    fireEvent.click(screen.getByRole('button', { name: '도착 노드로 이동' }))
+    await waitFor(() => expect(within(screen.getByLabelText('선택한 노드 설정')).getByDisplayValue('find')).toBeTruthy())
+  })
+
+  it('shows every runtime error in the list and opens details when selecting a failed node', async () => {
+    vi.mocked(macroEditorApi.get).mockResolvedValue({ ...definition, nodes: [
+      ...definition.nodes, { id: 'other', type: 'wait', label: 'Second node', config: {} },
+    ] })
+    const failed = runtime('error')
+    failed.runtime!.trace = ['find', 'other'].map((id, index) => ({
+      node_id: id, graph_path: ['main'], status: 'failure', step: index + 1,
+      error: `Failure at ${id}`, error_payload: { code: `ERROR_${id}` },
+    }))
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={syncRuntimeOverlay(failed)} />)
+    const list = await screen.findByLabelText('Runtime Error List')
+    expect(list.textContent).toContain('Second node')
+    expect(list.textContent).toContain('Main')
+    fireEvent.click(within(list).getByRole('button', { name: /ERROR_find/ }))
+    await waitFor(() => expect(screen.getByLabelText('Runtime Error').textContent).toContain('ERROR_find'))
+    fireEvent.click(within(screen.getByTestId('integrated-canvas')).getByRole('button', { name: 'other' }))
+    expect(screen.getByLabelText('Runtime Error').textContent).toContain('ERROR_other')
+  })
+
+  it('allows reset and saves corrections before rerunning after a runtime failure', async () => {
+    const failed = runtime('error')
+    failed.runtime!.error = 'failed'
+    failed.runtime!.trace = [{ node_id: 'find', graph_path: ['main'], status: 'failure', error: 'failed' }]
+    const view = render(<IntegratedMacroPanel deviceId="phone-a" runtime={syncRuntimeOverlay(failed)} />)
+    await screen.findByLabelText('Runtime Error')
+    const canvas = screen.getByTestId('integrated-canvas')
+    expect(within(canvas).getByRole('button', { name: 'find' }).getAttribute('data-state')).toBe('failure')
+    fireEvent.click(screen.getByRole('button', { name: '초기화' }))
+    await waitFor(() => expect(macroEditorApi.command).toHaveBeenCalledWith('phone-a', 'reset', undefined))
+    await waitFor(() => expect(screen.getByRole('button', { name: '다시 실행' }).hasAttribute('disabled')).toBe(false))
+    fireEvent.change(screen.getByLabelText('표시 이름'), { target: { value: 'Corrected node' } })
+    fireEvent.click(screen.getByRole('button', { name: '다시 실행' }))
+    fireEvent.click(within(screen.getByRole('dialog', { name: '매크로 실행' })).getByRole('button', { name: '실행' }))
+    await waitFor(() => expect(macroEditorApi.command).toHaveBeenCalledWith('phone-a', 'start', { variables: {} }))
+    expect(macroEditorApi.save).toHaveBeenCalled()
+    expect(vi.mocked(macroEditorApi.save).mock.calls.at(-1)?.[0].nodes.find((node) => node.id === 'find')?.label).toBe('Corrected node')
+    const restarted = runtime('running')
+    restarted.runtime!.runtime_id = 'run-b'
+    restarted.runtime!.trace = []
+    view.rerender(<IntegratedMacroPanel deviceId="phone-a" runtime={syncRuntimeOverlay(restarted)} />)
+    await waitFor(() => expect(screen.queryByLabelText('Runtime Error')).toBeNull())
+    expect(within(canvas).getByRole('button', { name: 'find' }).getAttribute('data-state')).toBe('running')
+  })
+
+  it.each([undefined, 'deleted-function'])('stays on the graph and reports invalid function reference %s', async (functionId) => {
+    vi.mocked(macroEditorApi.get).mockResolvedValue({
+      ...definition,
+      nodes: [{ id: 'broken-call', type: 'call_function', config: functionId ? { function_id: functionId } : {} }],
+      entry_node_id: 'broken-call',
+    })
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime()} />)
+    const canvas = await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+    fireEvent.doubleClick(within(canvas).getByRole('button', { name: 'broken-call' }))
+
+    expect(within(screen.getByRole('navigation', { name: '매크로 그래프 경로' })).getByText('Main').getAttribute('aria-current')).toBe('page')
+    expect(screen.getByText(functionId
+      ? `함수 ${functionId}를 찾을 수 없습니다. 삭제되었거나 참조가 올바르지 않습니다.`
+      : '호출할 함수가 지정되지 않았습니다.')).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(flowInstance.fitView).not.toHaveBeenCalled()
   })
 
   it('returns to Main when a function in the active breadcrumb path is deleted', async () => {
@@ -736,6 +986,21 @@ describe('IntegratedMacroPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: '삭제' }))
     expect(await screen.findByText('실행 중인 매크로는 삭제할 수 없습니다. 먼저 중지하세요.')).toBeTruthy()
     expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(macroEditorApi.delete).not.toHaveBeenCalled()
+    expect(screen.getByRole('button', { name: '바인딩 해제' }).hasAttribute('disabled')).toBe(true)
+  })
+
+  it('unbinds the device from the card menu without deleting the macro', async () => {
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime('idle')} />)
+    await screen.findByText('Shared Flow')
+
+    fireEvent.click(screen.getByLabelText('더보기'))
+    fireEvent.click(screen.getByRole('button', { name: '바인딩 해제' }))
+
+    await waitFor(() => expect(macroEditorApi.unbind).toHaveBeenCalledWith('phone-a'))
+    await waitFor(() => expect(screen.queryByText('연결됨')).toBeNull())
+    expect(screen.getByText('Shared Flow')).toBeTruthy()
+    expect(screen.getByRole('button', { name: '바인딩 해제' }).hasAttribute('disabled')).toBe(true)
     expect(macroEditorApi.delete).not.toHaveBeenCalled()
   })
 

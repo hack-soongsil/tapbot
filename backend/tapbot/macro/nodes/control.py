@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 
+from tapbot.macro.errors import MacroExecutionError
+
 from tapbot.macro.graph_models import (
     GraphExecutionContext,
     JsonObject,
@@ -37,7 +39,14 @@ class BranchNode:
         if "condition" in context.input_values:
             actual = context.input_values["condition"]
             if not isinstance(actual, bool):
-                raise RuntimeError("branch condition data input must be bool")
+                raise MacroExecutionError(
+                    "branch condition data input must be bool",
+                    code="PORT_TYPE_MISMATCH",
+                    port="condition",
+                    expected="bool",
+                    value=actual,
+                    hint="condition 입력에는 bool 데이터 핀을 연결하세요.",
+                )
             matches = actual
         else:
             condition = config.get("condition")

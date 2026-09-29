@@ -11,6 +11,7 @@ from tapbot.macro.graph_models import (
     NodeResult,
     NodeStatus,
 )
+from tapbot.macro.errors import MacroExecutionError
 from tapbot.macro.node_registry import selector_errors
 
 
@@ -79,7 +80,14 @@ class FindScreenElementNode:
         if "index" in context.input_values:
             index = context.input_values["index"]
             if isinstance(index, bool) or not isinstance(index, int) or index < 0:
-                raise RuntimeError("screen element index data input must be a non-negative int")
+                raise MacroExecutionError(
+                    "screen element index data input must be a non-negative int",
+                    code="PORT_TYPE_MISMATCH",
+                    port="index",
+                    expected="non-negative int",
+                    value=index,
+                    hint="index 입력에 0 이상의 정수를 연결하세요.",
+                )
             params["index"] = index
         try:
             element = resolver(screen_id, element_id, params)
