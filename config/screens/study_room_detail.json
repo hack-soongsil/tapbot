@@ -1,0 +1,27 @@
+{
+  "id": "study_room_detail",
+  "label": "스터디룸 상세",
+  "screen_type": "detail_screen",
+  "supports_scroll": true,
+  "match": {
+    "all": [
+      {"text_regex": "^스터디룸 .+$"},
+      {"text": "한 칸은 30분입니다. 예약된 시간은 선택할 수 없어요"},
+      {"text": "초기화"}
+    ]
+  },
+  "elements": {
+    "back": {"label": "뒤로가기", "selector": {"class_name": "android.widget.Button", "bounds_region": "top_left", "clickable": true}},
+    "room_hero_image": {"label": "스터디룸 대표 이미지", "selector": {"content_description": "스터디룸 내부 사진"}},
+    "room_name": {"label": "스터디룸 이름", "selector": {"class_name": "android.widget.TextView", "text_regex": "^스터디룸 .+$"}},
+    "room_feature": {"label": "방 특징", "kind": "collection", "params": ["index"]},
+    "selected_date_label": {"label": "선택 날짜", "selector": {"text_regex": "^[0-9]{4}년 [0-9]{1,2}월 [0-9]{1,2}일\\([월화수목금토일]\\)$"}},
+    "live_status_indicator": {"label": "실시간 상태", "selector": {"text": "실시간"}},
+    "slot_guidance": {"label": "시간 슬롯 안내", "selector": {"text": "한 칸은 30분입니다. 예약된 시간은 선택할 수 없어요"}},
+    "time_slot": {"label": "30분 시간 슬롯", "kind": "collection", "resolver": "reservation_time_slot", "params": ["index"]},
+    "selection_summary": {"label": "선택 상태"},
+    "reset_selection": {"label": "선택 초기화", "selector": {"text": "초기화", "class_name": "android.widget.Button"}},
+    "usage_rules": {"label": "이용 규칙", "selector": {"text": "이용 규칙"}},
+    "reserve_cta": {"label": "예약 CTA", "selector": {"class_name": "android.widget.Button", "text_regex": "^(시간을 선택하세요|이 시간으로 예약하기|예약 처리 중)$"}}
+  }
+}

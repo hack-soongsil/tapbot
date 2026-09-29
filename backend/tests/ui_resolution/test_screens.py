@@ -1,4 +1,7 @@
-from tapbot.ui_resolution.screens import ScreenRecognizer
+from tapbot.ui_resolution.screens import (
+    ScreenRecognizer,
+    validate_screen_element_reference,
+)
 
 
 def node(
@@ -100,9 +103,38 @@ def test_detail_slots_remain_semantic_when_disabled_and_cta_text_changes() -> No
         "family": "time_slot",
         "index": 3,
         "time": "07:30",
+        "state": "reserved",
+        "selected": False,
     }
     assert slots[6].metadata["index"] == 6
     assert slots[6].metadata["enabled"] is True
     assert slots[6].metadata["visible"] is True
     assert next(item for item in before.elements if item.semantic_id == "reserve_cta").enabled is False
     assert next(item for item in after.elements if item.semantic_id == "reserve_cta").semantic_id == "reserve_cta"
+
+
+def test_study_room_detail_template_validates_semantic_collections() -> None:
+    assert validate_screen_element_reference(
+        "study_room_detail", "time_slot", {"index": 3}
+    ) == ()
+    assert validate_screen_element_reference(
+        "study_room_detail", "room_feature", {"index": 1}
+    ) == ()
+    assert validate_screen_element_reference(
+        "study_room_detail", "time_slot", {}
+    ) == ("params.index must be a non-negative integer",)
+
+
+def test_study_room_list_template_validates_index_and_name_collections() -> None:
+    assert validate_screen_element_reference(
+        "study_room_list", "date_chip", {"index": 1}
+    ) == ()
+    assert validate_screen_element_reference(
+        "study_room_list", "room_card", {"index": 2}
+    ) == ()
+    assert validate_screen_element_reference(
+        "study_room_list", "room_card_by_name", {"name": "스터디룸 2B"}
+    ) == ()
+    assert validate_screen_element_reference(
+        "study_room_list", "room_card_by_name", {"name": ""}
+    ) == ("params.name must be a non-empty string",)

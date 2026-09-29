@@ -1,0 +1,30 @@
+{
+  "id": "study_room_list",
+  "label": "스터디룸 리스트",
+  "route": "mock://study-room-list",
+  "screen_type": "list_screen",
+  "supports_scroll": true,
+  "match": {
+    "all": [
+      {"text": "스터디룸 예약"},
+      {"text": "성준님, 어디서 공부할까요?"},
+      {"text_regex": "^스터디룸 .+$", "min_count": 3}
+    ]
+  },
+  "elements": {
+    "header_title": {"label": "화면 제목", "selector": {"text": "스터디룸 예약"}},
+    "history_button": {"label": "최근 내역", "selector": {"content_description": "예약 내역"}},
+    "hero_headline": {"label": "환영 문구", "selector": {"text": "성준님, 어디서 공부할까요?"}},
+    "hero_description": {"label": "화면 설명", "selector": {"text": "실시간으로 빈 시간을 확인하고 바로 예약할 수 있어요"}},
+    "date_chip": {"label": "날짜 카드", "kind": "collection", "params": ["index"]},
+    "selected_date_chip": {"label": "선택 날짜 카드"},
+    "selected_date_label": {"label": "선택 날짜", "selector": {"text_regex": "^[0-9]{4}년 [0-9]{1,2}월 [0-9]{1,2}일\\([월화수목금토일]\\)$"}},
+    "selected_date_dropdown": {"label": "날짜 드롭다운"},
+    "live_status_indicator": {"label": "실시간 현황", "selector": {"text": "실시간 현황"}},
+    "room_card": {"label": "스터디룸 카드", "kind": "collection", "params": ["index"]},
+    "room_card_by_name": {"label": "이름으로 스터디룸 카드", "kind": "collection", "params": ["name"]},
+    "bottom_tab_home": {"label": "Home 탭", "selector": {"content_description": "홈"}},
+    "bottom_tab_booking": {"label": "Booking 탭", "selector": {"content_description": "예약"}},
+    "bottom_tab_me": {"label": "Me 탭", "selector": {"content_description": "마이"}}
+  }
+}

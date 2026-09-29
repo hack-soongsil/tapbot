@@ -33,14 +33,17 @@ npm run setup
 npm run dev
 ```
 
+개발 서버는 실제/Tailnet 기기와 함께 `Local Mock Android`도 일반 디바이스로
+등록합니다. 따라서 Tailnet을 사용할 수 없는 동안에도 디바이스 목록, 화면 스트림,
+UI tree와 입력 흐름을 바로 확인할 수 있습니다.
+
 로봇 없이 실행할 때는 다음 명령을 사용합니다.
 
 ```powershell
 npm run dev:dry-run
 ```
 
-실제 Android 기기 없이 대시보드의 디바이스 연결, 화면 스트림, UI tree와 입력을
-확인하려면 3화면 로컬 Android Agent mock을 함께 실행합니다.
+기존 명시적 mock 명령도 동일하게 사용할 수 있습니다.
 
 ```powershell
 npm run dev:mock

@@ -58,7 +58,7 @@ import {
   NameEditorDialog,
   VariableEditorDialog,
 } from './MacroEditorDialogs'
-import { SCREEN_OPTIONS } from './screen-elements'
+import { SCREEN_OPTIONS, SEMANTIC_SCREEN_OPTIONS } from './screen-elements'
 import type {
   JsonValue,
   MacroDefinition,
@@ -2331,7 +2331,7 @@ function serializeNodeScreens(nodeScreens: Record<string, string>, nodes: MacroF
 }
 
 function screenLabel(screenId: string) {
-  return SCREEN_OPTIONS.find((screen) => screen.id === screenId)?.label ?? screenId
+  return SEMANTIC_SCREEN_OPTIONS.find((screen) => screen.id === screenId)?.label ?? screenId
 }
 
 function uniqueNodeId(prefix: string, nodes: MacroFlowNode[]) {

@@ -373,11 +373,18 @@ class _AndroidGraphUi:
                 f"screen mismatch: expected {screen_id!r}, recognized {actual!r}"
             )
         semantic_id = element_id
-        if element_id in {"quick_date", "time_slot"}:
+        if element_id in {
+            "quick_date", "date_chip", "room_card", "room_feature", "time_slot",
+        }:
             index = params.get("index")
             if isinstance(index, bool) or not isinstance(index, int) or index < 0:
                 raise RuntimeError(f"{element_id} requires a non-negative index")
             semantic_id = f"{element_id}[{index}]"
+        elif element_id == "room_card_by_name":
+            name = params.get("name")
+            if not isinstance(name, str) or not name.strip():
+                raise RuntimeError("room_card_by_name requires a non-empty name")
+            semantic_id = f"room_card_by_name[{name}]"
         candidate = next(
             (item for item in recognition.elements if item.semantic_id == semantic_id),
             None,
@@ -404,6 +411,7 @@ class _AndroidGraphUi:
             if recognition is None:
                 return None
             index = selector.get("index")
+            name = selector.get("name")
             candidate = next((
                 element for element in recognition.elements
                 if (
@@ -413,6 +421,7 @@ class _AndroidGraphUi:
                     isinstance(semantic_family, str)
                     and element.metadata.get("family") == semantic_family
                     and (index is None or element.metadata.get("index") == index)
+                    and (name is None or element.metadata.get("name") == name)
                 )
             ), None)
             if candidate is None or not candidate.tappable:

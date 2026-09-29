@@ -2,6 +2,12 @@
   "version": 1,
   "bindings": [
     {
+      "device_id": "local-mock",
+      "macro_definition_id": "macro-mukjsthq",
+      "enabled": true,
+      "config": {}
+    },
+    {
       "device_id": "manual-76532095ad268e82",
       "macro_definition_id": "macro-mukjsthq",
       "enabled": true,

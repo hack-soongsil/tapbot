@@ -208,3 +208,53 @@ def test_semantic_slot_resolution_returns_disabled_and_hidden_state_metadata() -
     assert hidden.id == "time_slot[1]"
     assert hidden.metadata["enabled"] is True
     assert hidden.metadata["visible"] is False
+
+
+def test_study_room_card_resolves_by_index_and_name() -> None:
+    def node(
+        node_id: str,
+        *,
+        text: str | None = None,
+        description: str | None = None,
+        bounds: tuple[int, int, int, int],
+    ) -> dict[str, object]:
+        return {
+            "node_id": node_id,
+            "parent_id": None,
+            "class_name": "android.widget.Button",
+            "text": text,
+            "content_description": description,
+            "view_id_resource_name": None,
+            "bounds": dict(zip(
+                ("left", "top", "right", "bottom"), bounds, strict=True
+            )),
+            "clickable": True,
+            "enabled": True,
+            "visible_to_user": True,
+        }
+
+    tree = {"nodes": [
+        node("header", text="스터디룸 예약", bounds=(20, 40, 300, 100)),
+        node(
+            "room-name", text="스터디룸 2B", bounds=(100, 400, 500, 470)
+        ),
+        node(
+            "room-card-1",
+            description="스터디룸 2B|10인실|2층 중앙|여유",
+            bounds=(20, 350, 1000, 700),
+        ),
+        node("bottom-booking", description="예약", bounds=(300, 1800, 700, 1900)),
+    ]}
+    resolver = _AndroidGraphUi(StaticAndroidContext(tree))  # type: ignore[arg-type]
+
+    by_index = resolver.resolve_screen_element(
+        "study_room_list", "room_card", {"index": 1}
+    )
+    by_name = resolver.resolve_screen_element(
+        "study_room_list", "room_card_by_name", {"name": "스터디룸 2B"}
+    )
+
+    assert by_index.id == "room_card[1]"
+    assert by_name.id == "room_card_by_name[스터디룸 2B]"
+    assert by_name.metadata["room_id"] == "room_2b"
+    assert by_name.metadata["status"] == "여유"

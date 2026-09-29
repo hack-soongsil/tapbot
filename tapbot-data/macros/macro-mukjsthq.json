@@ -1,29 +1,86 @@
 {
   "edges": [
     {
-      "id": "event-home-enter-debug_print-1-1",
+      "id": "event-home-update-call_function-1-1",
       "kind": "exec",
-      "source": "event-home-enter",
+      "source": "event-home-update",
       "source_handle": "exec_out",
-      "target": "debug_print-1",
+      "target": "call_function-1",
       "target_handle": "exec_in"
-    },
+    }
+  ],
+  "functions": [
     {
-      "id": "event-detail-enter-debug_print-2-1",
-      "kind": "exec",
-      "source": "event-detail-enter",
-      "source_handle": "exec_out",
-      "target": "debug_print-2",
-      "target_handle": "exec_in"
+      "edges": [
+        {
+          "id": "function-1-entry-debug_print-1-1",
+          "kind": "exec",
+          "source": "function-1-entry",
+          "source_handle": "exec_out",
+          "target": "debug_print-1",
+          "target_handle": "exec_in"
+        },
+        {
+          "id": "debug_print-1-function-1-return-1",
+          "kind": "exec",
+          "source": "debug_print-1",
+          "source_handle": "exec_out",
+          "target": "function-1-return",
+          "target_handle": "exec_in"
+        }
+      ],
+      "entry_node_id": "function-1-entry",
+      "id": "function-1",
+      "inputs": [],
+      "name": "Function 1",
+      "nodes": [
+        {
+          "config": {
+            "inputs": []
+          },
+          "id": "function-1-entry",
+          "label": "Function 1 / 시작",
+          "position": {
+            "x": 157.93984550679275,
+            "y": 92.37009441251556
+          },
+          "type": "function_entry"
+        },
+        {
+          "config": {
+            "outputs": []
+          },
+          "id": "function-1-return",
+          "label": "Function 1 / 반환",
+          "position": {
+            "x": 747.3017476610947,
+            "y": 116.61804634796218
+          },
+          "type": "function_return"
+        },
+        {
+          "config": {
+            "level": "info",
+            "message": "hi"
+          },
+          "id": "debug_print-1",
+          "position": {
+            "x": 425.14895781815557,
+            "y": 249.4415026681266
+          },
+          "type": "debug_print"
+        }
+      ],
+      "outputs": [],
+      "return_node_id": "function-1-return"
     }
   ],
   "id": "macro-mukjsthq",
   "metadata": {
     "editor_screen_node_ids": {
-      "reservation_detail": [
-        "debug_print-2"
-      ],
+      "reservation_detail": [],
       "reservation_home": [
+        "call_function-1",
         "debug_print-1"
       ]
     }
@@ -38,8 +95,8 @@
       "id": "event-home-enter",
       "label": "스터디룸 예약 메인 / Enter",
       "position": {
-        "x": 4.501754807931775,
-        "y": -114.06967924819284
+        "x": 109.37899701905064,
+        "y": -141.56905214455378
       },
       "type": "screen_enter"
     },
@@ -53,8 +110,8 @@
       "id": "event-home-update",
       "label": "스터디룸 예약 메인 / Update",
       "position": {
-        "x": 363.4118830947867,
-        "y": -123.294441073927
+        "x": -143.66863822886572,
+        "y": 71.93480609048213
       },
       "type": "screen_update"
     },
@@ -114,25 +171,27 @@
     },
     {
       "config": {
-        "level": "info",
-        "message": "메인 화면 입장"
+        "function_id": "function-1",
+        "inputs": [],
+        "outputs": []
       },
-      "id": "debug_print-1",
+      "id": "call_function-1",
+      "label": "Function 1",
       "position": {
-        "x": 201.9861136024117,
-        "y": 220.0134588561478
+        "x": 218.50496646561507,
+        "y": 109.89639460677566
       },
-      "type": "debug_print"
+      "type": "call_function"
     },
     {
       "config": {
         "level": "info",
-        "message": "예약 상세 들어오기"
+        "message": "fwfw"
       },
-      "id": "debug_print-2",
+      "id": "debug_print-1",
       "position": {
-        "x": 321.4736859367604,
-        "y": 289.8163388977851
+        "x": 194.27663333092357,
+        "y": 333.3383903697129
       },
       "type": "debug_print"
     }
@@ -149,5 +208,5 @@
       "update": "event-home-update"
     }
   },
-  "version": 4
+  "version": 10
 }

@@ -40,7 +40,9 @@ describe('NodeInspector semantic screen elements', () => {
       />,
     )
 
-    expect(screen.getByLabelText<HTMLSelectElement>('화면').value).toBe('reservation_detail')
+    const screenSelect = screen.getByLabelText<HTMLSelectElement>('화면')
+    expect(screenSelect.value).toBe('reservation_detail')
+    expect([...screenSelect.options].map((option) => option.value)).toContain('study_room_detail')
     const element = screen.getByLabelText<HTMLSelectElement>('엘리먼트')
     expect(element.value).toBe('time_slot')
     expect(element.selectedOptions[0]?.textContent).toBe('시간 슬롯')
@@ -65,6 +67,41 @@ describe('NodeInspector semantic screen elements', () => {
       { id: 'element', type: 'element' },
       { id: 'found', type: 'bool' },
     ]))
+  })
+
+  it('edits a Study Room List card selector by room name', () => {
+    const onUpdateConfig = vi.fn()
+    const roomNode: MacroFlowNode = {
+      ...timeSlotNode,
+      id: 'find-room',
+      data: {
+        ...timeSlotNode.data,
+        config: {
+          screen_id: 'study_room_list',
+          element_id: 'room_card_by_name',
+          params: { name: '스터디룸 2B' },
+        },
+      },
+    }
+    render(
+      <NodeInspector
+        node={roomNode}
+        issues={[]}
+        onUpdateConfig={onUpdateConfig}
+        onUpdateLabel={vi.fn()}
+        onSetEntry={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    )
+
+    const name = screen.getByLabelText<HTMLInputElement>('이름')
+    expect(name.value).toBe('스터디룸 2B')
+    fireEvent.change(name, { target: { value: '스터디룸 2C' } })
+
+    expect(onUpdateConfig).toHaveBeenCalledWith({
+      ...roomNode.data.config,
+      params: { name: '스터디룸 2C' },
+    })
   })
 })
 

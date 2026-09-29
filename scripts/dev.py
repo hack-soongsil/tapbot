@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import os
 from pathlib import Path
 import shutil
@@ -11,6 +12,7 @@ import signal
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 
 
@@ -20,6 +22,7 @@ BACKEND_IMPORTS = (
     "fastapi",
     "numpy",
     "cv2",
+    "PIL",
     "serial",
     "uvicorn",
 )
@@ -125,6 +128,85 @@ def available_port(preferred: int) -> int:
     raise RuntimeError(f"{preferred}번부터 사용 가능한 포트를 찾지 못했습니다.")
 
 
+def configure_mock_android(
+    environment: dict[str, str],
+    *,
+    mock_url: str,
+    mock_token: str,
+    config_dir: Path,
+) -> None:
+    """Add the local mock as a normal device without replacing real devices."""
+
+    devices: list[object] = []
+    default_device_id: object = None
+    configured_path = environment.get("TAPBOT_ANDROID_DEVICES_CONFIG", "").strip()
+    if configured_path:
+        source = Path(configured_path)
+        if not source.is_absolute():
+            source = ROOT / source
+        try:
+            document = json.loads(source.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise RuntimeError(
+                f"Could not read Android devices config for local mock: {source}"
+            ) from error
+        if not isinstance(document, dict) or not isinstance(
+            document.get("devices"), list
+        ):
+            raise RuntimeError("Android devices config must contain a devices array")
+        devices.extend(document["devices"])
+        default_device_id = document.get("default_device_id")
+    else:
+        configured_url = environment.get("TAPBOT_ANDROID_AGENT_URL", "").strip()
+        if configured_url:
+            devices.append(
+                {
+                    "id": "default",
+                    "name": "Android Device",
+                    "base_url": configured_url,
+                }
+            )
+            default_device_id = "default"
+            configured_token = environment.get(
+                "TAPBOT_ANDROID_AGENT_TOKEN", ""
+            ).strip()
+            if configured_token:
+                environment["TAPBOT_ANDROID_DEVICE_DEFAULT_TOKEN"] = configured_token
+
+    configured_ids = {
+        item.get("id") for item in devices if isinstance(item, dict)
+    }
+    if "local-mock" in configured_ids:
+        raise RuntimeError(
+            "Android device id 'local-mock' is reserved by --mock-android"
+        )
+    devices.append(
+        {
+            "id": "local-mock",
+            "name": "Local Mock Android",
+            "base_url": mock_url,
+        }
+    )
+    if default_device_id is None and len(devices) == 1:
+        default_device_id = "local-mock"
+
+    generated_config = config_dir / "android-devices.json"
+    generated_config.write_text(
+        json.dumps(
+            {
+                "devices": devices,
+                "default_device_id": default_device_id,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    environment.pop("TAPBOT_ANDROID_AGENT_URL", None)
+    environment["TAPBOT_ANDROID_DEVICES_CONFIG"] = str(generated_config)
+    environment["TAPBOT_ANDROID_DEVICE_LOCAL_MOCK_TOKEN"] = mock_token
+
+
 def stop_process_tree(process: subprocess.Popen[bytes]) -> None:
     if process.poll() is not None:
         return
@@ -146,6 +228,7 @@ def stop_process_tree(process: subprocess.Popen[bytes]) -> None:
 
 
 def main() -> int:
+    mock_config_dir: tempfile.TemporaryDirectory[str] | None = None
     try:
         load_local_environment()
         args = parse_args()
@@ -193,10 +276,18 @@ def main() -> int:
     if mock_android_port is not None:
         mock_url = f"http://127.0.0.1:{mock_android_port}"
         mock_token = "tapbot-local-mock"
-        backend_environment.pop("TAPBOT_ANDROID_DEVICES_CONFIG", None)
-        backend_environment["TAPBOT_ANDROID_AGENT_URL"] = mock_url
-        backend_environment["TAPBOT_ANDROID_AGENT_TOKEN"] = mock_token
-        backend_environment["TAPBOT_ANDROID_DISCOVERY_ENABLED"] = "false"
+        mock_config_dir = tempfile.TemporaryDirectory(prefix="tapbot-dev-")
+        try:
+            configure_mock_android(
+                backend_environment,
+                mock_url=mock_url,
+                mock_token=mock_token,
+                config_dir=Path(mock_config_dir.name),
+            )
+        except RuntimeError as error:
+            mock_config_dir.cleanup()
+            print(f"[dev] 준비 실패: {error}", file=sys.stderr)
+            return 1
 
     frontend_url = f"http://localhost:{frontend_port}"
     backend_url = f"http://localhost:{backend_port}"
@@ -270,6 +361,8 @@ def main() -> int:
         stop_process_tree(backend)
         if mock_android is not None:
             stop_process_tree(mock_android)
+        if mock_config_dir is not None:
+            mock_config_dir.cleanup()
 
 
 if __name__ == "__main__":

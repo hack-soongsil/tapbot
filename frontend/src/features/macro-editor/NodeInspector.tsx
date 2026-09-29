@@ -7,7 +7,7 @@ import type {
   MacroVariableDefinition,
   ValidationIssue,
 } from './types'
-import { SCREEN_ELEMENTS, SCREEN_OPTIONS } from './screen-elements'
+import { SCREEN_ELEMENTS, SEMANTIC_SCREEN_OPTIONS } from './screen-elements'
 import { ko } from '../../i18n/ko'
 
 export interface NodeInspectorProps {
@@ -362,7 +362,12 @@ function ScreenElementFields({ config, updateMany, updateObject }: { config: Rec
   const elements = SCREEN_ELEMENTS[screenId] ?? []
   const elementId = text(config.element_id, elements[0]?.id ?? '')
   const selected = elements.find((element) => element.id === elementId)
-  return <><Field label={ko.inspector.screen}><select value={screenId} onChange={(event) => { const next = event.target.value; const first = SCREEN_ELEMENTS[next]?.[0]; updateMany({ screen_id: next, element_id: first?.id ?? '', params: first?.collection ? { index: 0 } : {} }) }}>{SCREEN_OPTIONS.map((screen) => <option key={screen.id} value={screen.id}>{screen.label}</option>)}</select></Field><Field label={ko.inspector.element}><select value={elementId} onChange={(event) => { const next = event.target.value; updateMany({ element_id: next, params: elements.find((element) => element.id === next)?.collection ? { index: 0 } : {} }) }}>{elements.map((element) => <option key={element.id} value={element.id}>{element.label}</option>)}</select></Field>{selected?.collection && <NumberField label={ko.inspector.index} min={0} value={number(selector(config.params).index)} onChange={(value) => updateObject('params', 'index', Math.max(0, Math.trunc(value)))} />}</>
+  const params = selector(config.params)
+  const defaultParams = (option: typeof selected): Record<string, JsonValue> => {
+    if (!option?.collection) return {}
+    return option.param === 'name' ? { name: '' } : { index: 0 }
+  }
+  return <><Field label={ko.inspector.screen}><select value={screenId} onChange={(event) => { const next = event.target.value; const first = SCREEN_ELEMENTS[next]?.[0]; updateMany({ screen_id: next, element_id: first?.id ?? '', params: defaultParams(first) }) }}>{SEMANTIC_SCREEN_OPTIONS.map((screen) => <option key={screen.id} value={screen.id}>{screen.label}</option>)}</select></Field><Field label={ko.inspector.element}><select value={elementId} onChange={(event) => { const next = event.target.value; updateMany({ element_id: next, params: defaultParams(elements.find((element) => element.id === next)) }) }}>{elements.map((element) => <option key={element.id} value={element.id}>{element.label}</option>)}</select></Field>{selected?.collection && (selected.param === 'name' ? <TextField label="이름" value={text(params.name)} onChange={(value) => updateObject('params', 'name', value)} /> : <NumberField label={ko.inspector.index} min={0} value={number(params.index)} onChange={(value) => updateObject('params', 'index', Math.max(0, Math.trunc(value)))} />)}</>
 }
 
 function TriState({ label, value, onChange }: { label: string; value: JsonValue | undefined; onChange: (value: JsonValue) => void }) {
