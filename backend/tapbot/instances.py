@@ -363,6 +363,11 @@ class _AndroidGraphUi:
         tree = self.context.ui_tree_provider.snapshot(max_age_ms=0)
         return tree.screen_width, tree.screen_height
 
+    def current_ui_tree_request_id(self) -> str | None:
+        tree = self.context.ui_tree_provider.snapshot(max_age_ms=250)
+        request_id = getattr(tree, "request_id", None)
+        return request_id if isinstance(request_id, str) else None
+
     def resolve_screen_element(
         self,
         screen_id: str,
@@ -392,7 +397,11 @@ class _AndroidGraphUi:
             raise RuntimeError(
                 f"screen element {screen_id}/{semantic_id} was not found"
             )
-        return _semantic_graph_element(candidate)
+        return _semantic_graph_element(
+            candidate,
+            ui_tree_request_id=getattr(tree, "request_id", None),
+            ui_tree_captured_at=getattr(tree, "captured_at", None),
+        )
 
     def find_element(
         self,
@@ -480,7 +489,23 @@ def _graph_context(
     )
 
 
-def _semantic_graph_element(candidate) -> GraphElement:
+def _semantic_graph_element(
+    candidate,
+    *,
+    ui_tree_request_id: str | None = None,
+    ui_tree_captured_at: str | None = None,
+) -> GraphElement:
+    source_metadata = {
+        **candidate.metadata,
+        **(
+            {"ui_tree_request_id": ui_tree_request_id}
+            if ui_tree_request_id is not None else {}
+        ),
+        **(
+            {"ui_tree_captured_at": ui_tree_captured_at}
+            if ui_tree_captured_at is not None else {}
+        ),
+    }
     return GraphElement(
         candidate.semantic_id,
         TapBounds(
@@ -490,7 +515,7 @@ def _semantic_graph_element(candidate) -> GraphElement:
             candidate.bounds.bottom,
         ),
         candidate.text,
-        {"semantic_id": candidate.semantic_id, **candidate.metadata},
+        {"semantic_id": candidate.semantic_id, **source_metadata},
     )
 
 

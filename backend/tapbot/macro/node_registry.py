@@ -186,7 +186,63 @@ def selector_errors(config: JsonObject) -> tuple[str, ...]:
     selector = config.get("selector")
     if not isinstance(selector, dict) or not selector:
         return ("selector must be a non-empty object",)
-    return ()
+    return selector_format_errors(selector)
+
+
+_STABLE_SELECTOR_FIELDS = (
+    "text",
+    "text_contains",
+    "text_regex",
+    "content_description",
+    "content_description_regex",
+    "view_id",
+    "class_name",
+    "semantic_id",
+    "semantic_family",
+)
+
+_OPTIONAL_SELECTOR_STRING_FIELDS = (
+    *_STABLE_SELECTOR_FIELDS,
+    "bounds_region",
+    "ui_tree_path",
+)
+
+_OPTIONAL_SELECTOR_BOOLEAN_FIELDS = (
+    "clickable",
+    "enabled",
+    "visible_to_user",
+)
+
+
+def selector_format_errors(value: object) -> tuple[str, ...]:
+    """Validate selector field types without requiring a usable fallback."""
+
+    if not isinstance(value, dict):
+        return ("selector must be an object",)
+    errors: list[str] = []
+    for key in _OPTIONAL_SELECTOR_STRING_FIELDS:
+        field = value.get(key)
+        if field is not None and not isinstance(field, str):
+            errors.append(f"selector.{key} must be a string")
+    for key in _OPTIONAL_SELECTOR_BOOLEAN_FIELDS:
+        field = value.get(key)
+        if field is not None and not isinstance(field, bool):
+            errors.append(f"selector.{key} must be a boolean")
+    index = value.get("index")
+    if index is not None and (
+        isinstance(index, bool) or not isinstance(index, int) or index < 0
+    ):
+        errors.append("selector.index must be a non-negative integer")
+    return tuple(errors)
+
+
+def has_stable_selector(value: object) -> bool:
+    """Return whether a selector can identify an element without a data input."""
+
+    return isinstance(value, dict) and any(
+        isinstance(value.get(key), str) and bool(value[key].strip())
+        for key in _STABLE_SELECTOR_FIELDS
+    )
 
 
 def collect_errors(*groups: Iterable[str]) -> tuple[str, ...]:

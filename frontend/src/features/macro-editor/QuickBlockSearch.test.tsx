@@ -61,6 +61,12 @@ describe('QuickBlockSearch', () => {
     fireEvent.change(input, { target: { value: 'screen element' } })
     expect(screen.getByText('화면 엘리먼트 찾기')).toBeTruthy()
 
+    fireEvent.change(input, { target: { value: '기본 정보' } })
+    expect(screen.getByText('화면 엘리먼트 찾기')).toBeTruthy()
+
+    fireEvent.change(input, { target: { value: '예약 CTA' } })
+    expect(screen.getByText('화면 엘리먼트 찾기')).toBeTruthy()
+
     fireEvent.change(input, { target: { value: 'debug log' } })
     expect(screen.getByText('디버그 출력')).toBeTruthy()
   })

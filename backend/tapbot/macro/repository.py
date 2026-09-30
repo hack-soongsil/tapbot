@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 from threading import RLock
 
 from tapbot.macro.graph_models import MacroDefinition
@@ -29,7 +30,10 @@ class MacroRepository:
         with self._lock:
             if self._exists(definition.id):
                 raise ValueError(f"macro definition {definition.id!r} already exists")
-            saved = replace(definition.snapshot(), version=max(1, definition.version))
+            saved = _stamp_updated_at(replace(
+                definition.snapshot(),
+                version=max(1, definition.version),
+            ))
             self.store.save(saved)
             return saved.snapshot()
 
@@ -39,7 +43,10 @@ class MacroRepository:
             if not self._exists(definition.id):
                 return self.create(definition)
             current = self.store.load(definition.id)
-            saved = replace(definition.snapshot(), version=current.version + 1)
+            saved = _stamp_updated_at(replace(
+                definition.snapshot(),
+                version=current.version + 1,
+            ))
             self.store.save(saved)
             return saved.snapshot()
 
@@ -65,3 +72,13 @@ class MacroRepository:
         except FileNotFoundError:
             return False
         return True
+
+
+def _stamp_updated_at(definition: MacroDefinition) -> MacroDefinition:
+    return replace(
+        definition,
+        metadata={
+            **definition.metadata,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )

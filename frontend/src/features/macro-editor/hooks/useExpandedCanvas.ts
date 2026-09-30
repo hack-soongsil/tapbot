@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import type { ReactFlowInstance } from '@xyflow/react'
+import { isEditableKeyboardTarget, isImeKeyboardEvent } from '../keyboard-events'
 import type { MacroFlowEdge, MacroFlowNode } from '../types'
 
 const STORAGE_KEY = 'tapbot.macro.expandedLayout.v1'
@@ -93,6 +94,7 @@ export function useExpandedCanvas({
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
     const closeOnEscape = (event: KeyboardEvent) => {
+      if (isImeKeyboardEvent(event) || isEditableKeyboardTarget(event.target)) return
       if (event.key === 'Escape' && !dialogOpen) setCanvasExpansion(false)
     }
     window.addEventListener('keydown', closeOnEscape)

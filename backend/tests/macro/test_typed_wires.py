@@ -12,6 +12,7 @@ from tapbot.macro import (
     TapBounds,
     create_default_node_registry,
 )
+from tapbot.macro.errors import MacroExecutionError
 
 
 class Actions:
@@ -36,8 +37,10 @@ class Ui:
     def __init__(self, element: GraphElement | None = None) -> None:
         self.element = element
         self.screen_indexes: list[int] = []
+        self.find_calls = 0
 
     def find_element(self, selector, **options):
+        self.find_calls += 1
         return self.element
 
     def resolve_screen_element(self, screen_id, element_id, params):
@@ -177,7 +180,7 @@ def test_for_index_overrides_time_slot_literal_index() -> None:
     assert ui.screen_indexes == [6, 7]
 
 
-def test_find_element_reference_drives_click_element_without_selector() -> None:
+def test_find_element_reference_drives_click_element_with_legacy_empty_selector() -> None:
     element = GraphElement("stable", TapBounds(100, 200, 300, 400), "Reserve")
     ui = Ui(element)
     actions = Actions()
@@ -185,6 +188,13 @@ def test_find_element_reference_drives_click_element_without_selector() -> None:
         (
             MacroNode("start", "find_element", {"selector": {"text": "Reserve"}}),
             MacroNode("click", "click_element", {
+                "selector": {
+                    "text": "",
+                    "ui_tree_path": None,
+                    "clickable": True,
+                    "enabled": True,
+                    "visible_to_user": True,
+                },
                 "resolve": {"strategy": "best_match"},
                 "click": {"duration_ms": 80},
             }),
@@ -251,7 +261,10 @@ def test_disabled_screen_element_is_found_with_metadata_but_click_fails() -> Non
                 "element_id": "time_slot",
                 "params": {"index": 6},
             }),
-            MacroNode("click", "click_element", {"sampling_mode": "center"}),
+            MacroNode("click", "click_element", {
+                "sampling_mode": "center",
+                "selector": {"text": "이 fallback은 호출되면 안 됨"},
+            }),
         ),
         (
             exec_edge("next", "start", "click"),
@@ -265,33 +278,220 @@ def test_disabled_screen_element_is_found_with_metadata_but_click_fails() -> Non
     assert context.node_outputs["start"]["found"] is True
     element = context.node_outputs["start"]["element"]
     assert isinstance(element, GraphElement)
-    assert element.metadata == {"index": 6, "enabled": False, "visible": True, "state": "reserved"}
+    semantic_metadata = dict(element.metadata)
+    resolved_at = semantic_metadata.pop("resolved_at_monotonic")
+    assert isinstance(resolved_at, float)
+    assert semantic_metadata == {
+        "index": 6,
+        "enabled": False,
+        "visible": True,
+        "state": "reserved",
+        "screen_id": "study_room_detail",
+        "semantic_id": "time_slot",
+        "params": {"index": 6},
+        "node_id": "start",
+    }
     assert result.runtime.variables["start"]["metadata"] == element.metadata
     assert result.runtime.state is GraphRuntimeStatus.ERROR
-    assert result.runtime.error == "엘리먼트 클릭 실패: 대상이 비활성 상태입니다."
+    assert result.runtime.error == "대상 엘리먼트가 비활성 상태입니다."
     payload = result.traces[-1].error_payload
     assert payload["code"] == "ELEMENT_DISABLED"
-    assert payload["summary"] == "엘리먼트 클릭 실패: 대상이 비활성 상태입니다."
+    assert payload["summary"] == "대상 엘리먼트가 비활성 상태입니다."
     assert payload["port"] == "element"
     assert payload["port_id"] == "element"
     assert payload["expected"] == "enabled"
     assert payload["actual"] == "disabled"
     assert payload["actual_type"] == "element"
-    assert payload["actual_value"]["id"] == "time_slot[6]"
+    assert payload["actual_value"]["element_id"] == "time_slot[6]"
     assert result.traces[-1].input_summary["element"]["metadata"]["enabled"] is False
-    assert result.traces[-1].resolved_inputs["element"]["id"] == "time_slot[6]"
+    assert result.traces[-1].resolved_inputs["element"]["element_id"] == "time_slot[6]"
     assert result.traces[-1].input_sources["element"]["source_node_id"] == "start"
     assert payload["source_node_id"] == "start"
     assert payload["source_port_id"] == "element"
-    assert payload["element"] == {
-        "element_id": "time_slot[6]",
+    assert payload["element"]["element_id"] == "time_slot[6]"
+    assert payload["element"]["semantic_id"] == "time_slot"
+    assert payload["element"]["index"] == 6
+    assert payload["element"]["bounds"] == [10, 20, 30, 40]
+    assert payload["element"]["metadata"]["state"] == "reserved"
+    assert payload["details"] == {
         "semantic_id": "time_slot",
-        "index": 6,
+        "params": {"index": 6},
         "bounds": [10, 20, 30, 40],
-        "metadata": {"index": 6, "enabled": False, "visible": True, "state": "reserved"},
+        "enabled": False,
+        "visible": True,
+        "screen_id": "study_room_detail",
+        "ui_tree_request_id": None,
+        "state": "reserved",
     }
     assert payload["hint"]
+    assert ui.find_calls == 0
     assert actions.taps == []
+
+
+def test_hidden_screen_element_fails_without_tapping() -> None:
+    class HiddenUi(Ui):
+        def resolve_screen_element(self, screen_id, element_id, params):
+            return GraphElement(
+                "time_slot[3]", TapBounds(10, 20, 30, 40),
+                metadata={"enabled": True, "visible": False, "state": "hidden"},
+            )
+
+    ui = HiddenUi()
+    actions = Actions()
+    graph = _find_and_click_graph(index=3)
+
+    result = GraphEngine(create_default_node_registry()).run(
+        graph, context=GraphExecutionContext(ui=ui, actions=actions),
+    )
+
+    assert result.runtime.state is GraphRuntimeStatus.ERROR
+    assert result.traces[-1].error_payload["code"] == "ELEMENT_NOT_VISIBLE"
+    assert actions.taps == []
+
+
+def test_zero_bounds_fail_with_structured_error_without_tapping() -> None:
+    invalid_bounds = object.__new__(TapBounds)
+    for name, value in (
+        ("left", 10.0), ("top", 20.0), ("right", 10.0), ("bottom", 20.0),
+    ):
+        object.__setattr__(invalid_bounds, name, value)
+
+    class InvalidBoundsUi(Ui):
+        def resolve_screen_element(self, screen_id, element_id, params):
+            return GraphElement(
+                "time_slot[4]", invalid_bounds,
+                metadata={"enabled": True, "visible": True},
+            )
+
+    ui = InvalidBoundsUi()
+    actions = Actions()
+    result = GraphEngine(create_default_node_registry()).run(
+        _find_and_click_graph(index=4),
+        context=GraphExecutionContext(ui=ui, actions=actions),
+    )
+
+    assert result.runtime.state is GraphRuntimeStatus.ERROR
+    assert result.traces[-1].error_payload["code"] == "ELEMENT_BOUNDS_INVALID"
+    assert actions.taps == []
+
+
+def test_stale_element_is_re_resolved_once_and_uses_latest_bounds() -> None:
+    class StaleUi(Ui):
+        def __init__(self):
+            super().__init__()
+            self.resolve_calls = 0
+
+        def current_ui_tree_request_id(self):
+            return "tree-new"
+
+        def resolve_screen_element(self, screen_id, element_id, params):
+            self.resolve_calls += 1
+            if self.resolve_calls == 1:
+                return GraphElement(
+                    "time_slot[5]", TapBounds(10, 20, 30, 40),
+                    metadata={
+                        "enabled": True, "visible": True,
+                        "ui_tree_request_id": "tree-old",
+                    },
+                )
+            return GraphElement(
+                "time_slot[5]", TapBounds(100, 200, 300, 400),
+                metadata={
+                    "enabled": True, "visible": True,
+                    "ui_tree_request_id": "tree-new",
+                },
+            )
+
+    ui = StaleUi()
+    actions = Actions()
+    result = GraphEngine(create_default_node_registry()).run(
+        _find_and_click_graph(index=5),
+        context=GraphExecutionContext(ui=ui, actions=actions),
+    )
+
+    assert result.runtime.state is GraphRuntimeStatus.COMPLETED
+    assert ui.resolve_calls == 2
+    assert actions.taps == [(200.0, 300.0, 70)]
+
+
+def test_click_point_is_clamped_to_current_screen_bounds() -> None:
+    class OffscreenUi(Ui):
+        def resolve_screen_element(self, screen_id, element_id, params):
+            return GraphElement(
+                "time_slot[8]",
+                TapBounds(900, 1_900, 1_100, 2_100),
+                metadata={"enabled": True, "visible": True},
+            )
+
+    actions = Actions()
+    result = GraphEngine(create_default_node_registry()).run(
+        _find_and_click_graph(index=8),
+        context=GraphExecutionContext(ui=OffscreenUi(), actions=actions),
+    )
+
+    assert result.runtime.state is GraphRuntimeStatus.COMPLETED
+    assert actions.taps == [(999.0, 1_999.0, 70)]
+
+
+def test_stale_element_re_resolve_failure_is_structured_and_not_retried() -> None:
+    class MissingStaleUi(Ui):
+        def __init__(self):
+            super().__init__()
+            self.resolve_calls = 0
+
+        def current_ui_tree_request_id(self):
+            return "tree-new"
+
+        def resolve_screen_element(self, screen_id, element_id, params):
+            self.resolve_calls += 1
+            if self.resolve_calls == 1:
+                return GraphElement(
+                    "time_slot[7]", TapBounds(10, 20, 30, 40),
+                    metadata={
+                        "enabled": True, "visible": True,
+                        "ui_tree_request_id": "tree-old",
+                    },
+                )
+            raise RuntimeError("missing from refreshed tree")
+
+    ui = MissingStaleUi()
+    actions = Actions()
+    result = GraphEngine(create_default_node_registry()).run(
+        _find_and_click_graph(index=7),
+        context=GraphExecutionContext(ui=ui, actions=actions),
+    )
+
+    assert result.runtime.state is GraphRuntimeStatus.ERROR
+    assert result.traces[-1].error_payload["code"] == "STALE_ELEMENT"
+    assert ui.resolve_calls == 2
+    assert actions.taps == []
+
+
+def test_click_element_runtime_without_input_or_selector_returns_required_input_missing() -> None:
+    actions = Actions()
+    handler = create_default_node_registry().get("click_element")
+
+    with pytest.raises(MacroExecutionError) as caught:
+        handler.execute(GraphExecutionContext(ui=Ui(), actions=actions), {})
+
+    assert caught.value.payload["code"] == "REQUIRED_INPUT_MISSING"
+    assert actions.taps == []
+
+
+def _find_and_click_graph(*, index: int) -> MacroDefinition:
+    return definition(
+        (
+            MacroNode("start", "find_screen_element", {
+                "screen_id": "study_room_detail", "element_id": "time_slot",
+                "params": {"index": index},
+            }),
+            MacroNode("click", "click_element", {"sampling_mode": "center"}),
+        ),
+        (
+            exec_edge("next", "start", "click"),
+            data_edge("element", "start", "element", "click", "element"),
+        ),
+    )
 
 
 def test_find_screen_element_found_output_drives_branch() -> None:

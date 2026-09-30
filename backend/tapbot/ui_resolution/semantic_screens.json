@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "aliases": {
     "reservation_home": "study_room_list",
     "reservation_detail": "study_room_detail",
@@ -24,77 +24,256 @@
       "id": "study_room_list",
       "label": "스터디룸 목록",
       "lifecycle": true,
+      "categories": [
+        { "id": "basic_info", "label": "기본 정보" },
+        { "id": "date", "label": "날짜" },
+        { "id": "room", "label": "스터디룸" },
+        { "id": "navigation", "label": "네비게이션" }
+      ],
       "elements": [
-        { "id": "header_title", "label": "화면 제목" },
-        { "id": "reservation_history", "label": "예약 내역" },
-        { "id": "hero_headline", "label": "환영 문구" },
-        { "id": "hero_description", "label": "화면 설명" },
-        { "id": "date_chip", "label": "날짜 카드", "param": "index", "max_index": 4 },
-        { "id": "selected_date_chip", "label": "선택 날짜 카드" },
-        { "id": "selected_date_label", "label": "선택 날짜" },
-        { "id": "date_picker", "label": "날짜 선택" },
-        { "id": "live_status_indicator", "label": "실시간 현황" },
-        { "id": "room_card", "label": "스터디룸 카드", "param": "index" },
-        { "id": "room_card_by_name", "label": "이름으로 스터디룸 카드", "param": "name" },
-        { "id": "room_name", "label": "스터디룸 이름", "param": "index" },
-        { "id": "room_status", "label": "스터디룸 상태", "param": "index" },
-        { "id": "room_capacity", "label": "스터디룸 수용 인원", "param": "index" },
-        { "id": "room_location", "label": "스터디룸 위치", "param": "index" },
-        { "id": "room_availability", "label": "스터디룸 예약 현황", "param": "index" },
-        { "id": "bottom_tab_home", "label": "Home 탭" },
-        { "id": "bottom_tab_booking", "label": "Booking 탭" },
-        { "id": "bottom_tab_me", "label": "Me 탭" }
+        { "id": "header_title", "label": "화면 제목", "category": "basic_info" },
+        { "id": "hero_headline", "label": "환영 문구", "category": "basic_info" },
+        { "id": "hero_description", "label": "화면 설명", "category": "basic_info" },
+        {
+          "id": "date_chip", "label": "날짜 카드", "category": "date",
+          "description": "스터디룸 목록에서 빠르게 날짜를 선택하는 날짜 카드입니다.",
+          "usage": ["특정 날짜 카드 선택", "선택 가능한 날짜 카드 존재 여부 확인"],
+          "kind": "collection", "role": "button", "return_type": "element",
+          "required_params": ["index"],
+          "params": {
+            "index": {
+              "type": "int", "label": "인덱스",
+              "description": "화면 왼쪽부터 시작하는 날짜 카드 순번입니다.",
+              "min": 0, "max": 4, "default": 0
+            }
+          }
+        },
+        { "id": "selected_date_chip", "label": "선택 날짜 카드", "category": "date" },
+        { "id": "selected_date_label", "label": "선택 날짜", "category": "date" },
+        { "id": "date_picker", "label": "날짜 선택", "category": "date" },
+        { "id": "live_status_indicator", "label": "실시간 현황", "category": "date" },
+        {
+          "id": "room_card", "label": "스터디룸 카드", "category": "room",
+          "description": "스터디룸 목록에 표시되는 개별 스터디룸 카드입니다.",
+          "usage": ["목록 순서로 스터디룸 카드 선택", "카드의 하위 정보 탐색"],
+          "kind": "collection", "role": "group", "return_type": "element",
+          "required_params": ["index"],
+          "params": {
+            "index": {
+              "type": "int", "label": "인덱스",
+              "description": "화면 위쪽부터 시작하는 스터디룸 카드 순번입니다.",
+              "min": 0, "default": 0
+            }
+          }
+        },
+        {
+          "id": "room_card_by_name", "label": "이름으로 스터디룸 카드", "category": "room",
+          "description": "표시된 방 이름으로 특정 스터디룸 카드를 찾습니다.",
+          "usage": ["스터디룸 2C 카드 선택", "목록 순서와 무관하게 특정 카드 식별"],
+          "kind": "collection", "role": "group", "return_type": "element",
+          "required_params": ["name"],
+          "params": {
+            "name": {
+              "type": "string", "label": "이름",
+              "description": "카드에 표시된 스터디룸 이름과 일치시킬 문자열입니다.",
+              "placeholder": "스터디룸 2C"
+            }
+          }
+        },
+        {
+          "id": "room_name", "label": "스터디룸 이름", "category": "room",
+          "description": "스터디룸 카드에 표시되는 방 이름 요소입니다.",
+          "usage": ["표시 중인 스터디룸 이름 확인", "특정 스터디룸 카드 식별"],
+          "kind": "collection", "role": "text", "return_type": "element",
+          "required_params": ["index"],
+          "params": {
+            "index": {
+              "type": "int", "label": "인덱스",
+              "description": "이름을 읽을 스터디룸 카드의 순번입니다.",
+              "min": 0, "default": 0
+            }
+          }
+        },
+        {
+          "id": "room_status", "label": "스터디룸 상태", "category": "room",
+          "description": "스터디룸 카드에 표시되는 예약 가능 여부 또는 혼잡 상태입니다.",
+          "kind": "collection", "role": "status", "return_type": "element",
+          "state_metadata": { "state": "예약 가능, 예약 마감 또는 혼잡 상태 값" },
+          "required_params": ["index"],
+          "params": {
+            "index": { "type": "int", "label": "인덱스", "description": "상태를 확인할 카드 순번입니다.", "min": 0, "default": 0 }
+          }
+        },
+        {
+          "id": "room_capacity", "label": "스터디룸 수용 인원", "category": "room",
+          "description": "스터디룸 카드에 표시되는 수용 가능 인원 정보입니다.",
+          "kind": "collection", "role": "text", "return_type": "element",
+          "required_params": ["index"],
+          "params": {
+            "index": { "type": "int", "label": "인덱스", "description": "수용 인원을 확인할 카드 순번입니다.", "min": 0, "default": 0 }
+          }
+        },
+        {
+          "id": "room_location", "label": "스터디룸 위치", "category": "room",
+          "description": "스터디룸 카드에 표시되는 건물 또는 층 위치 정보입니다.",
+          "kind": "collection", "role": "text", "return_type": "element",
+          "required_params": ["index"],
+          "params": {
+            "index": { "type": "int", "label": "인덱스", "description": "위치를 확인할 카드 순번입니다.", "min": 0, "default": 0 }
+          }
+        },
+        {
+          "id": "room_availability", "label": "스터디룸 예약 현황", "category": "room",
+          "description": "스터디룸 카드에 표시되는 현재 예약 가능 시간 정보입니다.",
+          "kind": "collection", "role": "status", "return_type": "element",
+          "state_metadata": { "available": "현재 예약 가능한 상태인지 여부" },
+          "required_params": ["index"],
+          "params": {
+            "index": { "type": "int", "label": "인덱스", "description": "예약 현황을 확인할 카드 순번입니다.", "min": 0, "default": 0 }
+          }
+        },
+        { "id": "reservation_history", "label": "예약 내역", "category": "navigation" },
+        { "id": "bottom_tab_home", "label": "Home 탭", "category": "navigation" },
+        { "id": "bottom_tab_booking", "label": "Booking 탭", "category": "navigation" },
+        { "id": "bottom_tab_me", "label": "Me 탭", "category": "navigation" }
       ]
     },
     {
       "id": "study_room_detail",
       "label": "스터디룸 상세",
       "lifecycle": true,
+      "categories": [
+        { "id": "basic_info", "label": "기본 정보" },
+        { "id": "date", "label": "날짜" },
+        { "id": "time", "label": "시간" },
+        { "id": "selection", "label": "선택" },
+        { "id": "reservation", "label": "예약" }
+      ],
       "elements": [
-        { "id": "back", "label": "뒤로가기" },
-        { "id": "room_hero_image", "label": "스터디룸 대표 이미지" },
-        { "id": "room_name", "label": "스터디룸 이름" },
-        { "id": "room_feature", "label": "방 특징", "param": "index" },
-        { "id": "date_picker", "label": "날짜 선택" },
-        { "id": "selected_date_label", "label": "선택 날짜" },
-        { "id": "live_status_indicator", "label": "실시간 상태" },
-        { "id": "slot_guidance", "label": "시간 슬롯 안내" },
-        { "id": "time_slot", "label": "시간 슬롯", "param": "index", "max_index": 31 },
-        { "id": "time_slot_by_time", "label": "시각으로 시간 슬롯", "param": "name", "values": { "start": "06:00", "count": 32, "step_minutes": 30 } },
-        { "id": "time_slot_by_end_time", "label": "종료 시각으로 시간 슬롯", "param": "name", "values": { "start": "06:30", "count": 32, "step_minutes": 30 } },
-        { "id": "current_time_marker", "label": "현재 시간 표시" },
-        { "id": "legend_reserved", "label": "예약됨 범례" },
-        { "id": "legend_available", "label": "빈 시간 범례" },
-        { "id": "legend_selected", "label": "선택 범례" },
-        { "id": "selection_summary", "label": "선택 상태" },
-        { "id": "reset_selection", "label": "선택 초기화" },
-        { "id": "usage_rules", "label": "이용 규칙" },
-        { "id": "reserve_cta", "label": "예약 CTA" }
+        { "id": "back", "label": "뒤로가기", "category": "basic_info" },
+        { "id": "room_hero_image", "label": "스터디룸 대표 이미지", "category": "basic_info" },
+        { "id": "room_name", "label": "스터디룸 이름", "category": "basic_info" },
+        {
+          "id": "room_feature", "label": "방 특징", "category": "basic_info",
+          "description": "스터디룸 상세 화면에 표시되는 개별 편의 시설 또는 특징입니다.",
+          "kind": "collection", "role": "text", "return_type": "element",
+          "required_params": ["index"],
+          "params": {
+            "index": { "type": "int", "label": "인덱스", "description": "왼쪽부터 시작하는 방 특징 순번입니다.", "min": 0, "default": 0 }
+          }
+        },
+        { "id": "date_picker", "label": "날짜 선택", "category": "date" },
+        { "id": "selected_date_label", "label": "선택 날짜", "category": "date" },
+        { "id": "live_status_indicator", "label": "실시간 상태", "category": "date" },
+        {
+          "id": "time_slot", "label": "시간 슬롯", "category": "time",
+          "description": "06:00부터 30분 단위로 표시되는 예약 시간 슬롯입니다.",
+          "usage": ["슬롯 순번으로 예약 시간 선택", "슬롯의 예약 가능 상태 확인"],
+          "kind": "collection", "role": "button", "return_type": "element",
+          "state_metadata": {
+            "index": "시간 슬롯 순번",
+            "time": "슬롯 시작 시각",
+            "end_time": "슬롯 종료 시각",
+            "state": "reserved, available 또는 selected 상태",
+            "booked": "예약 완료 여부",
+            "selected": "현재 선택 여부"
+          },
+          "required_params": ["index"],
+          "params": {
+            "index": {
+              "type": "int", "label": "인덱스",
+              "description": "06:00부터 30분 단위로 증가하는 슬롯 번호입니다.",
+              "value_hint": "0 = 06:00, 1 = 06:30, …, 31 = 21:30",
+              "min": 0, "max": 31, "default": 0
+            }
+          }
+        },
+        {
+          "id": "time_slot_by_time", "label": "시각으로 시간 슬롯", "category": "time",
+          "description": "시작 시각 문자열을 해당 시간 슬롯으로 변환해 찾습니다.",
+          "usage": ["18:30처럼 사람이 읽는 시각으로 슬롯 선택"],
+          "kind": "collection", "role": "button", "return_type": "element",
+          "required_params": ["name"],
+          "params": {
+            "name": {
+              "type": "select", "label": "시간",
+              "description": "찾을 슬롯의 시작 시각입니다.",
+              "value_hint": "06:00부터 21:30까지 30분 단위 시각을 slot index로 변환합니다.",
+              "default": "06:00",
+              "options_range": { "start": "06:00", "count": 32, "step_minutes": 30 },
+              "invalid_message": "params.name must be a half-hour time between 06:00 and 21:30"
+            }
+          }
+        },
+        {
+          "id": "time_slot_by_end_time", "label": "종료 시각으로 시간 슬롯", "category": "time",
+          "description": "종료 시각 문자열을 해당 시간 슬롯으로 변환해 찾습니다.",
+          "usage": ["예약 종료 시각을 기준으로 마지막 슬롯 선택"],
+          "kind": "collection", "role": "button", "return_type": "element",
+          "required_params": ["name"],
+          "params": {
+            "name": {
+              "type": "select", "label": "시간",
+              "description": "찾을 슬롯의 종료 시각입니다.",
+              "value_hint": "06:30부터 22:00까지 30분 단위 종료 시각을 slot index로 변환합니다.",
+              "default": "06:30",
+              "options_range": { "start": "06:30", "count": 32, "step_minutes": 30 },
+              "invalid_message": "params.name must be a half-hour time between 06:30 and 22:00"
+            }
+          }
+        },
+        { "id": "current_time_marker", "label": "현재 시간 표시", "category": "time" },
+        { "id": "slot_guidance", "label": "시간 슬롯 안내", "category": "time" },
+        { "id": "selection_summary", "label": "선택 상태", "category": "selection" },
+        { "id": "reset_selection", "label": "선택 초기화", "category": "selection" },
+        { "id": "legend_reserved", "label": "예약됨 범례", "category": "selection" },
+        { "id": "legend_available", "label": "빈 시간 범례", "category": "selection" },
+        { "id": "legend_selected", "label": "선택 범례", "category": "selection" },
+        {
+          "id": "reserve_cta", "label": "예약 CTA", "category": "reservation",
+          "description": "선택한 시간으로 예약 절차를 진행하는 주요 동작 버튼입니다.",
+          "usage": ["시간 선택 후 예약 확인 화면으로 이동", "예약 가능 상태 확인"],
+          "kind": "element", "role": "button", "return_type": "element",
+          "state_metadata": {
+            "state": "idle, ready 또는 processing 상태",
+            "selected_slot_index": "선택된 시작 슬롯 순번",
+            "selected_time": "선택된 시작 시각"
+          }
+        },
+        { "id": "usage_rules", "label": "이용 규칙", "category": "reservation" }
       ]
     },
     {
-      "id": "study_room_confirm",
-      "label": "예약 확인",
-      "lifecycle": false,
+      "id": "study_room_confirm", "label": "예약 확인", "lifecycle": false,
+      "categories": [
+        { "id": "screen", "label": "화면" },
+        { "id": "room", "label": "스터디룸" },
+        { "id": "reservation", "label": "예약" },
+        { "id": "action", "label": "동작" }
+      ],
       "elements": [
-        { "id": "title", "label": "확인 제목" },
-        { "id": "room_name", "label": "스터디룸 이름" },
-        { "id": "date", "label": "예약 날짜" },
-        { "id": "time_range", "label": "예약 시간" },
-        { "id": "cancel", "label": "취소" },
-        { "id": "confirm_reservation", "label": "예약 확정" }
+        { "id": "title", "label": "확인 제목", "category": "screen" },
+        { "id": "room_name", "label": "스터디룸 이름", "category": "room" },
+        { "id": "date", "label": "예약 날짜", "category": "reservation" },
+        { "id": "time_range", "label": "예약 시간", "category": "reservation" },
+        { "id": "cancel", "label": "취소", "category": "action" },
+        { "id": "confirm_reservation", "label": "예약 확정", "category": "action" }
       ]
     },
     {
-      "id": "study_room_complete",
-      "label": "예약 완료",
-      "lifecycle": false,
+      "id": "study_room_complete", "label": "예약 완료", "lifecycle": false,
+      "categories": [
+        { "id": "screen", "label": "화면" },
+        { "id": "room", "label": "스터디룸" },
+        { "id": "reservation", "label": "예약" },
+        { "id": "action", "label": "동작" }
+      ],
       "elements": [
-        { "id": "success_title", "label": "예약 완료 제목" },
-        { "id": "room_name", "label": "스터디룸 이름" },
-        { "id": "date", "label": "예약 날짜" },
-        { "id": "time_range", "label": "예약 시간" },
-        { "id": "back_to_reservation", "label": "예약 화면으로 돌아가기" }
+        { "id": "success_title", "label": "예약 완료 제목", "category": "screen" },
+        { "id": "room_name", "label": "스터디룸 이름", "category": "room" },
+        { "id": "date", "label": "예약 날짜", "category": "reservation" },
+        { "id": "time_range", "label": "예약 시간", "category": "reservation" },
+        { "id": "back_to_reservation", "label": "예약 화면으로 돌아가기", "category": "action" }
       ]
     }
   ]

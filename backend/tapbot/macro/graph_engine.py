@@ -1034,10 +1034,7 @@ def _summarize_value(value: object, *, depth: int) -> JsonValue:
     if depth >= 5:
         return "<max-depth>"
     if isinstance(value, GraphElement):
-        return _summarize_value({
-            "runtime_type": "element", "id": value.id,
-            "bounds": value.bounds.to_list(), "metadata": value.metadata,
-        }, depth=depth)
+        return _summarize_value(value.snapshot(), depth=depth)
     if isinstance(value, dict):
         result: JsonObject = {}
         items = list(value.items())

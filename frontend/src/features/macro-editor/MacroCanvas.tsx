@@ -20,6 +20,7 @@ import {
   type BlueprintDragItem,
 } from './blueprint-dnd'
 import { InlineEditingContext } from './inline-editing'
+import { isEditableKeyboardTarget, isImeKeyboardEvent } from './keyboard-events'
 import { QuickBlockSearch } from './QuickBlockSearch'
 import { createSearchItems, type SearchItem } from './search-provider'
 import {
@@ -108,6 +109,7 @@ export function MacroCanvas({
   const canvasRef = useRef<HTMLElement>(null)
   const flowInstance = useRef<ReactFlowInstance<MacroFlowNode, MacroFlowEdge> | null>(null)
   const draggedPort = useRef<SourcePortContext | null>(null)
+  const [editingControlActive, setEditingControlActive] = useState(false)
   const [quickSearch, setQuickSearch] = useState<{
     screenPosition: { x: number; y: number }
     flowPosition: { x: number; y: number }
@@ -195,6 +197,7 @@ export function MacroCanvas({
       setPromoteMenu(null)
     }
     const escape = (event: KeyboardEvent) => {
+      if (isImeKeyboardEvent(event) || isEditableKeyboardTarget(event.target)) return
       if (event.key !== 'Escape') return
       event.stopPropagation()
       setBlueprintDrop(null)
@@ -239,7 +242,17 @@ export function MacroCanvas({
   }
 
   return (
-    <section ref={canvasRef} className="macro-canvas" aria-label="Macro graph canvas">
+    <section
+      ref={canvasRef}
+      className="macro-canvas"
+      aria-label="Macro graph canvas"
+      onFocusCapture={(event) => {
+        if (isEditableKeyboardTarget(event.target)) setEditingControlActive(true)
+      }}
+      onBlurCapture={(event) => {
+        if (!isEditableKeyboardTarget(event.relatedTarget)) setEditingControlActive(false)
+      }}
+    >
       <InlineEditingContext.Provider value={{ variables, updateNodeConfig: onUpdateNodeConfig }}>
         <ReactFlow<MacroFlowNode, MacroFlowEdge>
         nodes={nodes}
@@ -321,7 +334,7 @@ export function MacroCanvas({
         fitView
         minZoom={0.25}
         maxZoom={1.8}
-        deleteKeyCode={['Backspace', 'Delete']}
+        deleteKeyCode={editingControlActive ? null : ['Backspace', 'Delete']}
         selectionKeyCode="Shift"
         >
           <Background variant={BackgroundVariant.Dots} gap={18} size={1} />

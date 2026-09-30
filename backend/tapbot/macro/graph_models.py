@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
 import json
+import math
 from collections.abc import Callable, Mapping
 from typing import Any, Protocol, TypeAlias
 
@@ -855,6 +856,15 @@ class GraphElement:
     text: str | None = None
     metadata: JsonObject = field(default_factory=dict)
 
+    def snapshot(self) -> JsonObject:
+        """Return the JSON-safe representation used at trace/error boundaries."""
+
+        return {
+            "element_id": self.id,
+            "bounds": self.bounds.to_list(),
+            "metadata": _runtime_json_snapshot(self.metadata),
+        }
+
 
 class GraphActionPort(Protocol):
     """High-level primitive port implemented by Android or robot adapters."""
@@ -899,6 +909,8 @@ class GraphUiPort(Protocol):
     def current_state(self) -> str: ...
 
     def screen_size(self) -> tuple[int, int]: ...
+
+    def current_ui_tree_request_id(self) -> str | None: ...
 
     def resolve_screen_element(
         self,
@@ -1017,11 +1029,16 @@ class GraphRunResult:
 
 
 def _canonicalize_node_screen(node: MacroNode) -> MacroNode:
-    raw_screen_id = node.config.get("screen_id")
+    config = dict(node.config)
+    if node.type == "find_screen_element":
+        config.pop("category_id", None)
+    raw_screen_id = config.get("screen_id")
     if not isinstance(raw_screen_id, str):
-        return node
+        if config == node.config:
+            return node
+        return MacroNode(node.id, node.type, config, node.position, node.label)
     screen_id = canonical_screen_id(raw_screen_id)
-    config = {**node.config, "screen_id": screen_id}
+    config["screen_id"] = screen_id
     raw_element_id = config.get("element_id")
     if isinstance(raw_element_id, str):
         config["element_id"] = canonical_element_id(
@@ -1083,6 +1100,21 @@ def _json_object(value: object, *, name: str) -> JsonObject:
 
 def _json_copy(value: object) -> Any:
     return json.loads(json.dumps(value, allow_nan=False))
+
+
+def _runtime_json_snapshot(value: object) -> JsonValue:
+    if value is None or isinstance(value, str | bool | int):
+        return value
+    if isinstance(value, float):
+        return value if math.isfinite(value) else "<non-finite>"
+    if isinstance(value, Mapping):
+        return {
+            str(key): _runtime_json_snapshot(item)
+            for key, item in value.items()
+        }
+    if isinstance(value, list | tuple):
+        return [_runtime_json_snapshot(item) for item in value]
+    return f"<runtime:{type(value).__name__}>"
 
 
 def _optional_text(value: object, name: str) -> str | None:

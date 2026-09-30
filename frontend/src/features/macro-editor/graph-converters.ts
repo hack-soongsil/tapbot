@@ -3,6 +3,7 @@ import {
   SCREEN_OPTIONS,
   canonicalElementId,
   canonicalScreenId,
+  withoutScreenElementEditorMetadata,
 } from './screen-elements'
 import type {
   JsonValue,
@@ -37,7 +38,7 @@ export function macroDefinitionToFlow(definition: MacroDefinition): FlowGraph {
           category: block?.category ?? 'control',
           label: node.label ?? block?.label ?? node.type,
           definitionLabel: node.label,
-          config: structuredClone(node.config),
+          config: persistentNodeConfig(node.type, node.config),
           isEntry: node.id === normalized.entry_node_id,
           isEvent: event !== undefined,
           eventKind: event?.kind,
@@ -87,7 +88,7 @@ export function flowToMacroDefinition(
     nodes: nodes.map((node) => ({
       id: node.id,
       type: node.data.nodeType,
-      config: structuredClone(node.data.config),
+      config: persistentNodeConfig(node.data.nodeType, node.data.config),
       position: { x: node.position.x, y: node.position.y },
       ...(node.data.definitionLabel === undefined ? {} : { label: node.data.definitionLabel }),
     })),
@@ -119,7 +120,7 @@ export function macroFunctionToFlow(functionDefinition: MacroFunctionDefinition)
           category: block?.category ?? 'control',
           label: node.label ?? block?.label ?? node.type,
           definitionLabel: node.label,
-          config: structuredClone(node.config),
+          config: persistentNodeConfig(node.type, node.config),
           isEntry: node.id === functionDefinition.entry_node_id,
           isEvent: boundary,
           errors: [],
@@ -148,7 +149,7 @@ export function flowToMacroFunction(
     nodes: normalizeNodeScreenIds(nodes.map((node) => ({
       id: node.id,
       type: node.data.nodeType,
-      config: structuredClone(node.data.config),
+      config: persistentNodeConfig(node.data.nodeType, node.data.config),
       position: { x: node.position.x, y: node.position.y },
       ...(node.data.definitionLabel === undefined ? {} : { label: node.data.definitionLabel }),
     }))),
@@ -245,6 +246,16 @@ export function migrateLegacyEntry(definition: MacroDefinition): MacroDefinition
     nodes: allNodes,
     edges,
   }
+}
+
+function persistentNodeConfig(
+  type: MacroNodeType,
+  config: Record<string, JsonValue>,
+): Record<string, JsonValue> {
+  const cloned = structuredClone(config)
+  return type === 'find_screen_element'
+    ? withoutScreenElementEditorMetadata(cloned)
+    : cloned
 }
 
 export function normalizeSemanticScreenIds(definition: MacroDefinition): MacroDefinition {

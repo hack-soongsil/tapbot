@@ -115,7 +115,7 @@ export const macroNodeDescriptions: Partial<Record<MacroNodeType, string>> = {
   drag_point: '두 화면 좌표 사이를 드래그합니다.',
   random_click_area: '지정 영역 안에서 좌표를 샘플링해 클릭합니다.',
   random_drag_area: '시작·끝 영역에서 각각 좌표를 샘플링해 드래그합니다.',
-  click_element: 'UI 트리 엘리먼트를 찾아 클릭합니다.',
+  click_element: '입력으로 받은 UI 트리 엘리먼트를 클릭합니다.',
   find_screen_element: '현재 화면에서 의미 기반 엘리먼트를 찾습니다.',
   for_loop: '인덱스 변수를 갱신하며 흐름을 반복합니다.',
   sequence: '출력 흐름을 순서대로 실행합니다.',

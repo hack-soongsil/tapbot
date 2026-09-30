@@ -12,6 +12,7 @@ import type { MacroCanvasProps } from './MacroCanvas'
 import type { MacroDefinition, MacroRuntime } from './types'
 import type { useMacroRuntime } from '../macro-runtime/useMacroRuntime'
 import { runtimeGraphOverlayFromSnapshot } from '../macro-runtime/runtime-overlay'
+import { formatSavedAtCompact, formatSavedAtFull } from './save-timestamp'
 
 const flowInstance = vi.hoisted(() => ({
   getViewport: vi.fn(() => ({ x: 0, y: 0, zoom: 1 })),
@@ -362,6 +363,43 @@ describe('IntegratedMacroPanel', () => {
     expect(macroEditorApi.command).not.toHaveBeenCalled()
   })
 
+  it('restores, updates, and preserves the persisted save timestamp', async () => {
+    const initialAt = new Date(2026, 8, 30, 10, 15, 0).toISOString()
+    const savedAt = new Date(2026, 8, 30, 11, 42, 18).toISOString()
+    vi.mocked(macroEditorApi.get).mockResolvedValue({
+      ...definition,
+      metadata: { updated_at: initialAt },
+    })
+    vi.mocked(macroEditorApi.save).mockImplementationOnce((value) => Promise.resolve({
+      ...value,
+      metadata: { ...value.metadata, updated_at: savedAt },
+    }))
+    render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime('idle')} />)
+    await screen.findByTestId('integrated-canvas')
+    fireEvent.click(screen.getByRole('tab', { name: '캔버스' }))
+
+    expect(screen.getByLabelText(`저장됨 · ${formatSavedAtCompact(initialAt)}`)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: '위치 클릭 추가' }))
+    expect(screen.getByLabelText(
+      `저장 안 됨 · 마지막 저장 ${formatSavedAtCompact(initialAt)}`,
+    )).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    await waitFor(() => expect(
+      screen.getByLabelText(`저장됨 · ${formatSavedAtCompact(savedAt)}`),
+    ).toBeTruthy())
+    expect(screen.getByRole('button', { name: '저장' }).getAttribute('title'))
+      .toBe(`저장\n마지막 저장: ${formatSavedAtFull(savedAt)}`)
+
+    fireEvent.click(screen.getByRole('button', { name: '대기 추가' }))
+    vi.mocked(macroEditorApi.save).mockRejectedValueOnce(new Error('save failed'))
+    fireEvent.click(screen.getByRole('button', { name: '저장' }))
+    await screen.findByText('save failed')
+    expect(screen.getByLabelText(
+      `저장 안 됨 · 마지막 저장 ${formatSavedAtCompact(savedAt)}`,
+    )).toBeTruthy()
+  })
+
   it('uses the existing save flow for Ctrl+S and Cmd+S in main, function, and expanded canvases', async () => {
     render(<IntegratedMacroPanel deviceId="phone-a" runtime={runtime('idle')} />)
     const canvas = await screen.findByTestId('integrated-canvas')
@@ -381,6 +419,8 @@ describe('IntegratedMacroPanel', () => {
     await waitFor(() => expect(macroEditorApi.save).toHaveBeenCalledTimes(1))
     act(() => releaseSave?.())
     await waitFor(() => expect(screen.getByRole('button', { name: '저장' }).hasAttribute('disabled')).toBe(false))
+    expect(document.querySelector('.macro-save-status__time')?.textContent)
+      .not.toBe('마지막 저장 시각 없음')
 
     vi.mocked(macroEditorApi.save).mockImplementation((value) => Promise.resolve(value))
     fireEvent.click(screen.getByRole('tab', { name: 'My Blueprint' }))

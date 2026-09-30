@@ -6,17 +6,26 @@ import {
   type NodeConnection,
   type NodeProps,
 } from '@xyflow/react'
-import { useState } from 'react'
-import { Icon } from '@blueprintjs/core'
+import { useEffect, useRef, useState, type SyntheticEvent } from 'react'
+import { Button, Icon, Tooltip } from '@blueprintjs/core'
+import { ElementReferenceDialog } from '../ElementReferenceDialog'
 import {
   getNodeDefinition,
+  getInlineProperties,
   getNodePorts,
   type InlinePropertyDefinition,
   type NodeVisualKind,
 } from '../blocks'
 import { useInlineEditing } from '../inline-editing'
 import { portTypesAreCompatible } from '../port-compatibility'
-import { SCREEN_ELEMENTS, canonicalElementId, canonicalScreenId } from '../screen-elements'
+import {
+  SCREEN_ELEMENT_CATEGORIES,
+  SEMANTIC_SCREEN_OPTIONS,
+  defaultParamsForElement,
+  elementsInCategory,
+  selectedScreenElement,
+  withoutScreenElementEditorMetadata,
+} from '../screen-elements'
 import type {
   JsonValue,
   MacroFlowNode,
@@ -35,11 +44,12 @@ import {
 type PortDirection = 'input' | 'output'
 
 export function BaseNode({ id, data, selected }: NodeProps<MacroFlowNode>) {
+  const [elementReferenceOpen, setElementReferenceOpen] = useState(false)
   const ports = getNodePorts(data.nodeType, data.config)
   const definition = getNodeDefinition(data.nodeType)
   const inlineEditing = useInlineEditing()
   const inputConnections = useNodeConnections({ id, handleType: 'target' })
-  const inlineProperties = definition?.inlineProperties ?? []
+  const inlineProperties = getInlineProperties(data.nodeType, data.config)
   const isEvent = data.category === 'event'
   const inputPorts = isEvent ? [] : ports.inputs
   const hasLegacyExecOutput = ports.outputs.length === 0
@@ -140,6 +150,25 @@ export function BaseNode({ id, data, selected }: NodeProps<MacroFlowNode>) {
           properties={inlineProperties}
           variables={inlineEditing.variables}
           onChange={(config) => inlineEditing.updateNodeConfig?.(id, config)}
+          onOpenElementReference={data.nodeType === 'find_screen_element'
+            ? () => setElementReferenceOpen(true)
+            : undefined}
+        />
+      )}
+      {elementReferenceOpen && data.nodeType === 'find_screen_element' && (
+        <ElementReferenceDialog
+          screenId={selectedScreenElement(data.config).screenId}
+          elementId={selectedScreenElement(data.config).element?.id ?? ''}
+          onClose={() => setElementReferenceOpen(false)}
+          onUseElement={(reference) => {
+            inlineEditing.updateNodeConfig?.(id, withoutScreenElementEditorMetadata({
+              ...data.config,
+              screen_id: reference.screen.id,
+              element_id: reference.element.id,
+              params: defaultParamsForElement(reference.element),
+            }))
+            setElementReferenceOpen(false)
+          }}
         />
       )}
     </div>
@@ -153,6 +182,7 @@ function InlineProperties({
   properties,
   variables,
   onChange,
+  onOpenElementReference,
 }: {
   config: Record<string, JsonValue>
   connections: NodeConnection[]
@@ -160,12 +190,31 @@ function InlineProperties({
   properties: readonly InlinePropertyDefinition[]
   variables: readonly MacroVariableDefinition[]
   onChange: (config: Record<string, JsonValue>) => void
+  onOpenElementReference?: () => void
 }) {
-  const visibleProperties = properties.filter((property) => isInlinePropertyVisible(property, config))
+  const visibleProperties = properties
   if (visibleProperties.length === 0) return null
 
   return (
     <div className="macro-node__inline-properties nodrag nowheel" aria-label="핵심 설정">
+      {onOpenElementReference && (
+        <div className="macro-node__inline-actions">
+          <Tooltip content="엘리먼트 설명" compact hoverOpenDelay={250} openOnTargetFocus>
+            <Button
+              type="button"
+              icon="info-sign"
+              minimal
+              small
+              className="macro-node__element-reference-button nodrag nowheel"
+              aria-label="엘리먼트 설명 열기"
+              onClick={(event) => {
+                event.stopPropagation()
+                onOpenElementReference()
+              }}
+            />
+          </Tooltip>
+        </div>
+      )}
       {visibleProperties.map((property) => {
         const connection = property.inputPortId
           ? connections.find((item) => item.targetHandle === property.inputPortId)
@@ -223,15 +272,29 @@ function InlinePropertyEditor({
         {...common}
         type="number"
         min={property.min}
+        max={property.max}
         step={property.step}
         value={typeof value === 'number' ? value : 0}
         onChange={(event) => {
           const parsed = event.target.valueAsNumber
           if (!Number.isFinite(parsed)) return
           const stepped = property.step === 1 ? Math.trunc(parsed) : parsed
-          const next = property.min === undefined ? stepped : Math.max(property.min, stepped)
+          const bounded = property.min === undefined ? stepped : Math.max(property.min, stepped)
+          const next = property.max === undefined ? bounded : Math.min(property.max, bounded)
           onChange(setConfigValue(config, property.key, next))
         }}
+      />
+    )
+  }
+
+  if (property.editor === 'boolean') {
+    return (
+      <input
+        {...common}
+        className="macro-node__inline-checkbox nodrag nowheel"
+        type="checkbox"
+        checked={value === true}
+        onChange={(event) => onChange(setConfigValue(config, property.key, event.target.checked))}
       />
     )
   }
@@ -250,23 +313,70 @@ function InlinePropertyEditor({
     )
   }
 
-  if (property.editor === 'screen-element') {
-    const screenId = canonicalScreenId(
-      typeof config.screen_id === 'string' ? config.screen_id : '',
-    )
-    const elements = SCREEN_ELEMENTS[screenId] ?? []
+  if (property.editor === 'screen-element-screen') {
+    const selection = selectedScreenElement(config)
     return (
       <select
         {...common}
-        value={typeof value === 'string' ? value : elements[0]?.id ?? ''}
+        value={selection.screenId}
+        onChange={(event) => {
+          const screenId = event.target.value
+          const categoryId = SCREEN_ELEMENT_CATEGORIES[screenId]?.[0]?.id ?? ''
+          const element = elementsInCategory(screenId, categoryId)[0]
+          onChange(withoutScreenElementEditorMetadata({
+            ...config,
+            screen_id: screenId,
+            element_id: element?.id ?? '',
+            params: defaultParamsForElement(element),
+          }))
+        }}
+      >
+        {SEMANTIC_SCREEN_OPTIONS.map((screen) => (
+          <option key={screen.id} value={screen.id}>{screen.label}</option>
+        ))}
+      </select>
+    )
+  }
+
+  if (property.editor === 'screen-element-category') {
+    const selection = selectedScreenElement(config)
+    const categories = SCREEN_ELEMENT_CATEGORIES[selection.screenId] ?? []
+    return (
+      <select
+        {...common}
+        value={selection.categoryId}
+        onChange={(event) => {
+          const categoryId = event.target.value
+          const element = elementsInCategory(selection.screenId, categoryId)[0]
+          onChange(withoutScreenElementEditorMetadata({
+            ...config,
+            element_id: element?.id ?? '',
+            params: defaultParamsForElement(element),
+          }))
+        }}
+      >
+        {categories.map((category) => (
+          <option key={category.id} value={category.id}>{category.label}</option>
+        ))}
+      </select>
+    )
+  }
+
+  if (property.editor === 'screen-element') {
+    const selection = selectedScreenElement(config)
+    const elements = elementsInCategory(selection.screenId, selection.categoryId)
+    return (
+      <select
+        {...common}
+        value={selection.element?.id ?? elements[0]?.id ?? ''}
         onChange={(event) => {
           const elementId = event.target.value
           const selected = elements.find((element) => element.id === elementId)
-          onChange({
+          onChange(withoutScreenElementEditorMetadata({
             ...config,
             element_id: elementId,
-            params: selected?.collection ? { index: 0 } : {},
-          })
+            params: defaultParamsForElement(selected),
+          }))
         }}
       >
         {elements.map((element) => (
@@ -304,7 +414,6 @@ function InlinePropertyEditor({
   if (property.editor === 'dynamic-value') {
     return (
       <DynamicValueEditor
-        key={`${typeof config.type === 'string' ? config.type : 'unknown'}:${displayJsonValue(value)}`}
         config={config}
         disabled={disabled}
         label={property.label}
@@ -315,11 +424,95 @@ function InlinePropertyEditor({
   }
 
   return (
-    <input
-      {...common}
-      type="text"
+    <InlineTextProperty
+      ariaLabel={common['aria-label']}
+      className={common.className}
+      disabled={disabled}
+      placeholder={property.placeholder}
       value={typeof value === 'string' ? value : ''}
-      onChange={(event) => onChange(setConfigValue(config, property.key, event.target.value))}
+      onCommit={(next) => onChange(setConfigValue(config, property.key, next))}
+    />
+  )
+}
+
+function InlineTextProperty({
+  ariaLabel,
+  className,
+  disabled,
+  placeholder,
+  value,
+  onCommit,
+}: {
+  ariaLabel: string
+  className: string
+  disabled: boolean
+  placeholder?: string
+  value: string
+  onCommit: (value: string) => void
+}) {
+  const [draft, setDraft] = useState(value)
+  const [composing, setComposing] = useState(false)
+  const composingRef = useRef(false)
+  const committedRef = useRef(value)
+
+  useEffect(() => {
+    committedRef.current = value
+    if (!composingRef.current) setDraft(value)
+  }, [value])
+
+  const commit = (next: string) => {
+    if (next === committedRef.current) return
+    committedRef.current = next
+    onCommit(next)
+  }
+
+  return (
+    <input
+      aria-label={ariaLabel}
+      className={className}
+      disabled={disabled}
+      type="text"
+      placeholder={placeholder}
+      value={draft}
+      onPointerDown={stopPropagation}
+      onCompositionStart={(event) => {
+        event.stopPropagation()
+        composingRef.current = true
+        setComposing(true)
+      }}
+      onCompositionUpdate={(event) => event.stopPropagation()}
+      onCompositionEnd={(event) => {
+        event.stopPropagation()
+        const next = event.currentTarget.value
+        composingRef.current = false
+        setComposing(false)
+        setDraft(next)
+        commit(next)
+      }}
+      onChange={(event) => {
+        const next = event.currentTarget.value
+        setDraft(next)
+        if (!composingRef.current) commit(next)
+      }}
+      onBlur={(event) => {
+        composingRef.current = false
+        setComposing(false)
+        commit(event.currentTarget.value)
+      }}
+      onKeyDown={(event) => {
+        const isComposing = event.nativeEvent.isComposing
+          || event.nativeEvent.keyCode === 229
+          || composing
+        if (!isComposing && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+          return
+        }
+        event.stopPropagation()
+        if (isComposing) return
+        if (event.key === 'Enter') {
+          event.preventDefault()
+          commit(event.currentTarget.value)
+        }
+      }}
     />
   )
 }
@@ -338,7 +531,16 @@ function DynamicValueEditor({
   onChange: (value: JsonValue) => void
 }) {
   const type = typeof config.type === 'string' ? config.type : 'string'
-  const [draft, setDraft] = useState(() => displayJsonValue(value))
+  const displayedValue = displayJsonValue(value)
+  const [draft, setDraft] = useState(displayedValue)
+  const syncedValueRef = useRef(`${type}\u0000${displayedValue}`)
+
+  useEffect(() => {
+    const token = `${type}\u0000${displayedValue}`
+    if (syncedValueRef.current === token) return
+    syncedValueRef.current = token
+    setDraft(displayedValue)
+  }, [displayedValue, type])
 
   if (type === 'bool') {
     return (
@@ -370,13 +572,12 @@ function DynamicValueEditor({
   }
   if (type === 'string') {
     return (
-      <input
-        aria-label={`${label} 인라인 설정`}
+      <InlineTextProperty
+        ariaLabel={`${label} 인라인 설정`}
         className="macro-node__inline-control nodrag nowheel"
         disabled={disabled}
-        type="text"
         value={typeof value === 'string' ? value : ''}
-        onChange={(event) => onChange(event.target.value)}
+        onCommit={onChange}
       />
     )
   }
@@ -395,8 +596,14 @@ function DynamicValueEditor({
       type="text"
       value={draft}
       onChange={(event) => setDraft(event.target.value)}
+      onPointerDown={stopPropagation}
+      onCompositionStart={stopPropagation}
+      onCompositionUpdate={stopPropagation}
+      onCompositionEnd={stopPropagation}
       onBlur={commit}
       onKeyDown={(event) => {
+        event.stopPropagation()
+        if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
         if (event.key === 'Enter') {
           event.preventDefault()
           commit()
@@ -406,21 +613,8 @@ function DynamicValueEditor({
   )
 }
 
-function isInlinePropertyVisible(
-  property: InlinePropertyDefinition,
-  config: Record<string, JsonValue>,
-): boolean {
-  if (property.visible !== 'screen-element-collection') return true
-  const screenId = canonicalScreenId(
-    typeof config.screen_id === 'string' ? config.screen_id : '',
-  )
-  const elementId = canonicalElementId(
-    screenId,
-    typeof config.element_id === 'string' ? config.element_id : '',
-  )
-  return SCREEN_ELEMENTS[screenId]?.some(
-    (element) => element.id === elementId && element.collection === true,
-  ) ?? false
+function stopPropagation(event: SyntheticEvent): void {
+  event.stopPropagation()
 }
 
 function getConfigValue(config: Record<string, JsonValue>, path: string): JsonValue | undefined {

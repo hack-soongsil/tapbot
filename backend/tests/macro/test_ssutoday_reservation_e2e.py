@@ -580,7 +580,7 @@ def test_reserved_slot_fails_on_exact_function_node_without_reservation_click() 
     )
     assert failure.graph_path_labels == ("Main", "SelectTimeRange")
     assert failure.graph_id == "function:select-time-range"
-    assert failure.error_payload["code"] == "SLOT_RESERVED"
+    assert failure.error_payload["code"] == "ELEMENT_DISABLED"
     assert failure.error_payload["node_id"] == "click-start-slot"
     assert failure.error_payload["element"]["metadata"]["state"] == "booked"
     assert failure.error_payload["element"]["metadata"]["start_time"] == "18:00"
@@ -640,7 +640,7 @@ def test_past_slot_produces_structured_slot_disabled_context() -> None:
 
     assert result.runtime.state is GraphRuntimeStatus.ERROR
     payload = result.traces[-1].error_payload
-    assert payload is not None and payload["code"] == "SLOT_DISABLED"
+    assert payload is not None and payload["code"] == "ELEMENT_DISABLED"
     assert payload["element"]["metadata"]["state"] == "past"
 
 
@@ -656,7 +656,7 @@ def test_unselected_reservation_cta_produces_structured_disabled_context() -> No
     result = _find_and_click_probe(client, actions, ui, find)
 
     payload = result.traces[-1].error_payload
-    assert payload is not None and payload["code"] == "CTA_DISABLED"
+    assert payload is not None and payload["code"] == "ELEMENT_DISABLED"
     metadata = payload["element"]["metadata"]
     assert metadata["semantic_id"] == "reserve_cta"
     assert metadata["enabled"] is False

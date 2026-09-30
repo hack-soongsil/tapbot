@@ -83,7 +83,10 @@ describe('NodeInspector semantic screen elements', () => {
     const screenSelect = screen.getByLabelText<HTMLSelectElement>('화면')
     expect(screenSelect.value).toBe('study_room_detail')
     expect([...screenSelect.options].map((option) => option.value)).toContain('study_room_detail')
-    const element = screen.getByLabelText<HTMLSelectElement>('엘리먼트')
+    const category = screen.getByLabelText<HTMLSelectElement>('카테고리')
+    expect(category.value).toBe('time')
+    expect(category.selectedOptions[0]?.textContent).toBe('시간')
+    const element = screen.getByLabelText<HTMLSelectElement>('요소')
     expect(element.value).toBe('time_slot')
     expect(element.selectedOptions[0]?.textContent).toBe('시간 슬롯')
 
@@ -100,15 +103,82 @@ describe('NodeInspector semantic screen elements', () => {
     })
   })
 
-  it('exposes the int input and Element/bool outputs used by data wires', () => {
+  it('exposes only the selected element parameters as data inputs', () => {
     const ports = getNodePorts('find_screen_element', timeSlotNode.data.config)
 
     expect(ports.inputs).toContainEqual({ id: 'index', type: 'int', optional: true })
-    expect(ports.inputs).toContainEqual({ id: 'name', type: 'string', optional: true })
+    expect(ports.inputs.some((port) => port.id === 'name')).toBe(false)
     expect(ports.outputs).toEqual(expect.arrayContaining([
       { id: 'element', type: 'element' },
       { id: 'found', type: 'bool' },
     ]))
+  })
+
+  it('removes stale params and initializes the newly required params on element change', () => {
+    const onUpdateConfig = vi.fn()
+    const roomNode: MacroFlowNode = {
+      ...timeSlotNode,
+      id: 'find-room',
+      data: {
+        ...timeSlotNode.data,
+        config: {
+          screen_id: 'study_room_list',
+          element_id: 'room_card_by_name',
+          params: { name: '스터디룸 2C' },
+        },
+      },
+    }
+    render(<NodeInspector
+      node={roomNode} issues={[]} onUpdateConfig={onUpdateConfig}
+      onUpdateLabel={vi.fn()} onSetEntry={vi.fn()} onDelete={vi.fn()}
+    />)
+
+    fireEvent.change(screen.getByLabelText('요소'), { target: { value: 'room_card' } })
+
+    expect(onUpdateConfig).toHaveBeenLastCalledWith({
+      ...roomNode.data.config,
+      element_id: 'room_card',
+      params: { index: 0 },
+    })
+  })
+
+  it('selects the first category and element when the screen changes', () => {
+    const onUpdateConfig = vi.fn()
+    render(<NodeInspector
+      node={timeSlotNode} issues={[]} onUpdateConfig={onUpdateConfig}
+      onUpdateLabel={vi.fn()} onSetEntry={vi.fn()} onDelete={vi.fn()}
+    />)
+
+    fireEvent.change(screen.getByLabelText('화면'), {
+      target: { value: 'study_room_list' },
+    })
+
+    expect(onUpdateConfig).toHaveBeenLastCalledWith({
+      screen_id: 'study_room_list', element_id: 'header_title', params: {},
+    })
+  })
+
+  it('replaces a wired required parameter field with a connected state', () => {
+    render(<NodeInspector
+      node={timeSlotNode} issues={[]} connectedInputIds={new Set(['index'])}
+      onUpdateConfig={vi.fn()} onUpdateLabel={vi.fn()} onSetEntry={vi.fn()} onDelete={vi.fn()}
+    />)
+
+    expect(screen.getByText('연결됨')).toBeTruthy()
+    expect(screen.queryByLabelText('인덱스')).toBeNull()
+  })
+
+  it('creates the name data port only for a name parameter element', () => {
+    const ports = getNodePorts('find_screen_element', {
+      screen_id: 'study_room_list',
+      element_id: 'room_card_by_name',
+      params: { name: '스터디룸 2C' },
+    })
+
+    expect(ports.inputs).toEqual([
+      { id: 'exec_in', type: 'exec' },
+      { id: 'name', type: 'string', optional: true },
+    ])
   })
 
   it('edits a Study Room List card selector by room name', () => {

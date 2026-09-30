@@ -73,6 +73,9 @@ describe('MacroCanvas', () => {
       flowNode('click', 'click_element'),
       flowNode('debug', 'debug_print'),
     ]
+    typedNodes[3]!.data.config = {
+      screen_id: 'study_room_detail', element_id: 'time_slot', params: { index: 0 },
+    }
 
     expect(connectionKind(typedNodes, {
       source: 'exists', sourceHandle: 'result', target: 'branch', targetHandle: 'condition',
@@ -148,7 +151,7 @@ describe('MacroCanvas', () => {
       id: 'semantic-1',
       type: 'find_screen_element',
       config: cloneDefaultConfig('find_screen_element'),
-    })?.connection.targetHandle).toBe('index')
+    })).toBeNull()
 
     const execOutput = sourcePortContext(typedNodes, 'find', 'exec_out', 'source')!
     expect(connectionForCreatedNode(execOutput, {
@@ -677,6 +680,117 @@ describe('MacroCanvas', () => {
     expect(screen.getByLabelText<HTMLInputElement>('시간(ms) 인라인 설정').value).toBe('700')
   })
 
+  it.each([
+    'finded',
+    '한',
+    '한글 테스트',
+    'found 엘리먼트',
+  ])('commits ordinary inline text input: %s', (message) => {
+    const debug = flowNode('debug-text', 'debug_print')
+    debug.data.config = { message: '', level: 'info' }
+    const onConfigChange = vi.fn()
+    render(<InlineEditingHarness initialNodes={[debug]} onConfigChange={onConfigChange} />)
+
+    const input = screen.getByLabelText<HTMLInputElement>('메시지 인라인 설정')
+    fireEvent.change(input, { target: { value: message } })
+
+    expect(input.value).toBe(message)
+    expect(onConfigChange).toHaveBeenLastCalledWith('debug-text', {
+      message,
+      level: 'info',
+    })
+  })
+
+  it('keeps an IME draft through graph rerenders and commits on composition end', () => {
+    const debug = flowNode('debug-ime', 'debug_print')
+    debug.data.config = { message: '이전 값', level: 'info' }
+    const onConfigChange = vi.fn()
+    const view = render(
+      <InlineEditingHarness
+        initialNodes={[debug]}
+        showInspector
+        onConfigChange={onConfigChange}
+      />,
+    )
+    let input = screen.getByLabelText<HTMLInputElement>('메시지 인라인 설정')
+
+    fireEvent.compositionStart(input)
+    fireEvent.change(input, { target: { value: 'ㅎ' } })
+    fireEvent.change(input, { target: { value: '한' } })
+    fireEvent.change(input, { target: { value: '한글 테스트' } })
+    expect(onConfigChange).not.toHaveBeenCalled()
+
+    const inspectorMessage = () => within(screen.getByLabelText('선택한 노드 설정'))
+      .getByText('메시지').parentElement?.querySelector('input') as HTMLInputElement
+    fireEvent.change(inspectorMessage(), {
+      target: { value: '외부 변경' },
+    })
+    input = screen.getByLabelText<HTMLInputElement>('메시지 인라인 설정')
+    expect(input.value).toBe('한글 테스트')
+
+    view.rerender(
+      <InlineEditingHarness
+        initialNodes={[debug]}
+        showInspector
+        onConfigChange={onConfigChange}
+      />,
+    )
+    input = screen.getByLabelText<HTMLInputElement>('메시지 인라인 설정')
+    expect(input.value).toBe('한글 테스트')
+
+    fireEvent.compositionEnd(input, { data: '트' })
+    expect(input.value).toBe('한글 테스트')
+    expect(inspectorMessage().value).toBe('한글 테스트')
+    expect(onConfigChange).toHaveBeenLastCalledWith('debug-ime', {
+      message: '한글 테스트',
+      level: 'info',
+    })
+  })
+
+  it('does not leak composing Enter or pointer down to canvas shortcuts and drag', () => {
+    const debug = flowNode('debug-events', 'debug_print')
+    debug.data.config = { message: '', level: 'info' }
+    render(<InlineEditingHarness initialNodes={[debug]} />)
+    const input = screen.getByLabelText<HTMLInputElement>('메시지 인라인 설정')
+    const keydown = vi.fn()
+    const pointerdown = vi.fn()
+    document.addEventListener('keydown', keydown)
+    document.addEventListener('pointerdown', pointerdown)
+
+    fireEvent.compositionStart(input)
+    fireEvent.keyDown(input, { key: 'Enter', keyCode: 229, isComposing: true })
+    fireEvent.pointerDown(input)
+
+    expect(keydown).not.toHaveBeenCalled()
+    expect(pointerdown).not.toHaveBeenCalled()
+    document.removeEventListener('keydown', keydown)
+    document.removeEventListener('pointerdown', pointerdown)
+  })
+
+  it('uses the same IME-safe editor for other inline string properties', () => {
+    const semantic = flowNode('room-by-name', 'find_screen_element')
+    semantic.data.config = {
+      screen_id: 'study_room_list',
+      element_id: 'room_card_by_name',
+      params: { name: '' },
+    }
+    const onConfigChange = vi.fn()
+    render(<InlineEditingHarness initialNodes={[semantic]} onConfigChange={onConfigChange} />)
+    const input = screen.getByLabelText<HTMLInputElement>('이름 인라인 설정')
+
+    fireEvent.compositionStart(input)
+    fireEvent.change(input, { target: { value: '스터디룸 2C' } })
+    expect(onConfigChange).not.toHaveBeenCalled()
+    fireEvent.compositionEnd(input)
+
+    expect(input.value).toBe('스터디룸 2C')
+    expect(onConfigChange).toHaveBeenLastCalledWith('room-by-name', {
+      screen_id: 'study_room_list',
+      element_id: 'room_card_by_name',
+      params: { name: '스터디룸 2C' },
+    })
+  })
+
   it('replaces a wired literal editor with its connection source', () => {
     const source = flowNode('loop-source', 'for_loop')
     source.data.config = { start: 0, end: 3, step: 1 }
@@ -700,7 +814,7 @@ describe('MacroCanvas', () => {
     expect(within(renderedDebug).getByLabelText('레벨 인라인 설정')).toBeTruthy()
   })
 
-  it('shows collection index inline only for collection screen elements', () => {
+  it('shows screen, category, element, and only required params inline', () => {
     const semantic = flowNode('semantic-inline', 'find_screen_element')
     semantic.data.config = {
       screen_id: 'reservation_detail',
@@ -709,9 +823,55 @@ describe('MacroCanvas', () => {
     }
     render(<InlineEditingHarness initialNodes={[semantic]} />)
 
+    expect(screen.getByLabelText<HTMLSelectElement>('화면 인라인 설정').value).toBe('study_room_detail')
+    expect(screen.getByLabelText<HTMLSelectElement>('카테고리 인라인 설정').value).toBe('time')
+    expect(screen.getByLabelText<HTMLSelectElement>('요소 인라인 설정').value).toBe('time_slot')
     expect(screen.getByLabelText<HTMLInputElement>('인덱스 인라인 설정').value).toBe('6')
-    fireEvent.change(screen.getByLabelText('요소 인라인 설정'), { target: { value: 'back' } })
+    fireEvent.change(screen.getByLabelText('카테고리 인라인 설정'), { target: { value: 'basic_info' } })
+    expect(screen.getByLabelText<HTMLSelectElement>('요소 인라인 설정').value).toBe('back')
     expect(screen.queryByLabelText('인덱스 인라인 설정')).toBeNull()
+  })
+
+  it('opens element reference from inline UI and applies only an explicit use action', async () => {
+    const semantic = flowNode('semantic-help', 'find_screen_element')
+    semantic.data.config = {
+      screen_id: 'study_room_detail', element_id: 'time_slot', params: { index: 6 },
+    }
+    render(<InlineEditingHarness initialNodes={[semantic]} />)
+
+    fireEvent.click(screen.getByLabelText('엘리먼트 설명 열기'))
+    const dialog = await screen.findByRole('dialog', { name: 'Element Reference' })
+    expect(within(dialog).getByRole('heading', { name: '시간 슬롯', level: 2 })).toBeTruthy()
+
+    fireEvent.click(within(dialog).getByRole('button', {
+      name: '스터디룸 목록 > 스터디룸 > 이름으로 스터디룸 카드',
+    }))
+    expect(screen.getByLabelText<HTMLSelectElement>('요소 인라인 설정').value).toBe('time_slot')
+    fireEvent.click(within(dialog).getByRole('button', { name: '이 요소 사용' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Element Reference' })).toBeNull())
+    expect(screen.getByLabelText<HTMLSelectElement>('화면 인라인 설정').value).toBe('study_room_list')
+    expect(screen.getByLabelText<HTMLSelectElement>('카테고리 인라인 설정').value).toBe('room')
+    expect(screen.getByLabelText<HTMLSelectElement>('요소 인라인 설정').value).toBe('room_card_by_name')
+    expect(screen.getByLabelText<HTMLInputElement>('이름 인라인 설정').value).toBe('')
+  })
+
+  it('shows connected instead of a wired semantic parameter editor', () => {
+    const source = flowNode('loop-source', 'for_loop')
+    const semantic = flowNode('semantic-wired', 'find_screen_element')
+    semantic.data.config = {
+      screen_id: 'study_room_detail', element_id: 'time_slot', params: { index: 0 },
+    }
+    const edge: MacroFlowEdge = {
+      id: 'slot-index', source: source.id, sourceHandle: 'index',
+      target: semantic.id, targetHandle: 'index', data: { errors: [], kind: 'data' },
+    }
+
+    render(<InlineEditingHarness initialNodes={[source, semantic]} edges={[edge]} />)
+
+    const rendered = screen.getByLabelText('semantic-wired 매크로 노드')
+    expect(within(rendered).getByText('연결됨')).toBeTruthy()
+    expect(within(rendered).queryByLabelText('인덱스 인라인 설정')).toBeNull()
   })
 
   it('uses the selected variable type for its compact inline value editor', () => {
@@ -731,9 +891,10 @@ describe('MacroCanvas', () => {
     expect(screen.getByLabelText<HTMLInputElement>('값 인라인 설정').checked).toBe(true)
   })
 
-  it('limits each block definition to at most three inline properties', () => {
+  it('limits ordinary nodes to three inline fields and semantic find to five', () => {
     for (const block of BLOCK_BY_TYPE.values()) {
-      expect(block.inlineProperties?.length ?? 0).toBeLessThanOrEqual(3)
+      const limit = block.type === 'find_screen_element' ? 5 : 3
+      expect(block.inlineProperties?.length ?? 0).toBeLessThanOrEqual(limit)
     }
   })
 
@@ -744,15 +905,18 @@ function InlineEditingHarness({
   edges = [],
   showInspector = false,
   variables = [],
+  onConfigChange,
 }: {
   initialNodes: MacroFlowNode[]
   edges?: MacroFlowEdge[]
   showInspector?: boolean
   variables?: MacroVariableDefinition[]
+  onConfigChange?: (nodeId: string, config: MacroFlowNode['data']['config']) => void
 }) {
   const [nodes, setNodes] = useState(initialNodes)
   const selected = nodes[0] ?? null
   const updateConfig = (nodeId: string, config: MacroFlowNode['data']['config']) => {
+    onConfigChange?.(nodeId, config)
     setNodes((current) => current.map((item) => item.id === nodeId
       ? { ...item, data: { ...item.data, config } }
       : item))

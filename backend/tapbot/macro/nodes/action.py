@@ -16,9 +16,11 @@ from tapbot.macro.graph_models import (
 )
 from tapbot.macro.node_registry import (
     collect_errors,
+    has_stable_selector,
     optional_positive_int,
     required_number,
     selector_errors,
+    selector_format_errors,
 )
 from tapbot.macro.tap_point import TapPointSampler
 from tapbot.macro.area_sampling import (
@@ -258,17 +260,12 @@ class ClickElementNode:
         self.sampler = sampler
 
     def validate(self, config: JsonObject) -> tuple[str, ...]:
-        errors = list(selector_errors(config)) if config.get("selector") else []
         selector = config.get("selector")
-        if isinstance(selector, dict) and not any(
-            isinstance(selector.get(key), str) and bool(selector[key].strip())
-            for key in (
-                "text", "text_contains", "text_regex", "content_description",
-                "content_description_regex", "view_id", "class_name",
-                "semantic_id", "semantic_family",
-            )
-        ):
-            errors.append("click element selector requires text or another stable field")
+        errors = (
+            list(selector_format_errors(selector))
+            if selector is not None
+            else []
+        )
         resolve = config.get("resolve", {})
         if not isinstance(resolve, dict) or resolve.get("strategy", "best_match") not in {"first", "best_match", "unique"}:
             errors.append("resolve.strategy must be first, best_match, or unique")
@@ -283,20 +280,22 @@ class ClickElementNode:
         return tuple(errors)
 
     def execute(self, context: GraphExecutionContext, config: JsonObject) -> NodeResult:
-        supplied = context.input_values.get("element")
-        if supplied is not None:
+        if "element" in context.input_values:
+            supplied = context.input_values["element"]
             if not isinstance(supplied, GraphElement):
+                code = "REQUIRED_INPUT_MISSING" if supplied is None else "INPUT_TYPE_MISMATCH"
                 raise MacroExecutionError(
-                    "click element data input must be an element", code="PORT_TYPE_MISMATCH",
+                    "Click Element의 element 입력이 올바르지 않습니다.", code=code,
                     port="element", expected="element", value=supplied,
                     hint="엘리먼트 찾기 노드의 element 출력을 연결하세요.",
                 )
-            element = supplied
+            element = _refresh_stale_element_once(context, supplied, config)
         else:
             ui = _require_ui(context)
-            if not config.get("selector"):
+            if not has_stable_selector(config.get("selector")):
                 raise MacroExecutionError(
-                    "click element requires element input or selector fallback", code="ELEMENT_INPUT_MISSING",
+                    "Click Element에 element 입력 또는 selector가 필요합니다.",
+                    code="REQUIRED_INPUT_MISSING",
                     port="element", expected="element", actual="missing",
                     hint="element 입력을 연결하거나 selector fallback을 설정하세요.",
                 )
@@ -323,23 +322,27 @@ class ClickElementNode:
                 port="element", expected="unique element", value=None,
                 hint="현재 화면과 선택자 조건을 확인하고, 대상이 나타난 뒤 실행하세요.",
             )
-        if element.metadata.get("visible") is False:
+        if not _valid_element_bounds(element):
             raise MacroExecutionError(
-                f"click element target {element.id!r} is not visible", code="ELEMENT_NOT_VISIBLE",
-                summary="엘리먼트 클릭 실패: 대상이 화면에 보이지 않습니다.",
+                "대상 엘리먼트의 bounds가 유효하지 않습니다.",
+                code="ELEMENT_BOUNDS_INVALID",
+                port="element", expected="positive finite bounds", actual="invalid bounds",
+                value=element, details=_element_details(element),
+                hint="화면을 새로 읽은 뒤 엘리먼트를 다시 찾으세요.",
+            )
+        if element.metadata.get("visible", True) is not True:
+            raise MacroExecutionError(
+                "대상 엘리먼트가 화면에 보이지 않습니다.", code="ELEMENT_NOT_VISIBLE",
                 port="element", expected="visible", actual="hidden", value=element,
+                details=_element_details(element),
                 hint="대상이 보이도록 스크롤하거나 화면 전환을 기다리세요.",
             )
-        if element.metadata.get("enabled") is False:
-            disabled_code, disabled_summary, disabled_hint = _disabled_element_error(
-                element, config
-            )
+        if element.metadata.get("enabled", True) is not True:
             raise MacroExecutionError(
-                f"click element target {element.id!r} is disabled",
-                code=disabled_code,
-                summary=disabled_summary,
+                "대상 엘리먼트가 비활성 상태입니다.", code="ELEMENT_DISABLED",
                 port="element", expected="enabled", actual="disabled", value=element,
-                hint=disabled_hint,
+                details=_element_details(element),
+                hint="필수 입력이나 선행 단계를 완료하고 대상이 활성화된 뒤 다시 실행하세요.",
             )
         context.last_resolved_element = element
         click = _object(config, "click", {})
@@ -358,15 +361,16 @@ class ClickElementNode:
                 {"type": mode},
             )
         )
+        x, y = _clamp_to_screen(context, point.x, point.y)
         result = _action_result(_require_actions(context).tap_screen(
-            point.x, point.y, duration_ms=_integer(click, "duration_ms", 70)
+            x, y, duration_ms=_integer(click, "duration_ms", 70)
         ))
         context.last_action_result = result
         return NodeResult.success(
             {
                 "element_id": element.id,
                 "bounds": element.bounds.to_list(),
-                "tap_point": [point.x, point.y],
+                "tap_point": [x, y],
                 "sampling": mode,
                 "action_result": result,
             },
@@ -441,48 +445,133 @@ class WaitNode:
         return NodeResult.success(next_handle="exec_out")
 
 
-def _disabled_element_error(
+def _refresh_stale_element_once(
+    context: GraphExecutionContext,
     element: GraphElement,
     config: JsonObject,
-) -> tuple[str, str, str]:
-    configured_code = config.get("disabled_error_code")
-    semantic_id = element.metadata.get("semantic_id")
-    semantic_family = (
-        semantic_id.split("[", 1)[0]
-        if isinstance(semantic_id, str)
-        else None
+) -> GraphElement:
+    metadata = element.metadata
+    screen_id = metadata.get("screen_id")
+    semantic_id = metadata.get("semantic_id")
+    params = metadata.get("params")
+    has_reference = (
+        isinstance(screen_id, str)
+        and isinstance(semantic_id, str)
+        and isinstance(params, dict)
     )
-    state = element.metadata.get("state")
-    if isinstance(configured_code, str) and configured_code:
-        code = configured_code
-    elif semantic_family in {"time_slot", "time_slot_by_time", "time_slot_by_end_time"}:
-        code = "SLOT_RESERVED" if state in {"booked", "reserved", "mine"} else "SLOT_DISABLED"
-    elif semantic_family == "reserve_cta":
-        code = "CTA_DISABLED"
-    else:
-        code = "ELEMENT_DISABLED"
-    if code == "SLOT_RESERVED":
-        return (
-            code,
-            "시간 슬롯 선택 실패: 이미 예약된 시간입니다.",
-            "다른 시간대를 선택하거나 예약 현황을 새로 확인하세요.",
+    stale = metadata.get("stale") is True or not _valid_element_bounds(element)
+    current_request_id: str | None = None
+    ui = context.ui
+    request_id = metadata.get("ui_tree_request_id")
+    current_request = getattr(ui, "current_ui_tree_request_id", None)
+    if isinstance(request_id, str) and callable(current_request):
+        try:
+            candidate = current_request()
+            current_request_id = candidate if isinstance(candidate, str) else None
+        except RuntimeError:
+            current_request_id = None
+        stale = stale or (
+            current_request_id is not None and current_request_id != request_id
         )
-    if code == "SLOT_DISABLED":
-        return (
-            code,
-            "시간 슬롯 선택 실패: 선택할 수 없는 시간입니다.",
-            "과거 시간이 아닌 활성화된 시간 슬롯을 선택하세요.",
+    resolved_at = metadata.get("resolved_at_monotonic")
+    max_age_ms = config.get("element_max_age_ms", 1_000)
+    if (
+        isinstance(resolved_at, int | float)
+        and not isinstance(resolved_at, bool)
+        and isinstance(max_age_ms, int | float)
+        and not isinstance(max_age_ms, bool)
+        and max_age_ms >= 0
+        and context.monotonic is not None
+    ):
+        stale = stale or (
+            (context.monotonic() - float(resolved_at)) * 1_000 > max_age_ms
         )
-    if code == "CTA_DISABLED":
-        return (
-            code,
-            "예약 버튼이 비활성 상태입니다.",
-            "시간 범위가 정상적으로 선택되었는지 확인하세요.",
-        )
+    if not stale or not has_reference:
+        return element
+    resolver = getattr(ui, "resolve_screen_element", None)
+    if not callable(resolver):
+        raise _stale_element_error(element)
+    assert isinstance(screen_id, str) and isinstance(semantic_id, str)
+    assert isinstance(params, dict)
+    try:
+        refreshed = resolver(screen_id, semantic_id, dict(params))
+    except (RuntimeError, TypeError, ValueError) as error:
+        raise _stale_element_error(element) from error
+    if not isinstance(refreshed, GraphElement):
+        raise _stale_element_error(element)
+    refreshed_metadata = dict(refreshed.metadata)
+    refreshed_metadata.update({
+        "screen_id": screen_id,
+        "semantic_id": semantic_id,
+        "params": dict(params),
+        "node_id": metadata.get("node_id"),
+    })
+    if current_request_id is not None:
+        refreshed_metadata.setdefault("ui_tree_request_id", current_request_id)
+    if context.monotonic is not None:
+        refreshed_metadata["resolved_at_monotonic"] = context.monotonic()
+    refreshed_metadata.setdefault("enabled", True)
+    refreshed_metadata.setdefault("visible", True)
+    return GraphElement(
+        refreshed.id, refreshed.bounds, refreshed.text, refreshed_metadata
+    )
+
+
+def _stale_element_error(element: GraphElement) -> MacroExecutionError:
+    return MacroExecutionError(
+        "오래된 엘리먼트를 현재 UI Tree에서 다시 찾을 수 없습니다.",
+        code="STALE_ELEMENT", port="element", expected="current element",
+        actual="stale", value=element, details=_element_details(element),
+        hint="화면 상태를 다시 확인하고 Find Screen Element부터 재실행하세요.",
+    )
+
+
+def _valid_element_bounds(element: GraphElement) -> bool:
+    bounds = element.bounds
+    values = (bounds.left, bounds.top, bounds.right, bounds.bottom)
     return (
-        code,
-        "엘리먼트 클릭 실패: 대상이 비활성 상태입니다.",
-        "필수 입력이나 선행 단계를 완료하고 대상이 활성화된 뒤 다시 실행하세요.",
+        all(
+            isinstance(value, int | float)
+            and not isinstance(value, bool)
+            and math.isfinite(value)
+            for value in values
+        )
+        and bounds.right > bounds.left
+        and bounds.bottom > bounds.top
+    )
+
+
+def _element_details(element: GraphElement) -> JsonObject:
+    metadata = element.metadata
+    return {
+        "semantic_id": metadata.get("semantic_id", element.id),
+        "params": metadata.get("params", {}),
+        "bounds": element.bounds.to_list(),
+        "enabled": metadata.get("enabled", True),
+        "visible": metadata.get("visible", True),
+        "screen_id": metadata.get("screen_id"),
+        "ui_tree_request_id": metadata.get("ui_tree_request_id"),
+        "state": metadata.get("state"),
+    }
+
+
+def _clamp_to_screen(
+    context: GraphExecutionContext,
+    x: float,
+    y: float,
+) -> tuple[float, float]:
+    screen_size = getattr(context.ui, "screen_size", None)
+    if not callable(screen_size):
+        return x, y
+    try:
+        width, height = screen_size()
+    except RuntimeError:
+        return x, y
+    if width <= 0 or height <= 0:
+        return x, y
+    return (
+        min(max(0.0, x), max(0.0, float(width) - 1)),
+        min(max(0.0, y), max(0.0, float(height) - 1)),
     )
 
 

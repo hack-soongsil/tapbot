@@ -124,17 +124,14 @@ class MacroExecutionError(RuntimeError):
             "actual": actual if actual is not None else actual_type,
         }
         if value is not _MISSING:
-            visible_value = "<redacted>" if sensitive or is_sensitive_name(port or "") else value
+            visible_value = (
+                "<redacted>"
+                if sensitive or is_sensitive_name(port or "")
+                else value.snapshot() if isinstance(value, GraphElement) else value
+            )
             self.payload.update({"actual_value": visible_value})
             if port:
                 self.payload["input_values"] = {port: visible_value}
                 self.payload["inputs"] = {port: visible_value}
             if isinstance(value, GraphElement):
-                metadata: JsonObject = dict(value.metadata)
-                self.payload["element"] = {
-                    "element_id": value.id,
-                    "semantic_id": value.metadata.get("semantic_id", value.id),
-                    "index": value.metadata.get("index"),
-                    "bounds": value.bounds.to_list(),
-                    "metadata": metadata,
-                }
+                self.payload["element"] = value.snapshot()

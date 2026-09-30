@@ -11,7 +11,7 @@ from typing import Any, Protocol
 from tapbot.ui_resolution.semantic_manifest import (
     canonical_element_id,
     canonical_screen_id,
-    screen_element_templates,
+    SCREEN_ELEMENT_TEMPLATES,
 )
 
 
@@ -173,9 +173,6 @@ DEFAULT_SSUTODAY_SCREENS = (
     ),
 )
 
-SCREEN_ELEMENT_TEMPLATES = screen_element_templates()
-
-
 def validate_screen_element_reference(
     screen_id: object,
     element_id: object,
@@ -198,27 +195,73 @@ def validate_screen_element_reference(
     template = templates[canonical_element]
     for key in template.get("required_params", []):
         value = params.get(key)
-        if key == "name":
-            if not isinstance(value, str) or not value.strip():
-                errors.append(f"params.{key} must be a non-empty string")
-            elif canonical_element == "time_slot_by_time" and _time_slot_index(value) is None:
-                errors.append(
-                    "params.name must be a half-hour time between 06:00 and 21:30"
-                )
-            elif (
-                canonical_element == "time_slot_by_end_time"
-                and _time_slot_end_index(value) is None
-            ):
-                errors.append(
-                    "params.name must be a half-hour time between 06:30 and 22:00"
-                )
-        elif isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            errors.append(f"params.{key} must be a non-negative integer")
-        elif isinstance(template.get("max_index"), int) and value > template["max_index"]:
-            errors.append(
-                f"params.index must be between 0 and {template['max_index']}"
-            )
+        schema = template.get("params", {}).get(key, {})
+        error = _validate_screen_element_param(key, value, schema)
+        if error is not None:
+            errors.append(error)
     return tuple(errors)
+
+
+def _validate_screen_element_param(
+    key: str,
+    value: object,
+    schema: object,
+) -> str | None:
+    if not isinstance(schema, dict):
+        return f"params.{key} has an invalid parameter schema"
+    param_type = schema.get("type")
+    if param_type == "int":
+        minimum = schema.get("min")
+        maximum = schema.get("max")
+        if isinstance(value, bool) or not isinstance(value, int):
+            if minimum == 0:
+                return f"params.{key} must be a non-negative integer"
+            return f"params.{key} must be an integer"
+        if isinstance(minimum, int) and value < minimum:
+            if minimum == 0:
+                return f"params.{key} must be a non-negative integer"
+            return f"params.{key} must be at least {minimum}"
+        if isinstance(maximum, int) and value > maximum:
+            if isinstance(minimum, int):
+                return f"params.{key} must be between {minimum} and {maximum}"
+            return f"params.{key} must be at most {maximum}"
+        return None
+    if param_type == "string":
+        if not isinstance(value, str) or not value.strip():
+            return f"params.{key} must be a non-empty string"
+        return None
+    if param_type == "bool":
+        return None if isinstance(value, bool) else f"params.{key} must be a boolean"
+    if param_type == "select":
+        options = _screen_element_param_options(schema)
+        if value not in options:
+            message = schema.get("invalid_message")
+            return message if isinstance(message, str) else f"params.{key} must be a configured option"
+        return None
+    return f"params.{key} has unsupported type {param_type!r}"
+
+
+def _screen_element_param_options(schema: dict[str, object]) -> tuple[object, ...]:
+    options = schema.get("options")
+    if isinstance(options, list):
+        return tuple(options)
+    value_range = schema.get("options_range")
+    if not isinstance(value_range, dict):
+        return ()
+    start = value_range.get("start")
+    count = value_range.get("count")
+    step = value_range.get("step_minutes")
+    if not isinstance(start, str) or not isinstance(count, int) or not isinstance(step, int):
+        return ()
+    try:
+        hour, minute = (int(part) for part in start.split(":"))
+    except (TypeError, ValueError):
+        return ()
+    start_minutes = hour * 60 + minute
+    return tuple(
+        f"{(start_minutes + index * step) // 60:02d}:{(start_minutes + index * step) % 60:02d}"
+        for index in range(count)
+    )
 
 
 def screen_element_semantic_id(
@@ -234,10 +277,14 @@ def screen_element_semantic_id(
     required = SCREEN_ELEMENT_TEMPLATES[canonical_screen][canonical_element].get(
         "required_params", []
     )
-    if "index" in required:
-        return f"{canonical_element}[{params['index']}]"
-    if "name" in required:
-        return f"{canonical_element}[{str(params['name']).strip()}]"
+    if len(required) == 1:
+        key = required[0]
+        value = params[key]
+        normalized = value.strip() if isinstance(value, str) else value
+        return f"{canonical_element}[{normalized}]"
+    if required:
+        suffix = ",".join(f"{key}={params[key]}" for key in required)
+        return f"{canonical_element}[{suffix}]"
     return canonical_element
 
 

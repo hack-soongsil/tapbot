@@ -262,6 +262,9 @@ def _wait_for_event(
 def _definition_shape(definition: MacroDefinition) -> dict[str, Any]:
     value = definition.to_dict()
     value.pop("version", None)
+    metadata = value.get("metadata")
+    if isinstance(metadata, dict):
+        metadata.pop("updated_at", None)
     return value
 
 
@@ -388,23 +391,24 @@ def test_blueprint_soak_runs_thirty_times_without_state_leakage(
 
 
 @pytest.mark.parametrize(
-    ("inputs", "error_code"),
+    ("inputs", "error_code", "failure_case"),
     (
-        ({**NORMAL_INPUTS, "startTime": "18:00", "endTime": "18:30"}, "SLOT_RESERVED"),
-        (NORMAL_INPUTS, "CTA_DISABLED"),
-        ({**NORMAL_INPUTS, "roomName": "없는 스터디룸"}, "ROOM_NOT_FOUND"),
+        ({**NORMAL_INPUTS, "startTime": "18:00", "endTime": "18:30"}, "ELEMENT_DISABLED", "slot"),
+        (NORMAL_INPUTS, "ELEMENT_DISABLED", "cta"),
+        ({**NORMAL_INPUTS, "roomName": "없는 스터디룸"}, "ROOM_NOT_FOUND", "room"),
     ),
 )
 def test_blueprint_recovers_after_controlled_runtime_error(
     tmp_path: Path,
     inputs: dict[str, object],
     error_code: str,
+    failure_case: str,
 ) -> None:
     harness = SoakHarness.create(tmp_path)
     runtime_ids: set[str] = set()
     try:
         harness.reset()
-        if error_code == "CTA_DISABLED":
+        if failure_case == "cta":
             base = reservation_macro()
             harness.repository.save(replace(
                 base,
@@ -435,7 +439,7 @@ def test_blueprint_recovers_after_controlled_runtime_error(
         assert any(state == "failure" for state in failed.node_states.values())
 
         harness.reset()
-        if error_code == "CTA_DISABLED":
+        if failure_case == "cta":
             harness.repository.save(reservation_macro())
         recovered = harness.run(NORMAL_INPUTS)
         _assert_successful_run(

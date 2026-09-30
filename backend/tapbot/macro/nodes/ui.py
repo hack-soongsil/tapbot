@@ -59,7 +59,7 @@ class FindScreenElementNode:
                 config.get("element_id"),
                 params,
             )
-            if not error.startswith(("params.index", "params.name"))
+            if not error.startswith("params.")
         )
 
     def execute(
@@ -77,30 +77,36 @@ class FindScreenElementNode:
         params_value = config.get("params", {})
         assert isinstance(params_value, dict)
         params = dict(params_value)
-        if "index" in context.input_values:
-            index = context.input_values["index"]
-            if isinstance(index, bool) or not isinstance(index, int) or index < 0:
-                raise MacroExecutionError(
-                    "screen element index data input must be a non-negative int",
-                    code="PORT_TYPE_MISMATCH",
-                    port="index",
-                    expected="non-negative int",
-                    value=index,
-                    hint="index 입력에 0 이상의 정수를 연결하세요.",
-                )
-            params["index"] = index
-        if "name" in context.input_values:
-            name = context.input_values["name"]
-            if not isinstance(name, str) or not name.strip():
-                raise MacroExecutionError(
-                    "screen element name data input must be a non-empty string",
-                    code="INPUT_TYPE_MISMATCH",
-                    port="name",
-                    expected="non-empty string",
-                    value=name,
-                    hint="name 입력에 찾을 엘리먼트의 이름이나 시각을 연결하세요.",
-                )
-            params["name"] = name.strip()
+        from tapbot.ui_resolution.semantic_manifest import screen_element_template
+        from tapbot.ui_resolution.screens import validate_screen_element_reference
+
+        template = screen_element_template(screen_id, element_id)
+        required_params = (
+            template.get("required_params", []) if template is not None else []
+        )
+        for key in required_params:
+            if key in context.input_values:
+                params[key] = context.input_values[key]
+        param_errors = tuple(
+            error
+            for error in validate_screen_element_reference(
+                screen_id, element_id, params
+            )
+            if error.startswith("params.")
+            and not _resolver_should_handle_param_error(
+                error, params, template, context.input_values
+            )
+        )
+        if param_errors:
+            port = param_errors[0].removeprefix("params.").split(" ", 1)[0]
+            raise MacroExecutionError(
+                param_errors[0],
+                code="INPUT_TYPE_MISMATCH",
+                port=port,
+                expected="valid manifest parameter",
+                value=params.get(port),
+                hint=f"{port} 입력값을 엘리먼트 파라미터 명세에 맞게 설정하세요.",
+            )
         try:
             element = resolver(screen_id, element_id, params)
         except RuntimeError as error:
@@ -136,6 +142,13 @@ class FindScreenElementNode:
                 next_handle="exec_out",
                 data_outputs={"found": False},
             )
+        element = _with_semantic_reference(
+            element,
+            screen_id=screen_id,
+            element_id=element_id,
+            params=params,
+            context=context,
+        )
         context.last_resolved_element = element
         return NodeResult.success(
             {
@@ -146,6 +159,57 @@ class FindScreenElementNode:
             next_handle="exec_out",
             data_outputs={"found": True, "element": element},
         )
+
+
+def _with_semantic_reference(
+    element: GraphElement,
+    *,
+    screen_id: str,
+    element_id: str,
+    params: JsonObject,
+    context: GraphExecutionContext,
+) -> GraphElement:
+    from tapbot.ui_resolution.semantic_manifest import (
+        canonical_element_id,
+        canonical_screen_id,
+    )
+
+    canonical_screen = canonical_screen_id(screen_id)
+    metadata = dict(element.metadata)
+    metadata.update({
+        "screen_id": canonical_screen,
+        "semantic_id": canonical_element_id(canonical_screen, element_id),
+        "params": dict(params),
+        "node_id": context.current_node_id,
+    })
+    if context.monotonic is not None:
+        metadata["resolved_at_monotonic"] = context.monotonic()
+    # Older/test resolvers returned only bounds after already filtering state.
+    metadata.setdefault("enabled", True)
+    metadata.setdefault("visible", True)
+    return GraphElement(element.id, element.bounds, element.text, metadata)
+
+
+def _resolver_should_handle_param_error(
+    error: str,
+    params: JsonObject,
+    template: JsonObject | None,
+    input_values: JsonObject,
+) -> bool:
+    """Let the resolver report unknown but well-typed dynamic select values."""
+
+    port = error.removeprefix("params.").split(" ", 1)[0]
+    if port not in input_values or template is None:
+        return False
+    schemas = template.get("params", {})
+    schema = schemas.get(port, {}) if isinstance(schemas, dict) else {}
+    value = params.get(port)
+    return (
+        isinstance(schema, dict)
+        and schema.get("type") == "select"
+        and isinstance(value, str)
+        and bool(value.strip())
+    )
 
 
 class RequireElementNode:

@@ -9,10 +9,13 @@ import {
 import { RuntimeErrorSection } from './RuntimeErrorSection'
 import type { RuntimeTrace } from './runtime-trace'
 import {
-  SCREEN_ELEMENTS,
+  SCREEN_ELEMENT_CATEGORIES,
   SEMANTIC_SCREEN_OPTIONS,
-  canonicalElementId,
-  canonicalScreenId,
+  defaultParamsForElement,
+  elementsInCategory,
+  selectedScreenElement,
+  withoutScreenElementEditorMetadata,
+  type ScreenElementParamSchema,
 } from './screen-elements'
 import type {
   JsonValue,
@@ -34,6 +37,7 @@ export interface NodeInspectorProps {
   variables?: readonly MacroVariableDefinition[]
   runtimeError?: RuntimeTrace | null
   onFocusErrorNode?: (nodeId: string) => void
+  connectedInputIds?: ReadonlySet<string>
 }
 
 interface InspectorContext {
@@ -43,6 +47,7 @@ interface InspectorContext {
   update: (key: string, value: JsonValue) => void
   updateMany: (values: Record<string, JsonValue>) => void
   updateObject: (key: string, field: string, value: JsonValue) => void
+  connectedInputIds: ReadonlySet<string>
 }
 
 export function NodeInspector({
@@ -57,6 +62,7 @@ export function NodeInspector({
   variables = [],
   runtimeError,
   onFocusErrorNode,
+  connectedInputIds = new Set(),
 }: NodeInspectorProps) {
   const bodyRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -73,13 +79,13 @@ export function NodeInspector({
 
   const definition = getNodeDefinition(node.data.nodeType)
   const update = (key: string, value: JsonValue) =>
-    onUpdateConfig(setConfigPath(node.data.config, key, value))
+    onUpdateConfig(cleanEditorMetadata(node, setConfigPath(node.data.config, key, value)))
   const updateMany = (values: Record<string, JsonValue>) =>
-    onUpdateConfig({ ...node.data.config, ...values })
+    onUpdateConfig(cleanEditorMetadata(node, { ...node.data.config, ...values }))
   const updateObject = (key: string, field: string, value: JsonValue) =>
     update(key, { ...jsonObject(getConfigPath(node.data.config, key)), [field]: value })
   const context: InspectorContext = {
-    node, functions, variables, update, updateMany, updateObject,
+    node, functions, variables, update, updateMany, updateObject, connectedInputIds,
   }
 
   return (
@@ -123,6 +129,15 @@ export function NodeInspector({
       </div>
     </aside>
   )
+}
+
+function cleanEditorMetadata(
+  node: MacroFlowNode,
+  config: Record<string, JsonValue>,
+): Record<string, JsonValue> {
+  return node.data.nodeType === 'find_screen_element'
+    ? withoutScreenElementEditorMetadata(config)
+    : config
 }
 
 function InspectorFields({
@@ -206,6 +221,7 @@ function renderCustomInspector(editor: CustomInspectorEditor, context: Inspector
     sequence: () => <SequenceEditor context={context} />,
     'screen-element': () => <ScreenElementFields
       config={context.node.data.config}
+      connectedInputIds={context.connectedInputIds}
       updateMany={context.updateMany}
       updateObject={context.updateObject}
     />,
@@ -342,20 +358,102 @@ function SamplingFields({ label, value, onChange }: { label: string; value: Reco
   return <fieldset className="macro-selector-fields"><legend>{label}</legend><Field label="타입"><select value={type} onChange={(event) => onChange('type', event.target.value)}><option value="uniform">균등 분포</option><option value="normal">정규 분포</option></select></Field>{type === 'normal' && <>{(['center_x', 'center_y', 'sigma_x', 'sigma_y'] as const).map((key) => <NumberField key={key} label={key} value={number(value[key], key.startsWith('center') ? 0.5 : 0.18)} onChange={(next) => onChange(key, next)} />)}</>}</fieldset>
 }
 
-function ScreenElementFields({ config, updateMany, updateObject }: { config: Record<string, JsonValue>; updateMany: (values: Record<string, JsonValue>) => void; updateObject: (key: string, field: string, value: JsonValue) => void }) {
-  const screenId = canonicalScreenId(text(config.screen_id, 'study_room_list'))
-  const elements = SCREEN_ELEMENTS[screenId] ?? []
-  const elementId = canonicalElementId(
-    screenId,
-    text(config.element_id, elements[0]?.id ?? ''),
-  )
-  const selected = elements.find((element) => element.id === elementId)
+function ScreenElementFields({
+  config,
+  connectedInputIds,
+  updateMany,
+  updateObject,
+}: {
+  config: Record<string, JsonValue>
+  connectedInputIds: ReadonlySet<string>
+  updateMany: (values: Record<string, JsonValue>) => void
+  updateObject: (key: string, field: string, value: JsonValue) => void
+}) {
+  const selection = selectedScreenElement(config)
+  const categories = SCREEN_ELEMENT_CATEGORIES[selection.screenId] ?? []
+  const elements = elementsInCategory(selection.screenId, selection.categoryId)
   const params = jsonObject(config.params)
-  const defaultParams = (option: typeof selected): Record<string, JsonValue> => {
-    if (!option?.collection) return {}
-    return option.param === 'name' ? { name: option.values?.[0] ?? '' } : { index: 0 }
+  return <>
+    <Field label={ko.inspector.screen}>
+      <select value={selection.screenId} onChange={(event) => {
+        const screenId = event.target.value
+        const categoryId = SCREEN_ELEMENT_CATEGORIES[screenId]?.[0]?.id ?? ''
+        const element = elementsInCategory(screenId, categoryId)[0]
+        updateMany({
+          screen_id: screenId,
+          element_id: element?.id ?? '',
+          params: defaultParamsForElement(element),
+        })
+      }}>
+        {SEMANTIC_SCREEN_OPTIONS.map((screen) => <option key={screen.id} value={screen.id}>{screen.label}</option>)}
+      </select>
+    </Field>
+    <Field label="카테고리">
+      <select value={selection.categoryId} onChange={(event) => {
+        const categoryId = event.target.value
+        const element = elementsInCategory(selection.screenId, categoryId)[0]
+        updateMany({
+          element_id: element?.id ?? '',
+          params: defaultParamsForElement(element),
+        })
+      }}>
+        {categories.map((category) => <option key={category.id} value={category.id}>{category.label}</option>)}
+      </select>
+    </Field>
+    <Field label="요소">
+      <select value={selection.element?.id ?? ''} onChange={(event) => {
+        const element = elements.find((candidate) => candidate.id === event.target.value)
+        updateMany({
+          element_id: element?.id ?? '',
+          params: defaultParamsForElement(element),
+        })
+      }}>
+        {elements.map((element) => <option key={element.id} value={element.id}>{element.label}</option>)}
+      </select>
+    </Field>
+    {selection.element?.requiredParams.map((key) => {
+      const schema = selection.element?.params[key]
+      if (!schema) return null
+      return <ScreenElementParamField
+        key={key}
+        schema={schema}
+        value={params[key]}
+        connected={connectedInputIds.has(key)}
+        onChange={(value) => updateObject('params', key, value)}
+      />
+    })}
+  </>
+}
+
+function ScreenElementParamField({
+  schema,
+  value,
+  connected,
+  onChange,
+}: {
+  schema: ScreenElementParamSchema
+  value: JsonValue | undefined
+  connected: boolean
+  onChange: (value: JsonValue) => void
+}) {
+  if (connected) return <Field label={schema.label}><span className="macro-field__connected">연결됨</span></Field>
+  if (schema.type === 'int') {
+    return <NumberField
+      label={schema.label}
+      min={schema.min}
+      max={schema.max}
+      step={1}
+      value={number(value, number(schema.default, schema.min ?? 0))}
+      onChange={(next) => onChange(Math.trunc(next))}
+    />
   }
-  return <><Field label={ko.inspector.screen}><select value={screenId} onChange={(event) => { const next = event.target.value; const first = SCREEN_ELEMENTS[next]?.[0]; updateMany({ screen_id: next, element_id: first?.id ?? '', params: defaultParams(first) }) }}>{SEMANTIC_SCREEN_OPTIONS.map((screen) => <option key={screen.id} value={screen.id}>{screen.label}</option>)}</select></Field><Field label={ko.inspector.element}><select value={elementId} onChange={(event) => { const next = event.target.value; updateMany({ element_id: next, params: defaultParams(elements.find((element) => element.id === next)) }) }}>{elements.map((element) => <option key={element.id} value={element.id}>{element.label}</option>)}</select></Field>{selected?.collection && (selected.param === 'name' ? selected.values ? <Field label="시간"><select value={text(params.name, selected.values[0])} onChange={(event) => updateObject('params', 'name', event.target.value)}>{selected.values.map((value) => <option key={value} value={value}>{value}</option>)}</select></Field> : <TextField label="이름" value={text(params.name)} onChange={(value) => updateObject('params', 'name', value)} /> : <NumberField label={ko.inspector.index} min={0} max={selected.maxIndex} value={number(params.index)} onChange={(value) => updateObject('params', 'index', Math.min(selected.maxIndex ?? Number.MAX_SAFE_INTEGER, Math.max(0, Math.trunc(value))))} />)}</>
+  if (schema.type === 'bool') {
+    return <label className="macro-checkbox"><input type="checkbox" checked={value === true} onChange={(event) => onChange(event.target.checked)} />{schema.label}</label>
+  }
+  if (schema.type === 'select') {
+    return <Field label={schema.label}><select value={text(value, text(schema.default, schema.options?.[0]?.value ?? ''))} onChange={(event) => onChange(event.target.value)}>{schema.options?.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+  }
+  return <TextField label={schema.label} value={text(value, text(schema.default))} placeholder={schema.placeholder} onChange={onChange} />
 }
 
 function TriState({ label, value, onChange }: { label: string; value: JsonValue | undefined; onChange: (value: JsonValue) => void }) {
@@ -367,8 +465,8 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
   return <label className="macro-field"><span>{label}</span>{children}</label>
 }
 
-function TextField({ label, value, onChange, code = false }: { label: string; value: string; onChange: (value: string) => void; code?: boolean }) {
-  return <Field label={label}><input className={code ? 'code-text' : undefined} value={value} onChange={(event) => onChange(event.target.value)} /></Field>
+function TextField({ label, value, onChange, code = false, placeholder }: { label: string; value: string; onChange: (value: string) => void; code?: boolean; placeholder?: string }) {
+  return <Field label={label}><input className={code ? 'code-text' : undefined} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} /></Field>
 }
 
 function NumberField({ label, value, min, max, step, onChange }: { label: string; value: number; min?: number; max?: number; step?: number; onChange: (value: number) => void }) {

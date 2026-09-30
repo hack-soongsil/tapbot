@@ -306,7 +306,8 @@ def main() -> int:
         mock_android = subprocess.Popen(
             [
                 sys.executable,
-                str(ROOT / "scripts" / "mock_android_agent.py"),
+                "-m",
+                "scripts.mock_android_agent",
                 "--port",
                 str(mock_android_port),
                 "--token",

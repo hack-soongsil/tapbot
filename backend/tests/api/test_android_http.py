@@ -1,3 +1,4 @@
+from datetime import datetime
 from pathlib import Path
 
 import cv2
@@ -268,11 +269,16 @@ def test_invalid_macro_draft_can_be_saved_but_not_started(tmp_path: Path) -> Non
         started = client.post("/api/android/default/macro/start")
 
     assert created.status_code == 201
+    created_at = created.json()["metadata"]["updated_at"]
+    assert datetime.fromisoformat(created_at).tzinfo is not None
     assert updated.status_code == 200
     assert updated.json()["version"] == 2
+    updated_at = updated.json()["metadata"]["updated_at"]
+    assert datetime.fromisoformat(updated_at) >= datetime.fromisoformat(created_at)
     assert loaded.status_code == 200
     assert loaded.json()["id"] == "invalid-draft"
     assert loaded.json()["name"] == "Invalid Draft Saved Again"
+    assert loaded.json()["metadata"]["updated_at"] == updated_at
     assert validation.status_code == 200
     assert validation.json()["valid"] is False
     assert invalid_binding.status_code == 422

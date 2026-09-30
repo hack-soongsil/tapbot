@@ -7,6 +7,7 @@ import {
   type GraphId,
 } from '../graph-store'
 import type { BlueprintSelection } from '../MyBlueprintPanel'
+import { isEditableKeyboardTarget, isImeKeyboardEvent } from '../keyboard-events'
 import type { MacroDefinition, MacroFlowEdge, MacroFlowNode } from '../types'
 
 interface GraphViewState {
@@ -123,9 +124,8 @@ export function useGraphNavigation({
   useEffect(() => {
     if (panelTab !== 'canvas' || navigationPath.length <= 1) return
     const goToParentGraph = (event: KeyboardEvent) => {
+      if (isImeKeyboardEvent(event) || isEditableKeyboardTarget(event.target)) return
       if (!event.altKey || event.key !== 'ArrowLeft' || dialogOpen) return
-      const target = event.target
-      if (target instanceof HTMLElement && target.matches('input, textarea, select, [contenteditable="true"]')) return
       event.preventDefault()
       goBack()
     }

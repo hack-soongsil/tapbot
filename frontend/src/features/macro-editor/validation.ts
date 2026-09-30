@@ -5,18 +5,46 @@ import type {
   MacroDefinition,
   ValidationIssue,
 } from './types'
-import { SCREEN_ELEMENTS } from './screen-elements'
+import {
+  SCREEN_ELEMENTS,
+  canonicalElementId,
+  canonicalScreenId,
+  type ScreenElementParamSchema,
+} from './screen-elements'
 
 const selectorTypes = new Set([
   'find_element',
   'require_element',
   'tap_element',
-  'click_element',
   'element_exists',
   'element_text_equals',
   'wait_for_element',
   'assert_element',
 ])
+
+const stableSelectorFields = [
+  'text',
+  'text_contains',
+  'text_regex',
+  'content_description',
+  'content_description_regex',
+  'view_id',
+  'class_name',
+  'semantic_id',
+  'semantic_family',
+] as const
+
+const optionalSelectorStringFields = [
+  ...stableSelectorFields,
+  'bounds_region',
+  'ui_tree_path',
+] as const
+
+const optionalSelectorBooleanFields = [
+  'clickable',
+  'enabled',
+  'visible_to_user',
+] as const
 
 export function validateMacroDefinition(
   definition: MacroDefinition,
@@ -78,6 +106,17 @@ export function validateMacroDefinition(
       }
     }
     validateFunctionDataEdges(functionDefinition, issues)
+    const functionWiredInputs = collectWiredInputs(functionDefinition.edges)
+    for (const node of functionDefinition.nodes) {
+      if (node.type === 'click_element') {
+        validateClickElement(
+          node.config,
+          functionWiredInputs.get(node.id),
+          issues,
+          node.id,
+        )
+      }
+    }
   }
   const variables = new Map((definition.variables ?? []).map((item) => [item.name, item]))
   for (const node of [
@@ -222,11 +261,12 @@ export function validateMacroDefinition(
       issues.push(issue(`Unsupported node type: ${node.type}`, { nodeId: node.id }))
       continue
     }
-    if (
+    if (node.type === 'click_element') {
+      validateClickElement(node.config, wiredInputs.get(node.id), issues, node.id)
+    } else if (
       selectorTypes.has(node.type) &&
       !(node.type === 'tap_element' && node.config.source === 'previous') &&
-      !(node.type === 'click_element' && wiredInputs.get(node.id)?.has('element')) &&
-      !hasSelector(node.config.selector)
+      !hasUsableSelector(node.config.selector)
     ) {
       issues.push(issue('Enter at least one selector field.', { nodeId: node.id }))
     }
@@ -297,15 +337,24 @@ export function validateMacroDefinition(
       issues.push(issue('Sequence requires at least two outputs.', { nodeId: node.id }))
     }
     if (node.type === 'find_screen_element') {
-      const screenId = typeof node.config.screen_id === 'string' ? node.config.screen_id : ''
-      const elementId = typeof node.config.element_id === 'string' ? node.config.element_id : ''
+      const screenId = canonicalScreenId(
+        typeof node.config.screen_id === 'string' ? node.config.screen_id : '',
+      )
+      const elementId = canonicalElementId(
+        screenId,
+        typeof node.config.element_id === 'string' ? node.config.element_id : '',
+      )
       const template = SCREEN_ELEMENTS[screenId]?.find((item) => item.id === elementId)
       if (!template) {
         issues.push(issue('Choose a valid screen element.', { nodeId: node.id }))
-      } else if (template.collection && !wiredInputs.get(node.id)?.has('index')) {
-        const index = object(node.config.params).index
-        if (typeof index !== 'number' || index < 0 || !Number.isInteger(index)) {
-          issues.push(issue('Collection index must be a non-negative integer.', { nodeId: node.id }))
+      } else {
+        const params = object(node.config.params)
+        for (const key of template.requiredParams) {
+          if (wiredInputs.get(node.id)?.has(key)) continue
+          const message = validateScreenElementParam(params[key], template.params[key])
+          if (message) {
+            issues.push(issue(`${template.params[key]?.label ?? key}: ${message}`, { nodeId: node.id }))
+          }
         }
       }
     }
@@ -324,6 +373,28 @@ function matchesVariableType(value: JsonValue, type: string) {
     ? ['x', 'y']
     : type === 'rect' ? ['left', 'top', 'right', 'bottom'] : []
   return keys.length > 0 && keys.every((key) => typeof value[key] === 'number')
+}
+
+function validateScreenElementParam(
+  value: JsonValue | undefined,
+  schema: ScreenElementParamSchema | undefined,
+): string | null {
+  if (!schema) return 'parameter schema is missing.'
+  if (schema.type === 'int') {
+    if (typeof value !== 'number' || !Number.isInteger(value)) return '정수가 필요합니다.'
+    if (schema.min !== undefined && value < schema.min) return `${schema.min} 이상이어야 합니다.`
+    if (schema.max !== undefined && value > schema.max) return `${schema.max} 이하여야 합니다.`
+    return null
+  }
+  if (schema.type === 'string') {
+    return typeof value === 'string' && value.trim() ? null : '빈 문자열일 수 없습니다.'
+  }
+  if (schema.type === 'bool') return typeof value === 'boolean' ? null : '참/거짓 값이 필요합니다.'
+  if (schema.type === 'select') {
+    return typeof value === 'string' && schema.options?.some((option) => option.value === value)
+      ? null : '목록에서 값을 선택하세요.'
+  }
+  return '지원하지 않는 파라미터 타입입니다.'
 }
 
 function matchesFunctionPortDefault(value: JsonValue, type: string): boolean {
@@ -451,11 +522,65 @@ export function mapBackendValidationErrors(
   }))
 }
 
-function hasSelector(value: JsonValue | undefined) {
+function hasUsableSelector(value: JsonValue | undefined) {
   if (!value || Array.isArray(value) || typeof value !== 'object') return false
-  return Object.entries(value).some(([key, item]) => (
-    key !== 'ui_tree_path' && typeof item === 'string' && item.trim()
+  return stableSelectorFields.some((key) => (
+    typeof value[key] === 'string' && value[key].trim().length > 0
   ))
+}
+
+function validateClickElement(
+  config: Record<string, JsonValue>,
+  wiredInputs: ReadonlySet<string> | undefined,
+  issues: ValidationIssue[],
+  nodeId: string,
+) {
+  const selector = config.selector
+  if (selector !== undefined) {
+    if (!selector || Array.isArray(selector) || typeof selector !== 'object') {
+      issues.push(issue('Selector는 객체여야 합니다.', { nodeId }))
+    } else {
+      for (const key of optionalSelectorStringFields) {
+        const value = selector[key]
+        if (value !== undefined && value !== null && typeof value !== 'string') {
+          issues.push(issue(`Selector ${key} 값은 문자열이어야 합니다.`, { nodeId }))
+        }
+      }
+      for (const key of optionalSelectorBooleanFields) {
+        const value = selector[key]
+        if (value !== undefined && value !== null && typeof value !== 'boolean') {
+          issues.push(issue(`Selector ${key} 값은 참/거짓이어야 합니다.`, { nodeId }))
+        }
+      }
+      const index = selector.index
+      if (
+        index !== undefined
+        && index !== null
+        && (typeof index !== 'number' || !Number.isInteger(index) || index < 0)
+      ) {
+        issues.push(issue('Selector index 값은 0 이상의 정수여야 합니다.', { nodeId }))
+      }
+    }
+  }
+  if (!wiredInputs?.has('element') && !hasUsableSelector(selector)) {
+    issues.push(issue(
+      'Click Element에는 Element 입력 연결 또는 유효한 Selector가 필요합니다.',
+      { nodeId },
+    ))
+  }
+}
+
+function collectWiredInputs(
+  edges: MacroDefinition['edges'],
+): Map<string, Set<string>> {
+  const result = new Map<string, Set<string>>()
+  for (const edge of edges) {
+    if ((edge.kind ?? 'exec') !== 'data' || !edge.target_handle) continue
+    const handles = result.get(edge.target) ?? new Set<string>()
+    handles.add(edge.target_handle)
+    result.set(edge.target, handles)
+  }
+  return result
 }
 
 function text(value: JsonValue | undefined) {

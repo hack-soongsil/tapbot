@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
 } from 'react'
 import { ko, macroCategoryLabels } from '../../i18n/ko'
+import { isImeKeyboardEvent } from './keyboard-events'
 import type { SearchItem } from './search-provider'
 import { blockSupportsPortContext, type SourcePortContext } from './port-compatibility'
 import type { MacroNodeCategory } from './types'
@@ -183,6 +184,7 @@ function OpenQuickBlockSearch({
 
   useEffect(() => {
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (isImeKeyboardEvent(event)) return
       if (event.key !== 'Escape') return
       event.preventDefault()
       event.stopPropagation()
@@ -233,6 +235,7 @@ function OpenQuickBlockSearch({
   }
 
   const keyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return
     if (event.key === 'Backspace' && !query && activeCategory) {
       event.preventDefault()
       goBack()

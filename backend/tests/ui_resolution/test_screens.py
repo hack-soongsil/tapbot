@@ -7,6 +7,7 @@ from tapbot.ui_resolution.screens import (
     screen_element_semantic_id,
     validate_screen_element_reference,
 )
+from tapbot.ui_resolution.semantic_manifest import SEMANTIC_SCREEN_MANIFEST
 
 
 def node(
@@ -183,6 +184,18 @@ def test_semantic_screen_manifest_exposes_only_canonical_templates() -> None:
         "study_room_confirm",
         "study_room_complete",
     )
+    slot = SCREEN_ELEMENT_TEMPLATES["study_room_detail"]["time_slot"]
+    assert slot["category"] == "time"
+    assert slot["required_params"] == ["index"]
+    assert slot["params"]["index"] == {
+        "type": "int",
+        "label": "인덱스",
+        "description": "06:00부터 30분 단위로 증가하는 슬롯 번호입니다.",
+        "value_hint": "0 = 06:00, 1 = 06:30, …, 31 = 21:30",
+        "min": 0,
+        "max": 31,
+        "default": 0,
+    }
     assert validate_screen_element_reference(
         "reservation_home", "quick_date", {"index": 2}
     ) == ()
@@ -192,6 +205,16 @@ def test_semantic_screen_manifest_exposes_only_canonical_templates() -> None:
     assert screen_element_semantic_id(
         "reservation_detail", "time_slot_by_time", {"name": "18:30"}
     ) == "time_slot_by_time[18:30]"
+
+
+def test_semantic_screen_manifest_reference_metadata_is_consistent() -> None:
+    for screen in SEMANTIC_SCREEN_MANIFEST["screens"]:
+        category_ids = {category["id"] for category in screen["categories"]}
+        for element in screen["elements"]:
+            assert element["label"]
+            assert element["category"] in category_ids
+            required_params = set(element.get("required_params", []))
+            assert required_params <= set(element.get("params", {}))
 
 
 def test_actual_ssutoday_tree_keeps_all_slots_with_semantic_times() -> None:

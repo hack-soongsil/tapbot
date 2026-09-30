@@ -9,23 +9,7 @@
       "target_handle": "exec_in"
     },
     {
-      "id": "find_screen_element-1-click_element-1-2",
-      "kind": "data",
-      "source": "find_screen_element-1",
-      "source_handle": "element",
-      "target": "click_element-1",
-      "target_handle": "element"
-    },
-    {
       "id": "find_screen_element-1-branch-1-1",
-      "kind": "exec",
-      "source": "find_screen_element-1",
-      "source_handle": "exec_out",
-      "target": "branch-1",
-      "target_handle": "exec_in"
-    },
-    {
-      "id": "find_screen_element-1-branch-1-2",
       "kind": "data",
       "source": "find_screen_element-1",
       "source_handle": "found",
@@ -36,159 +20,58 @@
       "id": "branch-1-debug_print-1-1",
       "kind": "exec",
       "source": "branch-1",
-      "source_handle": "false",
+      "source_handle": "true",
       "target": "debug_print-1",
       "target_handle": "exec_in"
     },
     {
-      "id": "branch-1-click_element-1-1",
+      "id": "branch-1-debug_print-3-1",
       "kind": "exec",
       "source": "branch-1",
-      "source_handle": "true",
-      "target": "click_element-1",
-      "target_handle": "exec_in"
-    },
-    {
-      "id": "event-detail-update-find_screen_element-2-1",
-      "kind": "exec",
-      "source": "event-detail-update",
-      "source_handle": "exec_out",
-      "target": "find_screen_element-2",
-      "target_handle": "exec_in"
-    },
-    {
-      "id": "find_screen_element-2-branch-2-1",
-      "kind": "exec",
-      "source": "find_screen_element-2",
-      "source_handle": "exec_out",
-      "target": "branch-2",
-      "target_handle": "exec_in"
-    },
-    {
-      "id": "branch-2-click_element-2-1",
-      "kind": "exec",
-      "source": "branch-2",
-      "source_handle": "true",
-      "target": "click_element-2",
-      "target_handle": "exec_in"
-    },
-    {
-      "id": "branch-2-debug_print-2-1",
-      "kind": "exec",
-      "source": "branch-2",
       "source_handle": "false",
-      "target": "debug_print-2",
+      "target": "debug_print-3",
       "target_handle": "exec_in"
     },
     {
-      "id": "find_screen_element-2-click_element-2-1",
-      "kind": "data",
-      "source": "find_screen_element-2",
-      "source_handle": "element",
-      "target": "click_element-2",
-      "target_handle": "element"
+      "id": "find_screen_element-1-branch-1-2",
+      "kind": "exec",
+      "source": "find_screen_element-1",
+      "source_handle": "exec_out",
+      "target": "branch-1",
+      "target_handle": "exec_in"
     },
     {
-      "id": "find_screen_element-2-branch-2-2",
+      "id": "find_screen_element-1-click_element-1-1",
       "kind": "data",
-      "source": "find_screen_element-2",
-      "source_handle": "found",
-      "target": "branch-2",
-      "target_handle": "condition"
-    }
-  ],
-  "functions": [
-    {
-      "edges": [
-        {
-          "id": "function-1-entry-debug_print-1-1",
-          "kind": "exec",
-          "source": "function-1-entry",
-          "source_handle": "exec_out",
-          "target": "debug_print-1",
-          "target_handle": "exec_in"
-        },
-        {
-          "id": "debug_print-1-function-1-return-1",
-          "kind": "exec",
-          "source": "debug_print-1",
-          "source_handle": "exec_out",
-          "target": "function-1-return",
-          "target_handle": "exec_in"
-        }
-      ],
-      "entry_node_id": "function-1-entry",
-      "id": "function-1",
-      "inputs": [],
-      "name": "Function 1",
-      "nodes": [
-        {
-          "config": {
-            "inputs": []
-          },
-          "id": "function-1-entry",
-          "label": "Function 1 / 시작",
-          "position": {
-            "x": 157.93984550679275,
-            "y": 92.37009441251556
-          },
-          "type": "function_entry"
-        },
-        {
-          "config": {
-            "outputs": []
-          },
-          "id": "function-1-return",
-          "label": "Function 1 / 반환",
-          "position": {
-            "x": 747.3017476610947,
-            "y": 116.61804634796218
-          },
-          "type": "function_return"
-        },
-        {
-          "config": {
-            "level": "info",
-            "message": "hi"
-          },
-          "id": "debug_print-1",
-          "position": {
-            "x": 425.14895781815557,
-            "y": 249.4415026681266
-          },
-          "type": "debug_print"
-        }
-      ],
-      "outputs": [],
-      "return_node_id": "function-1-return"
+      "source": "find_screen_element-1",
+      "source_handle": "element",
+      "target": "click_element-1",
+      "target_handle": "element"
     }
   ],
   "id": "macro-mukjsthq",
   "metadata": {
     "editor_screen_node_ids": {
-      "reservation_detail": [
-        "find_screen_element-2",
-        "click_element-2",
-        "branch-2",
-        "debug_print-2"
-      ],
-      "reservation_home": [
+      "study_room_detail": [],
+      "study_room_list": [
         "find_screen_element-1",
-        "click_element-1",
         "branch-1",
-        "debug_print-1"
+        "debug_print-1",
+        "debug_print-3",
+        "click_element-1"
       ]
-    }
+    },
+    "updated_at": "2026-09-30T04:12:10.090Z"
   },
   "name": "새 매크로",
   "nodes": [
     {
       "config": {
         "event": "enter",
-        "screen_id": "reservation_home"
+        "screen_id": "study_room_list"
       },
       "id": "event-home-enter",
-      "label": "스터디룸 예약 메인 / Enter",
+      "label": "스터디룸 목록 / Enter",
       "position": {
         "x": -143.0379037697375,
         "y": -185.11058284407443
@@ -199,11 +82,11 @@
       "config": {
         "event": "update",
         "interval_ms": 1000,
-        "screen_id": "reservation_home",
+        "screen_id": "study_room_list",
         "skip_if_running": true
       },
       "id": "event-home-update",
-      "label": "스터디룸 예약 메인 / Update",
+      "label": "스터디룸 목록 / Update",
       "position": {
         "x": -425.38190573396554,
         "y": 170.33807784351376
@@ -213,23 +96,23 @@
     {
       "config": {
         "event": "exit",
-        "screen_id": "reservation_home"
+        "screen_id": "study_room_list"
       },
       "id": "event-home-exit",
-      "label": "스터디룸 예약 메인 / Exit",
+      "label": "스터디룸 목록 / Exit",
       "position": {
-        "x": 852.5121030653174,
-        "y": 35.52178592734168
+        "x": 920.5121030653173,
+        "y": 24.521785927341696
       },
       "type": "screen_exit"
     },
     {
       "config": {
         "event": "enter",
-        "screen_id": "reservation_detail"
+        "screen_id": "study_room_detail"
       },
       "id": "event-detail-enter",
-      "label": "스터디룸 예약 상세 / Enter",
+      "label": "스터디룸 상세 / Enter",
       "position": {
         "x": 12.175787574381275,
         "y": -174.85398929467976
@@ -240,11 +123,11 @@
       "config": {
         "event": "update",
         "interval_ms": 1000,
-        "screen_id": "reservation_detail",
+        "screen_id": "study_room_detail",
         "skip_if_running": true
       },
       "id": "event-detail-update",
-      "label": "스터디룸 예약 상세 / Update",
+      "label": "스터디룸 상세 / Update",
       "position": {
         "x": -171.31967152234276,
         "y": 189.35780843781654
@@ -254,10 +137,10 @@
     {
       "config": {
         "event": "exit",
-        "screen_id": "reservation_detail"
+        "screen_id": "study_room_detail"
       },
       "id": "event-detail-exit",
-      "label": "스터디룸 예약 상세 / Exit",
+      "label": "스터디룸 상세 / Exit",
       "position": {
         "x": 262.9035412278949,
         "y": -225.4690731943952
@@ -266,44 +149,18 @@
     },
     {
       "config": {
-        "element_id": "quick_date",
+        "element_id": "room_name",
         "params": {
-          "index": 0
+          "index": 2
         },
-        "screen_id": "reservation_home"
+        "screen_id": "study_room_list"
       },
       "id": "find_screen_element-1",
       "position": {
-        "x": -120.41287817022337,
-        "y": 198.42055952181994
+        "x": -79.76943319311225,
+        "y": 318.83644047680764
       },
       "type": "find_screen_element"
-    },
-    {
-      "config": {
-        "click": {
-          "duration_ms": 70
-        },
-        "resolve": {
-          "require_enabled": true,
-          "require_visible": true,
-          "strategy": "best_match"
-        },
-        "sampling_mode": "uniform",
-        "selector": {
-          "clickable": true,
-          "enabled": true,
-          "text": "",
-          "ui_tree_path": null,
-          "visible_to_user": true
-        }
-      },
-      "id": "click_element-1",
-      "position": {
-        "x": 604.1458331402115,
-        "y": 149.84125315508783
-      },
-      "type": "click_element"
     },
     {
       "config": {
@@ -315,103 +172,61 @@
       },
       "id": "branch-1",
       "position": {
-        "x": 235.51860933842195,
-        "y": 354.28398596647673
-      },
-      "type": "branch"
-    },
-    {
-      "config": {
-        "level": "error",
-        "message": "error"
-      },
-      "id": "debug_print-1",
-      "position": {
-        "x": 564.4418059942527,
-        "y": 493.21402801592535
-      },
-      "type": "debug_print"
-    },
-    {
-      "config": {
-        "element_id": "quick_date",
-        "params": {
-          "index": 0
-        },
-        "screen_id": "reservation_home"
-      },
-      "id": "find_screen_element-2",
-      "position": {
-        "x": 286.6990700827118,
-        "y": 247.13578857808608
-      },
-      "type": "find_screen_element"
-    },
-    {
-      "config": {
-        "click": {
-          "duration_ms": 70
-        },
-        "resolve": {
-          "require_enabled": true,
-          "require_visible": true,
-          "strategy": "best_match"
-        },
-        "sampling_mode": "uniform",
-        "selector": {
-          "clickable": true,
-          "enabled": true,
-          "text": "",
-          "ui_tree_path": null,
-          "visible_to_user": true
-        }
-      },
-      "id": "click_element-2",
-      "position": {
-        "x": 988.7088695892197,
-        "y": 107.84775921134599
-      },
-      "type": "click_element"
-    },
-    {
-      "config": {
-        "condition": {
-          "type": "variable_equals",
-          "value": true,
-          "variable": ""
-        }
-      },
-      "id": "branch-2",
-      "position": {
-        "x": 643.9666571226683,
-        "y": 359.46298793077864
+        "x": 235.4460440411254,
+        "y": 251.86247337686711
       },
       "type": "branch"
     },
     {
       "config": {
         "level": "info",
-        "message": ""
+        "message": "찾음"
       },
-      "id": "debug_print-2",
+      "id": "debug_print-1",
       "position": {
-        "x": 865.5016255369142,
-        "y": 614.3591481727124
+        "x": 580.5862644296026,
+        "y": 112.88113577123235
       },
       "type": "debug_print"
+    },
+    {
+      "config": {
+        "level": "error",
+        "message": "못 찾음"
+      },
+      "id": "debug_print-3",
+      "position": {
+        "x": 532.0853630098072,
+        "y": 447.5034955999893
+      },
+      "type": "debug_print"
+    },
+    {
+      "config": {
+        "click": {
+          "duration_ms": 70
+        },
+        "sampling_mode": "center"
+      },
+      "id": "click_element-1",
+      "position": {
+        "x": 920.8316259713594,
+        "y": 276.57428140452686
+      },
+      "type": "click_element"
     }
   ],
   "screen_event_entry_node_ids": {
-    "reservation_detail": {
+    "study_room_detail": {
       "enter": "event-detail-enter",
       "exit": "event-detail-exit",
       "update": "event-detail-update"
     },
-    "reservation_home": {
+    "study_room_list": {
       "enter": "event-home-enter",
       "exit": "event-home-exit",
       "update": "event-home-update"
     }
   },
-  "version": 19
+  "version": 36
 }

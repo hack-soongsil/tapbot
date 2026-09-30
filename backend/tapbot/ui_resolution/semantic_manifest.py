@@ -54,15 +54,31 @@ def screen_element_templates() -> dict[str, dict[str, JsonObject]]:
     for screen in SEMANTIC_SCREEN_MANIFEST.get("screens", []):
         elements: dict[str, JsonObject] = {}
         for element in screen.get("elements", []):
-            param = element.get("param")
             template: JsonObject = {
                 "label": element["label"],
-                "kind": "collection" if param else "element",
+                "category": element.get("category", "default"),
+                "required_params": list(element.get("required_params", [])),
+                "params": dict(element.get("params", {})),
             }
-            if param:
-                template["required_params"] = [param]
-            if "max_index" in element:
-                template["max_index"] = element["max_index"]
+            template["kind"] = (
+                "collection" if template["required_params"] else "element"
+            )
             elements[element["id"]] = template
         templates[screen["id"]] = elements
     return templates
+
+
+SCREEN_ELEMENT_TEMPLATES = screen_element_templates()
+
+
+def screen_element_template(
+    screen_id: object,
+    element_id: object,
+) -> JsonObject | None:
+    if not isinstance(screen_id, str) or not isinstance(element_id, str):
+        return None
+    canonical_screen = canonical_screen_id(screen_id)
+    canonical_element = canonical_element_id(canonical_screen, element_id)
+    return SCREEN_ELEMENT_TEMPLATES.get(canonical_screen, {}).get(
+        canonical_element
+    )

@@ -18,6 +18,8 @@ import {
 import { ConfirmDialog } from '../../components/AppDialog'
 import { BlockPalette } from './BlockPalette'
 import { MacroActionButton } from './MacroActionButton'
+import { MacroSaveStatus } from './MacroSaveStatus'
+import { persistedSaveTimestamp, saveButtonTooltip } from './save-timestamp'
 import { traceErrorCode, traceErrorEdgeId, traceErrorMessage, traceErrorOrigin, traceErrorSummary, traceGraphPath, type RuntimeTrace } from './runtime-trace'
 import { BlueprintInspector } from './BlueprintInspector'
 import {
@@ -115,6 +117,7 @@ export const IntegratedMacroPanel = forwardRef<
   const handledFailure = useRef<string | null>(null)
   const errorFocusRequestEpoch = useRef(0)
   const saveInProgress = useRef(false)
+  const lastSavedAt = persistedSaveTimestamp(definition)
   const {
     runSetupMacro, setRunSetupMacro,
     variableDialog, setVariableDialog,
@@ -406,6 +409,11 @@ export const IntegratedMacroPanel = forwardRef<
   }, [activeGraph.edges, activeGraph.nodes, activeGraphId, issues, runtimeBelongsToDefinition, runtimeErrorTrace, runtimeOverlay, visibleNodeIds])
 
   const selectedNode = shownNodes.find((node) => node.id === selectedNodeId) ?? null
+  const selectedConnectedInputIds = new Set(
+    activeGraph.edges
+      .filter((edge) => edge.target === selectedNodeId && edge.data?.kind === 'data')
+      .flatMap((edge) => edge.targetHandle ? [edge.targetHandle] : []),
+  )
   const selectedRuntimeError = selectedNode?.data.runtimeError ?? (
     runtimeErrorTrace?.node_id === selectedNodeId
       && traceGraphId(runtimeErrorTrace) === activeGraphId
@@ -561,9 +569,7 @@ export const IntegratedMacroPanel = forwardRef<
           </select>}
           {panelTab === 'canvas' && (
             <>
-              <Tag intent={dirty ? 'warning' : 'success'} minimal>
-                {dirty ? '저장 안 됨' : '저장됨'}
-              </Tag>
+              <MacroSaveStatus dirty={dirty} lastSavedAt={lastSavedAt} />
               <MacroValidationTag
                 status={validationState.status}
                 errorCount={validationState.errorCount}
@@ -598,7 +604,7 @@ export const IntegratedMacroPanel = forwardRef<
           <ButtonGroup className="integrated-macro-toolbar__actions" minimal>
             <MacroActionButton icon="tick" label={ko.actions.validate} disabled={!definition || busy} onClick={() => void commands.validateMacro()} />
             <MacroActionButton icon="zoom-to-fit" label={ko.actions.fitView} disabled={!definition} onClick={() => void flowRef.current?.fitView({ duration: 200, padding: 0.2 })} />
-            <MacroActionButton icon="floppy-disk" label={ko.actions.save} intent="primary" disabled={!definition || busy} onClick={saveMacro} />
+            <MacroActionButton icon="floppy-disk" label={ko.actions.save} tooltip={saveButtonTooltip(lastSavedAt)} intent="primary" disabled={!definition || busy} onClick={saveMacro} />
             <MacroActionButton
               icon="maximize"
               label="확대"
@@ -673,9 +679,7 @@ export const IntegratedMacroPanel = forwardRef<
             <header>
               <div className="macro-canvas-expanded-shell__identity">
                 <strong>{definition?.name ?? ko.panels.macroCanvas}</strong>
-                <Tag intent={dirty ? 'warning' : 'success'} minimal>
-                  {dirty ? '저장 안 됨' : '저장됨'}
-                </Tag>
+                <MacroSaveStatus dirty={dirty} lastSavedAt={lastSavedAt} />
                 <MacroValidationTag
                   status={validationState.status}
                   errorCount={validationState.errorCount}
@@ -697,7 +701,7 @@ export const IntegratedMacroPanel = forwardRef<
               <span />
               <MacroActionButton icon="tick" label={ko.actions.validate} disabled={!definition || busy} onClick={() => void commands.validateMacro()} />
               <MacroActionButton icon="zoom-to-fit" label={ko.actions.fitView} disabled={!definition} onClick={() => void flowRef.current?.fitView({ duration: 200, padding: 0.2 })} />
-              <MacroActionButton icon="floppy-disk" label={ko.actions.save} intent="primary" disabled={!definition || busy} onClick={saveMacro} />
+              <MacroActionButton icon="floppy-disk" label={ko.actions.save} tooltip={saveButtonTooltip(lastSavedAt)} intent="primary" disabled={!definition || busy} onClick={saveMacro} />
               <MacroActionButton
                 minimal
                 icon="cross"
@@ -842,6 +846,7 @@ export const IntegratedMacroPanel = forwardRef<
             />
           ) : <NodeInspector
           node={selectedNode}
+          connectedInputIds={selectedConnectedInputIds}
           runtimeError={selectedRuntimeError}
           onFocusErrorNode={(nodeId) => {
             if (selectedRuntimeError) setPendingErrorFocus({ ...selectedRuntimeError, node_id: nodeId, screen_id: null })

@@ -5,12 +5,34 @@ import pytest
 from tapbot.macro import (
     EventEntryNodeIds,
     FileMacroDefinitionStore,
+    GraphElement,
     MacroDefinition,
     MacroEdge,
     MacroNode,
     MacroVariableDefinition,
     NodePosition,
+    TapBounds,
 )
+
+
+def test_graph_element_snapshot_is_json_safe_for_runtime_metadata() -> None:
+    element = GraphElement(
+        "reserve",
+        TapBounds(10, 20, 30, 40),
+        metadata={"opaque": object(), "nested": {"enabled": True}},
+    )
+
+    snapshot = element.snapshot()
+
+    assert snapshot == {
+        "element_id": "reserve",
+        "bounds": [10, 20, 30, 40],
+        "metadata": {
+            "opaque": "<runtime:object>",
+            "nested": {"enabled": True},
+        },
+    }
+    assert json.loads(json.dumps(snapshot)) == snapshot
 
 
 def test_macro_definition_json_round_trip_preserves_editor_metadata() -> None:
@@ -159,6 +181,33 @@ def test_global_screen_events_migrate_to_screen_scoped_entries_on_save() -> None
     }
     assert "event_entry_node_ids" not in saved
     assert "screen" not in saved
+
+
+def test_find_screen_element_category_is_editor_only_metadata() -> None:
+    definition = MacroDefinition.from_dict({
+        "id": "semantic-category",
+        "name": "Semantic category",
+        "version": 1,
+        "entry_node_id": "find",
+        "nodes": [{
+            "id": "find",
+            "type": "find_screen_element",
+            "config": {
+                "screen_id": "study_room_list",
+                "category_id": "room",
+                "element_id": "room_card_by_name",
+                "params": {"name": "스터디룸 2C"},
+            },
+        }],
+        "edges": [],
+    })
+
+    assert definition.nodes[0].config == {
+        "screen_id": "study_room_list",
+        "element_id": "room_card_by_name",
+        "params": {"name": "스터디룸 2C"},
+    }
+    assert "category_id" not in definition.to_dict()["nodes"][0]["config"]
 
 
 def test_legacy_click_screen_element_migrates_to_find_and_click_pair() -> None:

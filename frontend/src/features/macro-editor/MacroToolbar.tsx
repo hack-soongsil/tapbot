@@ -1,10 +1,13 @@
 import { ButtonGroup, Tag } from '@blueprintjs/core'
 import { ko, runtimeStateLabels } from '../../i18n/ko'
 import { MacroActionButton } from './MacroActionButton'
+import { MacroSaveStatus } from './MacroSaveStatus'
+import { saveButtonTooltip } from './save-timestamp'
 
 export interface MacroToolbarProps {
   name: string
   dirty: boolean
+  lastSavedAt: string | null
   validationStatus: 'unknown' | 'valid' | 'invalid' | 'stale'
   validationErrorCount: number
   busy: boolean
@@ -28,6 +31,7 @@ export interface MacroToolbarProps {
 export function MacroToolbar({
   name,
   dirty,
+  lastSavedAt,
   validationStatus,
   validationErrorCount,
   busy,
@@ -56,9 +60,7 @@ export function MacroToolbar({
           value={name}
           onChange={(event) => onNameChange(event.target.value)}
         />
-        <Tag intent={dirty ? 'warning' : 'success'} minimal>
-          {dirty ? '저장 안 됨' : '저장됨'}
-        </Tag>
+        <MacroSaveStatus dirty={dirty} lastSavedAt={lastSavedAt} />
         <ValidationStatusTag status={validationStatus} errorCount={validationErrorCount} />
         {runStatus && (
           <Tag intent={runStatus === 'running' ? 'success' : 'none'}>
@@ -72,7 +74,7 @@ export function MacroToolbar({
         <MacroActionButton icon="duplicate" label={ko.actions.duplicate} onClick={onDuplicate} />
         <MacroActionButton icon="tick" label={ko.actions.validate} onClick={onValidate} />
         <MacroActionButton icon="zoom-to-fit" label={ko.actions.fitView} onClick={onFitView} />
-        <MacroActionButton icon="floppy-disk" label={ko.actions.save} className="macro-save-button" intent="primary" loading={busy} onClick={onSave} />
+        <MacroActionButton icon="floppy-disk" label={ko.actions.save} tooltip={saveButtonTooltip(lastSavedAt)} className="macro-save-button" intent="primary" loading={busy} onClick={onSave} />
         <MacroActionButton icon="play" label={ko.actions.run} intent="success" disabled={busy || runStatus === 'running' || runStatus === 'paused'} onClick={onRun} />
         <MacroActionButton icon="pause" label={ko.actions.pause} disabled={busy || runStatus !== 'running'} onClick={onPause} />
         <MacroActionButton icon="play" label={ko.actions.resume} disabled={busy || runStatus !== 'paused'} onClick={onResume} />

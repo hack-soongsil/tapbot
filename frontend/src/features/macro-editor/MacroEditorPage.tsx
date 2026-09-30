@@ -17,6 +17,10 @@ import { flowToMacroDefinition, macroDefinitionToFlow, migrateLegacyEntry } from
 import { macroEditorApi } from './api'
 import { MacroCanvas } from './MacroCanvas'
 import { MacroToolbar } from './MacroToolbar'
+import {
+  persistedSaveTimestamp,
+  withPersistedSaveTimestamp,
+} from './save-timestamp'
 import { NodeInspector } from './NodeInspector'
 import { createEmptyMacroDefinition, MACRO_DRAFT_STORAGE_KEY } from './definition-factory'
 import { MacroEventLog } from '../macro-runtime/MacroEventLog'
@@ -140,6 +144,11 @@ export function MacroEditorPage() {
     [issues, liveRuntime.graphOverlay.nodeStates, meta.entry_node_id, nodes],
   )
   const selectedNode = shownNodes.find((node) => node.id === selectedNodeId) ?? null
+  const selectedConnectedInputIds = new Set(
+    edges
+      .filter((edge) => edge.target === selectedNodeId && edge.data?.kind === 'data')
+      .flatMap((edge) => edge.targetHandle ? [edge.targetHandle] : []),
+  )
   const shownEdges = useMemo(
     () => edges.map((edge) => ({
       ...edge,
@@ -338,8 +347,14 @@ export function MacroEditorPage() {
     setBusy(true)
     window.localStorage.setItem(MACRO_DRAFT_STORAGE_KEY, JSON.stringify(definition))
     try {
-      const saved = await macroEditorApi.save(definition)
-      setMeta((current) => ({ ...current, version: saved.version }))
+      const saved = withPersistedSaveTimestamp(await macroEditorApi.save(definition))
+      setMeta((current) => ({
+        ...current,
+        version: saved.version,
+        metadata: saved.metadata,
+      }))
+      window.localStorage.setItem(MACRO_DRAFT_STORAGE_KEY, JSON.stringify(saved))
+      setDirty(false)
       show(
         validationState.status === 'invalid'
           ? `저장됨 · 검증 오류 ${validationState.errorCount}개`
@@ -355,7 +370,6 @@ export function MacroEditorPage() {
         show('로컬에 저장했습니다. 백엔드 매크로 저장소는 사용할 수 없습니다.', 'warning')
       }
     } finally {
-      setDirty(false)
       setBusy(false)
     }
   }
@@ -368,9 +382,13 @@ export function MacroEditorPage() {
     if (!(await validate(true))) return
     setBusy(true)
     try {
-      const saved = await macroEditorApi.save(definition)
-      setMeta((current) => ({ ...current, version: saved.version }))
-      window.localStorage.setItem(MACRO_DRAFT_STORAGE_KEY, JSON.stringify(definition))
+      const saved = withPersistedSaveTimestamp(await macroEditorApi.save(definition))
+      setMeta((current) => ({
+        ...current,
+        version: saved.version,
+        metadata: saved.metadata,
+      }))
+      window.localStorage.setItem(MACRO_DRAFT_STORAGE_KEY, JSON.stringify(saved))
       setDirty(false)
       await macroEditorApi.bind(runtimeDeviceId, definition.id)
       const response = await macroEditorApi.command(runtimeDeviceId, 'start')
@@ -429,12 +447,18 @@ export function MacroEditorPage() {
   }
 
   const duplicate = () => {
-    setMeta((current) => ({
-      ...current,
-      id: `${current.id}-copy`,
-      name: `${current.name} 복사본`,
-      version: 1,
-    }))
+    setMeta((current) => {
+      const metadata = { ...current.metadata }
+      delete metadata.updated_at
+      delete metadata.saved_at
+      return {
+        ...current,
+        id: `${current.id}-copy`,
+        name: `${current.name} 복사본`,
+        version: 1,
+        metadata,
+      }
+    })
     markChanged()
     show('저장되지 않은 복사본을 만들었습니다.', 'success')
   }
@@ -473,6 +497,7 @@ export function MacroEditorPage() {
       <MacroToolbar
         name={meta.name}
         dirty={dirty}
+        lastSavedAt={persistedSaveTimestamp(definition)}
         validationStatus={validationState.status}
         validationErrorCount={validationState.errorCount}
         busy={busy}
@@ -519,6 +544,7 @@ export function MacroEditorPage() {
         />
         <NodeInspector
           node={selectedNode}
+          connectedInputIds={selectedConnectedInputIds}
           issues={issues.filter((issue) => issue.nodeId === selectedNodeId)}
           onUpdateConfig={(config) => updateSelected({ config })}
           onUpdateLabel={(label) => updateSelected({ label, definitionLabel: label })}

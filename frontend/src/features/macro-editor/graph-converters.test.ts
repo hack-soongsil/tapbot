@@ -85,6 +85,36 @@ describe('macro graph converters', () => {
     expect(restoredFind.config).toEqual(definition.nodes[0]!.config)
   })
 
+  it('infers categories in the editor without persisting category metadata', () => {
+    const semantic: MacroDefinition = {
+      id: 'semantic', name: 'Semantic', version: 1, entry_node_id: 'find', metadata: {},
+      nodes: [{
+        id: 'find', type: 'find_screen_element',
+        config: {
+          screen_id: 'study_room_list', category_id: 'room',
+          element_id: 'room_card_by_name', params: { name: '스터디룸 2C' },
+        },
+      }],
+      edges: [],
+    }
+
+    const flow = macroDefinitionToFlow(semantic)
+    const find = flow.nodes.find((node) => node.id === 'find')!
+    expect(find.data.config).toEqual({
+      screen_id: 'study_room_list',
+      element_id: 'room_card_by_name',
+      params: { name: '스터디룸 2C' },
+    })
+
+    find.data.config.category_id = 'room'
+    const restored = flowToMacroDefinition(semantic, flow.nodes, flow.edges)
+    expect(restored.nodes.find((node) => node.id === 'find')?.config).toEqual({
+      screen_id: 'study_room_list',
+      element_id: 'room_card_by_name',
+      params: { name: '스터디룸 2C' },
+    })
+  })
+
   it('round-trips screen lifecycle entry nodes without legacy entry metadata', () => {
     const lifecycle: MacroDefinition = {
       id: 'home', name: 'Home', version: 1,
@@ -334,6 +364,125 @@ describe('frontend graph validation', () => {
 
     const messages = validateMacroDefinition(invalid).map((item) => item.message)
     expect(messages).toContain('Port type mismatch: int → bool')
+  })
+
+  it('validates only manifest-required semantic element params', () => {
+    const invalid: MacroDefinition = {
+      id: 'semantic-params', name: 'Semantic params', version: 1,
+      entry_node_id: 'slot', metadata: {}, edges: [],
+      nodes: [
+        { id: 'slot', type: 'find_screen_element', config: {
+          screen_id: 'study_room_detail', element_id: 'time_slot',
+          params: { name: 'stale' },
+        } },
+        { id: 'room', type: 'find_screen_element', config: {
+          screen_id: 'study_room_list', element_id: 'room_card_by_name',
+          params: { name: '' },
+        } },
+      ],
+    }
+
+    const messages = validateMacroDefinition(invalid).map((item) => item.message)
+
+    expect(messages).toContain('인덱스: 정수가 필요합니다.')
+    expect(messages).toContain('이름: 빈 문자열일 수 없습니다.')
+    expect(messages.some((message) => message.includes('stale'))).toBe(false)
+  })
+
+  it('lets a data wire satisfy a required semantic element param', () => {
+    const wired: MacroDefinition = {
+      id: 'semantic-wire', name: 'Semantic wire', version: 1,
+      entry_node_id: 'loop', metadata: {},
+      nodes: [
+        { id: 'loop', type: 'for_loop', config: {
+          start: 0, end: 1, step: 1, inclusive_end: false, index_variable: 'i',
+        } },
+        { id: 'slot', type: 'find_screen_element', config: {
+          screen_id: 'study_room_detail', element_id: 'time_slot', params: {},
+        } },
+      ],
+      edges: [{
+        id: 'index', source: 'loop', target: 'slot',
+        source_handle: 'index', target_handle: 'index', kind: 'data',
+      }],
+    }
+
+    const messages = validateMacroDefinition(wired).map((item) => item.message)
+
+    expect(messages).not.toContain('인덱스: 정수가 필요합니다.')
+  })
+
+  it('clears and restores Click Element validation as its element wire changes', () => {
+    const emptySelector = {
+      text: '', ui_tree_path: null,
+      clickable: true, enabled: true, visible_to_user: true,
+    }
+    const graph: MacroDefinition = {
+      id: 'click-wire', name: 'Click wire', version: 1,
+      entry_node_id: 'find', metadata: {},
+      nodes: [
+        { id: 'find', type: 'find_screen_element', config: {
+          screen_id: 'study_room_detail', element_id: 'reserve_cta', params: {},
+        } },
+        { id: 'click', type: 'click_element', config: { selector: emptySelector } },
+      ],
+      edges: [{
+        id: 'element', source: 'find', target: 'click',
+        source_handle: 'element', target_handle: 'element', kind: 'data',
+      }],
+    }
+    const clickMessage = 'Click Element에는 Element 입력 연결 또는 유효한 Selector가 필요합니다.'
+
+    expect(validateMacroDefinition(graph).map((item) => item.message))
+      .not.toContain(clickMessage)
+
+    graph.edges = []
+    expect(validateMacroDefinition(graph).map((item) => item.message))
+      .toContain(clickMessage)
+
+    graph.edges = [{
+      id: 'element-restored', source: 'find', target: 'click',
+      source_handle: 'element', target_handle: 'element', kind: 'data',
+    }]
+    expect(validateMacroDefinition(graph).map((item) => item.message))
+      .not.toContain(clickMessage)
+  })
+
+  it.each([
+    { text: '예약' },
+    { semantic_id: 'reserve_cta' },
+  ])('accepts Click Element selector fallback without an element wire: %o', (selector) => {
+    const graph: MacroDefinition = {
+      id: 'click-selector', name: 'Click selector', version: 1,
+      entry_node_id: 'click', metadata: {}, edges: [],
+      nodes: [{ id: 'click', type: 'click_element', config: { selector } }],
+    }
+
+    const issues = validateMacroDefinition(graph).filter((item) => item.nodeId === 'click')
+
+    expect(issues).toEqual([])
+  })
+
+  it('reports malformed selector fields even when Click Element has an element wire', () => {
+    const graph: MacroDefinition = {
+      id: 'click-malformed', name: 'Click malformed', version: 1,
+      entry_node_id: 'find', metadata: {},
+      nodes: [
+        { id: 'find', type: 'find_element', config: { selector: { text: '예약' } } },
+        { id: 'click', type: 'click_element', config: { selector: { text: 7 } } },
+      ],
+      edges: [{
+        id: 'element', source: 'find', target: 'click',
+        source_handle: 'element', target_handle: 'element', kind: 'data',
+      }],
+    }
+
+    const messages = validateMacroDefinition(graph).map((item) => item.message)
+
+    expect(messages).toContain('Selector text 값은 문자열이어야 합니다.')
+    expect(messages).not.toContain(
+      'Click Element에는 Element 입력 연결 또는 유효한 Selector가 필요합니다.',
+    )
   })
 
   it('allows optional unused returns while validating required returns, defaults, and types', () => {

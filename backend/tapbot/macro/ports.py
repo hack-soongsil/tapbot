@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from tapbot.macro.graph_models import JsonObject
+from tapbot.ui_resolution.semantic_manifest import screen_element_template
 
 
 class PortType(StrEnum):
@@ -58,18 +59,6 @@ _TYPED: dict[str, NodePorts] = {
             "element": PortType.ELEMENT,
         },
     ),
-    "find_screen_element": NodePorts(
-        {
-            "exec_in": PortType.EXEC,
-            "index": PortType.INT,
-            "name": PortType.STRING,
-        },
-        {
-            "exec_out": PortType.EXEC,
-            "found": PortType.BOOL,
-            "element": PortType.ELEMENT,
-        },
-    ),
     "click_element": NodePorts(
         {"exec_in": PortType.EXEC, "element": PortType.ELEMENT},
         {"exec_out": PortType.EXEC},
@@ -95,6 +84,24 @@ def ports_for(
     *,
     legacy_output_handles: frozenset[str] = frozenset(),
 ) -> NodePorts:
+    if node_type == "find_screen_element":
+        inputs = {"exec_in": PortType.EXEC}
+        template = screen_element_template(
+            config.get("screen_id"), config.get("element_id")
+        )
+        if template is not None:
+            schemas = template.get("params", {})
+            for key in template.get("required_params", []):
+                schema = schemas.get(key, {}) if isinstance(schemas, dict) else {}
+                inputs[key] = _screen_param_port_type(schema)
+        return NodePorts(
+            inputs,
+            {
+                "exec_out": PortType.EXEC,
+                "found": PortType.BOOL,
+                "element": PortType.ELEMENT,
+            },
+        )
     if node_type in {"set_variable", "get_variable"}:
         variable_type = _variable_port_type(config)
         if node_type == "get_variable":
@@ -154,3 +161,13 @@ def _variable_port_type(config: JsonObject) -> PortType:
     except ValueError:
         return PortType.ANY
     return parsed if parsed not in {PortType.EXEC, PortType.ANY} else PortType.ANY
+
+
+def _screen_param_port_type(schema: object) -> PortType:
+    param_type = schema.get("type") if isinstance(schema, dict) else None
+    return {
+        "int": PortType.INT,
+        "string": PortType.STRING,
+        "bool": PortType.BOOL,
+        "select": PortType.STRING,
+    }.get(param_type, PortType.ANY)

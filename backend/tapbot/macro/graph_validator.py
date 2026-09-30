@@ -13,7 +13,7 @@ from tapbot.macro.graph_models import (
     NodeStatus,
     assert_json_value,
 )
-from tapbot.macro.node_registry import NodeRegistry
+from tapbot.macro.node_registry import NodeRegistry, has_stable_selector
 from tapbot.macro.ports import PortType, ports_for
 from tapbot.macro.nodes.variable import default_matches_type
 
@@ -23,6 +23,12 @@ _EVENT_NODE_TYPES = {
     "update": "screen_update",
     "exit": "screen_exit",
 }
+
+
+def _parameter_from_validation_error(message: str) -> str | None:
+    if not message.startswith("params."):
+        return None
+    return message.removeprefix("params.").split(" ", 1)[0] or None
 
 
 @dataclass(frozen=True, slots=True)
@@ -303,18 +309,21 @@ class GraphValidator:
 
         for node in definition.nodes:
             inputs = wired_inputs.get(node.id, set())
+            if (
+                node.type == "click_element"
+                and "element" not in inputs
+                and not has_stable_selector(node.config.get("selector"))
+            ):
+                errors.append(
+                    f"node {node.id!r}: click_element requires element input "
+                    "or selector fallback"
+                )
             if node.type == "branch" and "condition" not in inputs:
                 condition = node.config.get("condition")
                 fallback = condition if isinstance(condition, dict) else node.config
                 if not isinstance(fallback.get("variable"), str) or not fallback.get("variable"):
                     errors.append(
                         f"node {node.id!r}: branch requires condition input or variable fallback"
-                    )
-            if node.type == "click_element" and "element" not in inputs:
-                selector = node.config.get("selector")
-                if not isinstance(selector, dict) or not selector:
-                    errors.append(
-                        f"node {node.id!r}: click_element requires element input or selector fallback"
                     )
             if node.type == "find_screen_element":
                 from tapbot.ui_resolution.screens import validate_screen_element_reference
@@ -325,15 +334,8 @@ class GraphValidator:
                     node.config.get("element_id"),
                     params,
                 ):
-                    dynamic_index = (
-                        message.startswith("params.index") and "index" in inputs
-                    )
-                    dynamic_name = (
-                        message.startswith("params.name") and "name" in inputs
-                    )
-                    if message.startswith(("params.index", "params.name")) and not (
-                        dynamic_index or dynamic_name
-                    ):
+                    param = _parameter_from_validation_error(message)
+                    if param is not None and param not in inputs:
                         errors.append(f"node {node.id!r}: {message}")
             if node.type == "function_return":
                 raw_outputs = node.config.get("outputs", [])

@@ -5,6 +5,11 @@ import type {
   MacroNodeType,
   PortDefinition,
 } from './types'
+import {
+  paramPortType,
+  selectedScreenElement,
+  SEMANTIC_ELEMENT_SEARCH_KEYWORDS,
+} from './screen-elements'
 
 export interface NodePorts {
   inputs: readonly PortDefinition[]
@@ -70,12 +75,13 @@ export interface InlinePropertyOption {
 export interface InlinePropertyDefinition {
   key: string
   label: string
-  editor: 'text' | 'number' | 'select' | 'screen-element' | 'variable' | 'dynamic-value'
+  editor: 'text' | 'number' | 'boolean' | 'select' | 'screen-element-screen' | 'screen-element-category' | 'screen-element' | 'variable' | 'dynamic-value'
   inputPortId?: string
   min?: number
+  max?: number
   step?: number
+  placeholder?: string
   options?: readonly InlinePropertyOption[]
-  visible?: 'screen-element-collection'
 }
 
 interface NodeDefinitionInput extends NodeSearchDescriptor {
@@ -285,20 +291,16 @@ const NODE_DEFINITION_INPUTS: readonly NodeDefinitionInput[] = [
   {
     type: 'click_element', label: 'Click Element', category: 'action',
     defaultConfig: {
-      selector: { text: '', ui_tree_path: null, clickable: true, enabled: true, visible_to_user: true },
-      resolve: { strategy: 'best_match', require_enabled: true, require_visible: true },
       sampling_mode: 'center', click: { duration_ms: 70 },
     },
     palette: true, keywords: ['element', 'selector', 'button', 'tap', '요소', '버튼', '클릭'],
-    description: 'Resolve and click a UI tree element',
-    ports: fixedPorts([execIn, { id: 'element', type: 'element', optional: true }], [execOut]),
+    description: 'Click the input UI tree element',
+    ports: fixedPorts([execIn, { id: 'element', type: 'element' }], [execOut]),
     inlineProperties: [{ key: 'sampling_mode', label: '샘플링', editor: 'select', options: [
       { value: 'center', label: '중앙' }, { value: 'uniform', label: '균등 분포' },
       { value: 'normal', label: '정규 분포' },
     ] }],
     inspectorSchema: [
-      { key: 'selector.text', label: '텍스트', editor: 'text' },
-      { key: 'selector.ui_tree_path', label: 'UI 트리 경로', editor: 'text', code: true, emptyValue: null },
       { key: 'sampling_mode', fallbackKey: 'click.mode', label: '클릭 샘플링 방식', editor: 'select', defaultValue: 'center', options: [
         { value: 'center', label: '중앙' }, { value: 'uniform', label: '균등 분포' },
         { value: 'normal', label: '정규 분포' },
@@ -307,20 +309,31 @@ const NODE_DEFINITION_INPUTS: readonly NodeDefinitionInput[] = [
   },
   {
     type: 'find_screen_element', label: 'Find Screen Element', category: 'ui',
-    defaultConfig: { screen_id: 'study_room_list', element_id: 'reservation_history', params: {} },
-    palette: true, keywords: ['screen', 'semantic', 'element', 'find', '화면', '요소', '찾기'],
+    defaultConfig: {
+      screen_id: 'study_room_list', element_id: 'header_title', params: {},
+    },
+    palette: true,
+    keywords: [
+      'screen', 'semantic', 'element', 'find', '화면', '요소', '찾기',
+      ...SEMANTIC_ELEMENT_SEARCH_KEYWORDS,
+    ],
     description: 'Resolve a semantic element from the current screen',
-    ports: fixedPorts([
-      execIn,
-      { id: 'index', type: 'int', optional: true },
-      { id: 'name', type: 'string', optional: true },
-    ], [
-      execOut, { id: 'element', type: 'element' }, { id: 'found', type: 'bool' },
-    ]),
+    ports: (config) => {
+      const selected = selectedScreenElement(config).element
+      const params = selected?.requiredParams.map((key): PortDefinition => ({
+        id: key,
+        type: paramPortType(selected.params[key]!),
+        optional: true,
+      })) ?? []
+      return {
+        inputs: [execIn, ...params],
+        outputs: [execOut, { id: 'element', type: 'element' }, { id: 'found', type: 'bool' }],
+      }
+    },
     inlineProperties: [
+      { key: 'screen_id', label: '화면', editor: 'screen-element-screen' },
+      { key: 'category', label: '카테고리', editor: 'screen-element-category' },
       { key: 'element_id', label: '요소', editor: 'screen-element' },
-      { key: 'params.index', label: '인덱스', editor: 'number', inputPortId: 'index', min: 0, step: 1, visible: 'screen-element-collection' },
-      { key: 'params.name', label: '이름', editor: 'text', inputPortId: 'name', visible: 'screen-element-collection' },
     ], customInspector: 'screen-element', paletteGroup: 'ui',
   },
   {
@@ -503,6 +516,33 @@ export function getNodeDefinition(type: MacroNodeType): NodeDefinition | undefin
 
 export function getNodePorts(type: MacroNodeType, config: Record<string, JsonValue>): NodePorts {
   return getNodeDefinition(type)?.ports(config) ?? defaultPorts()
+}
+
+export function getInlineProperties(
+  type: MacroNodeType,
+  config: Record<string, JsonValue>,
+): readonly InlinePropertyDefinition[] {
+  const base = getNodeDefinition(type)?.inlineProperties ?? []
+  if (type !== 'find_screen_element') return base
+  const selected = selectedScreenElement(config).element
+  const params = selected?.requiredParams.slice(0, 2).flatMap((key): InlinePropertyDefinition[] => {
+    const schema = selected.params[key]
+    if (!schema) return []
+    return [{
+      key: `params.${key}`,
+      label: schema.label,
+      editor: schema.type === 'int' ? 'number'
+        : schema.type === 'bool' ? 'boolean'
+          : schema.type === 'select' ? 'select' : 'text',
+      inputPortId: key,
+      min: schema.min,
+      max: schema.max,
+      step: schema.type === 'int' ? 1 : undefined,
+      placeholder: schema.placeholder,
+      options: schema.options,
+    }]
+  }) ?? []
+  return [...base, ...params]
 }
 
 export function cloneDefaultConfig(type: MacroNodeType) {

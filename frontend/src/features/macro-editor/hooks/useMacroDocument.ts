@@ -22,6 +22,7 @@ import {
 import type { MacroValidationState } from './useMacroValidation'
 import type { RuntimeTrace } from '../runtime-trace'
 import type { MacroDefinition, ValidationIssue } from '../types'
+import { withPersistedSaveTimestamp } from '../save-timestamp'
 
 type MessageIntent = 'primary' | 'success' | 'warning' | 'danger'
 
@@ -166,9 +167,9 @@ export function useMacroDocument({
     setBusy(true)
     window.localStorage.setItem(MACRO_DRAFT_STORAGE_KEY, JSON.stringify(definitionForSave))
     try {
-      const saved = isNew
+      const saved = withPersistedSaveTimestamp(isNew
         ? await macroEditorApi.create(definitionForSave)
-        : await macroEditorApi.save(definitionForSave)
+        : await macroEditorApi.save(definitionForSave))
       let bound = false
       if (priorValidation.status === 'valid') {
         try {
@@ -234,7 +235,9 @@ export function useMacroDocument({
     setBusy(true)
     setMessage(null)
     try {
-      const created = await macroEditorApi.create(createEmptyMacroDefinition(`macro-${suffix}`, name))
+      const created = withPersistedSaveTimestamp(
+        await macroEditorApi.create(createEmptyMacroDefinition(`macro-${suffix}`, name)),
+      )
       await macroEditorApi.bind(deviceId, created.id)
       setDefinitions((current) => [...current, created])
       setBoundMacroId(created.id)
@@ -255,10 +258,15 @@ export function useMacroDocument({
     setBusy(true)
     setMessage(null)
     try {
-      const saved = await macroEditorApi.save({ ...macro, name })
+      const saved = withPersistedSaveTimestamp(await macroEditorApi.save({ ...macro, name }))
       setDefinitions((current) => current.map((item) => item.id === saved.id ? saved : item))
       if (definition?.id === saved.id) {
-        if (dirty) setDefinition((current) => current ? { ...current, name: saved.name, version: saved.version } : current)
+        if (dirty) setDefinition((current) => current ? {
+          ...current,
+          name: saved.name,
+          version: saved.version,
+          metadata: saved.metadata,
+        } : current)
         else loadDefinition(saved)
       }
       setMessage(`${macro.name}의 이름을 ${saved.name}(으)로 변경했습니다.`)
@@ -274,7 +282,9 @@ export function useMacroDocument({
     setBusy(true)
     setMessage(null)
     try {
-      const copy = await macroEditorApi.duplicate(macro.id, { name: `${macro.name} 복사본` })
+      const copy = withPersistedSaveTimestamp(
+        await macroEditorApi.duplicate(macro.id, { name: `${macro.name} 복사본` }),
+      )
       setDefinitions((current) => [...current, copy])
       setMessage(`${macro.name} 매크로를 복제했습니다.`)
       setMessageIntent('success')
