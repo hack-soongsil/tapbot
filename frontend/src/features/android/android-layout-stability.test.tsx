@@ -173,6 +173,7 @@ function controller(overrides: Record<string, unknown> = {}): Controller {
     setHighlightedDetectionId: vi.fn(),
     setSelectedUiNodeId: vi.fn(),
     setStreamFailed: vi.fn(),
+    setBackgroundReadsPaused: vi.fn(),
     reconnectStream: vi.fn(),
     refreshUiTree: vi.fn(() => Promise.resolve()),
     tap: vi.fn(),
@@ -212,6 +213,37 @@ afterEach(() => {
 })
 
 describe('Android live viewport layout stability', () => {
+  it('records a preset coordinate without tapping or sending a gesture', async () => {
+    const tap = vi.fn()
+    const gesture = vi.fn()
+    const view = render(
+      <AndroidDebugWorkspace
+        controller={controller({ tap, gesture })}
+        devices={devices}
+        onDeviceChange={vi.fn()}
+      />,
+    )
+    await act(async () => vi.runOnlyPendingTimersAsync())
+    fireEvent.click(view.getByRole('button', { name: '화면에서 좌표 추가' }))
+    const stage = view.container.querySelector('.android-live-stage') as HTMLDivElement
+    vi.spyOn(stage, 'getBoundingClientRect').mockReturnValue({
+      left: 0,
+      top: 0,
+      width: 200,
+      height: 100,
+      right: 200,
+      bottom: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })
+    fireEvent.pointerDown(stage, { pointerId: 9, button: 0, clientX: 20, clientY: 80 })
+    fireEvent.pointerUp(stage, { pointerId: 9, button: 0, clientX: 20, clientY: 80 })
+    expect((view.getByLabelText('1단계 X') as HTMLInputElement).value).toBe('20')
+    expect((view.getByLabelText('1단계 Y') as HTMLInputElement).value).toBe('80')
+    expect(tap).not.toHaveBeenCalled()
+    expect(gesture).not.toHaveBeenCalled()
+  })
   it('renders live, hierarchy, and inspector as three sibling editor panes', () => {
     const view = render(
       <AndroidDebugWorkspace

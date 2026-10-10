@@ -208,6 +208,7 @@ describe('multi-device Android debug UI', () => {
         setHighlightedDetectionId: vi.fn(),
         setSelectedUiNodeId: vi.fn(),
         setStreamFailed: vi.fn(),
+        setBackgroundReadsPaused: vi.fn(),
         reconnectStream: vi.fn(),
         tap,
         gesture,

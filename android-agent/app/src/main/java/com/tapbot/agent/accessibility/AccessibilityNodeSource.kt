@@ -1,6 +1,7 @@
 package com.tapbot.agent.accessibility
 
 import android.graphics.Rect
+import android.os.Build
 import android.view.accessibility.AccessibilityNodeInfo
 
 class AccessibilityNodeSource(
@@ -28,8 +29,17 @@ class AccessibilityNodeSource(
     override val password: Boolean get() = node.isPassword
     override val childCount: Int get() = node.childCount
 
-    override fun child(index: Int): UiNodeSource? =
-        node.getChild(index)?.let(::AccessibilityNodeSource)
+    override fun child(index: Int): UiNodeSource? {
+        val child = node.getChild(index) ?: return null
+        if (Build.VERSION.SDK_INT < 33 && !child.refresh()) {
+            @Suppress("DEPRECATION")
+            child.recycle()
+            return null
+        }
+        return AccessibilityNodeSource(child)
+    }
+
+    override fun click(): Boolean = node.performAction(AccessibilityNodeInfo.ACTION_CLICK)
 
     @Suppress("DEPRECATION")
     override fun recycle() {

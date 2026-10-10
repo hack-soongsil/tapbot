@@ -44,6 +44,7 @@ object ApiModels {
         put("last_error", state.lastError ?: JSONObject.NULL)
         put("coordinate_mapping", "screenshot_px_equals_logical_screen_px")
         put("agent_version", AGENT_VERSION)
+        put("capabilities", JSONObject().put("ui_element_click", true).put("ui_tree_fresh", true))
         put("display", JSONObject().apply {
             put("physical_width", state.display.physicalWidth)
             put("physical_height", state.display.physicalHeight)
@@ -170,5 +171,5 @@ object ApiModels {
             }
         }
 
-    private const val AGENT_VERSION = "0.3.0"
+    private const val AGENT_VERSION = "0.4.2"
 }

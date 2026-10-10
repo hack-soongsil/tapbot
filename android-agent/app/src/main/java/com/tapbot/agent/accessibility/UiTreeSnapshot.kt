@@ -76,6 +76,8 @@ interface UiNodeSource {
     fun child(index: Int): UiNodeSource?
 
     fun recycle()
+
+    fun click(): Boolean = false
 }
 
 class UiTreeSnapshotter(

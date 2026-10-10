@@ -7,6 +7,8 @@ import android.content.Context
 import android.graphics.Path
 import android.os.Handler
 import android.os.Looper
+import android.os.Build
+import android.view.accessibility.AccessibilityNodeInfo
 import android.provider.Settings
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -33,12 +35,21 @@ data class ActionExecutionResult(
     val outcome: ActionOutcome,
 )
 
+data class UiClickExecutionResult(val action: ActionExecutionResult, val errorCode: String? = null)
+
 class TapBotAccessibilityService : AccessibilityService() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val gestureLock = ReentrantLock()
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        if (Build.VERSION.SDK_INT >= 33) {
+            // Clear between snapshots, while retaining Android's subtree
+            // prefetch cache during traversal. Disabling it forces a separate
+            // IPC for every virtual WebView child and can time out the capture.
+            setCacheEnabled(true)
+            clearCache()
+        }
         instance = this
         AgentStateStore.update { it.copy(accessibilityEnabled = true, lastError = null) }
         Log.i(TAG, "Accessibility input service connected")
@@ -113,6 +124,28 @@ class TapBotAccessibilityService : AccessibilityService() {
 
     fun home(): ActionExecutionResult = globalAction { performGlobalAction(GLOBAL_ACTION_HOME) }
 
+    fun clickElement(selector: UiClickSelector): UiClickExecutionResult {
+        val actionId = UUID.randomUUID().toString()
+        if (!gestureLock.tryLock()) return UiClickExecutionResult(ActionExecutionResult(actionId, ActionOutcome.BUSY))
+        try {
+            val outcome = AtomicReference(UiClickOutcome.NOT_FOUND)
+            val result = onMainThread {
+                val root = freshRoot() ?: return@onMainThread false
+                val value = UiElementClicker().click(AccessibilityNodeSource(root), selector)
+                outcome.set(value)
+                value == UiClickOutcome.CLICKED
+            }
+            return UiClickExecutionResult(
+                ActionExecutionResult(actionId, when {
+                    !result.completed -> ActionOutcome.TIMEOUT
+                    result.value -> ActionOutcome.DISPATCHED
+                    else -> ActionOutcome.REJECTED
+                }),
+                if (result.completed && !result.value) "element_${outcome.get().name.lowercase()}" else null,
+            )
+        } finally { gestureLock.unlock() }
+    }
+
     fun recents(): ActionExecutionResult = globalAction {
         performGlobalAction(GLOBAL_ACTION_RECENTS)
     }
@@ -122,7 +155,7 @@ class TapBotAccessibilityService : AccessibilityService() {
         val completed = CountDownLatch(1)
         val capture = Runnable {
             try {
-                val root = rootInActiveWindow ?: return@Runnable
+                val root = freshRoot() ?: return@Runnable
                 val window = root.window
                 val windowTitle = try {
                     window?.title?.toString()
@@ -154,7 +187,7 @@ class TapBotAccessibilityService : AccessibilityService() {
             capture.run()
         } else {
             mainHandler.post(capture)
-            if (!completed.await(MAIN_THREAD_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
+            if (!completed.await(UI_TREE_TIMEOUT_MS, TimeUnit.MILLISECONDS)) {
                 mainHandler.removeCallbacks(capture)
                 return null
             }
@@ -232,6 +265,15 @@ class TapBotAccessibilityService : AccessibilityService() {
             .maxOfOrNull { gesture.getStroke(it).duration }
             ?: DEFAULT_TAP_DURATION_MS
 
+    private fun freshRoot(): AccessibilityNodeInfo? {
+        if (Build.VERSION.SDK_INT >= 33) clearCache()
+        val root = rootInActiveWindow ?: return null
+        if (root.refresh()) return root
+        @Suppress("DEPRECATION")
+        root.recycle()
+        return null
+    }
+
     private fun onMainThread(action: () -> Boolean): MainThreadResult {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             return MainThreadResult(completed = true, value = action())
@@ -265,6 +307,7 @@ class TapBotAccessibilityService : AccessibilityService() {
         private const val TAG = "TapBotAccessibility"
         private const val GESTURE_CALLBACK_GRACE_MS = 2_000L
         private const val MAIN_THREAD_TIMEOUT_MS = 2_000L
+        private const val UI_TREE_TIMEOUT_MS = 4_000L
         const val DEFAULT_TAP_DURATION_MS = 75L
 
         @Volatile

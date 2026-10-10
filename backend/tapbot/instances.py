@@ -29,6 +29,8 @@ from tapbot.android.policy import (
     default_ui_state_classifier,
 )
 from tapbot.android.service import AndroidService
+from tapbot.android.sequence import AndroidSequencePort
+from tapbot.macro.sequence import SequenceService
 from tapbot.vision.camera.manager import CameraManager
 from tapbot.vision.camera.source import CameraSource
 from tapbot.config import TapBotConfig
@@ -78,6 +80,7 @@ class ApplicationInstances:
     android_discovery: AndroidDiscoveryService
     system_service: SystemService
     android_http: AndroidHttpDependencies
+    sequence_service: SequenceService
     model_client: ModelClient | None = None
     model_service: ModelService | None = None
     _started: bool = field(default=False, init=False, repr=False)
@@ -108,6 +111,7 @@ class ApplicationInstances:
                 return
             self._started = False
         await asyncio.to_thread(self.android_discovery.stop)
+        await asyncio.to_thread(self.sequence_service.close)
         for context in self.android_registry.list():
             try:
                 await asyncio.to_thread(context.debug_service.close)
@@ -230,6 +234,10 @@ def create_instances(
         model_service = ModelService(model_client)
 
     system_service = SystemService(robot_service, vision_service, android_registry, event_log)
+    sequence_service = SequenceService(
+        config.paths.macro_trace_dir / "sequences",
+        lambda device_id: AndroidSequencePort(android_registry.get(device_id).debug_service),
+    )
     return ApplicationInstances(
         config=config,
         event_log=event_log,
@@ -241,11 +249,13 @@ def create_instances(
         android_registry=android_registry,
         android_discovery=discovery,
         system_service=system_service,
+        sequence_service=sequence_service,
         android_http=AndroidHttpDependencies(
             android_registry,
             event_log,
             discovery=discovery,
             manual_token=config.android.discovery_token,
+            input_operation=sequence_service.run_input,
         ),
         model_client=model_client,
         model_service=model_service,

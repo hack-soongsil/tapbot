@@ -49,6 +49,7 @@ export function useAndroidDebug(deviceId: string | null) {
   )
   const [streamNonce, setStreamNonce] = useState(() => Date.now())
   const [streamFailed, setStreamFailed] = useState(false)
+  const [backgroundReadsPaused, setBackgroundReadsPaused] = useState(false)
   const visionInFlight = useRef(false)
   const uiTreeInFlight = useRef(false)
   const uiTreeRef = useRef<AndroidUiTree | null>(null)
@@ -80,6 +81,7 @@ export function useAndroidDebug(deviceId: string | null) {
       setHighlightedDetectionId(null)
       setStreamFailed(false)
       setStreamNonce(Date.now())
+      setBackgroundReadsPaused(false)
     }, 0)
     return () => window.clearTimeout(reset)
   }, [deviceId])
@@ -147,7 +149,12 @@ export function useAndroidDebug(deviceId: string | null) {
   }, [deviceId, refreshDebug, refreshStatus])
 
   useEffect(() => {
-    if (!deviceId || !activeStatus?.connected || !activeStatus.agent?.capture_ready)
+    if (
+      backgroundReadsPaused ||
+      !deviceId ||
+      !activeStatus?.connected ||
+      !activeStatus.agent?.capture_ready
+    )
       return
     const controller = new AbortController()
     let cancelled = false
@@ -170,7 +177,12 @@ export function useAndroidDebug(deviceId: string | null) {
       controller.abort()
       window.clearInterval(timer)
     }
-  }, [activeStatus?.agent?.capture_ready, activeStatus?.connected, deviceId])
+  }, [
+    activeStatus?.agent?.capture_ready,
+    activeStatus?.connected,
+    backgroundReadsPaused,
+    deviceId,
+  ])
 
   const refreshUiTree = useCallback(
     async (signal?: AbortSignal) => {
@@ -203,6 +215,7 @@ export function useAndroidDebug(deviceId: string | null) {
 
   useEffect(() => {
     if (
+      backgroundReadsPaused ||
       !deviceId ||
       !activeStatus?.connected ||
       !activeStatus.agent?.accessibility_enabled
@@ -225,6 +238,7 @@ export function useAndroidDebug(deviceId: string | null) {
   }, [
     activeStatus?.agent?.accessibility_enabled,
     activeStatus?.connected,
+    backgroundReadsPaused,
     deviceId,
     refreshUiTree,
   ])
@@ -302,6 +316,7 @@ export function useAndroidDebug(deviceId: string | null) {
     setHighlightedDetectionId,
     setSelectedUiNodeId: selectUiNode,
     setStreamFailed,
+    setBackgroundReadsPaused,
     reconnectStream,
     refreshUiTree,
     tap,

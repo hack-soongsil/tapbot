@@ -299,6 +299,14 @@ class AndroidAgentClient:
             duration_ms=duration_ms,
         )
 
+    def click_element(
+        self, selector: dict[str, object], *, package_name: str | None = None,
+        required_text: str | None = None,
+    ) -> AndroidActionResult:
+        return self._action("/api/ui/click", {
+            "selector": selector, "package_name": package_name, "required_text": required_text,
+        })
+
     def swipe(
         self,
         x1: float,
@@ -423,6 +431,7 @@ class AndroidAgentClient:
         except (URLError, TimeoutError, OSError) as error:
             non_idempotent = method == "POST" and path in {
                 "/api/tap",
+                "/api/ui/click",
                 "/api/swipe",
                 "/api/back",
                 "/api/home",

@@ -16,6 +16,7 @@ from tapbot.config import load_cli_config
 from tapbot.system_http import create_system_router
 from tapbot.instances import ApplicationInstances, create_instances
 from tapbot.macro.http import create_macro_router
+from tapbot.macro.sequence_http import create_sequence_router
 from tapbot.robot.http import create_robot_router
 from tapbot.vision.http import create_vision_router
 
@@ -64,6 +65,7 @@ def create_app(instances: ApplicationInstances) -> FastAPI:
     application.include_router(create_system_router(instances.system_service))
     application.include_router(create_android_router(instances.android_http))
     application.include_router(create_macro_router(instances.android_http))
+    application.include_router(create_sequence_router(instances.android_http, instances.sequence_service))
     application.include_router(create_robot_router(instances.robot_service))
     application.include_router(create_vision_router(instances.vision_service))
 

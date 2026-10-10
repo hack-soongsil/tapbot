@@ -1,0 +1,207 @@
+{
+  "id": "ssutoday-2c-20261011",
+  "name": "10/11 스터디룸 2C · 두 번 예약",
+  "version": 1,
+  "screen_width": 1080,
+  "screen_height": 2400,
+  "rotation": 0,
+  "repeat_count": 1,
+  "booking_ranges": [
+    {"start_time": "12:00", "end_time": "14:00"},
+    {"start_time": "14:00", "end_time": "15:00"}
+  ],
+  "steps": [
+    {
+      "id": "room-1",
+      "label": "스터디룸 2C 열기",
+      "kind": "element",
+      "selector": {
+        "text": "스터디룸 2C"
+      },
+      "package_name": "com.ssutoday",
+      "duration_ms": 70,
+      "delay_ms": 1500
+    },
+    {
+      "id": "reset-1",
+      "label": "10월 11일 확인 · 시간 선택 초기화",
+      "kind": "element",
+      "selector": {
+        "text": "초기화"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "2026년 10월 11일(일)",
+      "duration_ms": 70,
+      "delay_ms": 500
+    },
+    {
+      "id": "start-1",
+      "label": "12:00 시작 칸",
+      "kind": "element",
+      "selector": {
+        "time_slot": "12:00"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "스터디룸 2C",
+      "duration_ms": 70,
+      "delay_ms": 750
+    },
+    {
+      "id": "end-1",
+      "label": "13:30 마지막 칸",
+      "kind": "element",
+      "selector": {
+        "time_slot": "13:30"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "스터디룸 2C",
+      "duration_ms": 70,
+      "delay_ms": 750
+    },
+    {
+      "id": "submit-1",
+      "label": "12:00 ~ 14:00 · 이 시간으로 예약하기",
+      "kind": "element",
+      "selector": {
+        "text": "이 시간으로 예약하기"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "12:00 ~ 14:00",
+      "duration_ms": 70,
+      "delay_ms": 1500
+    },
+    {
+      "id": "confirm-1",
+      "label": "12:00 ~ 14:00 · 예약 확정",
+      "kind": "element",
+      "selector": {
+        "text": "예약 확정"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "12:00 ~ 14:00",
+      "duration_ms": 70,
+      "delay_ms": 1000
+    },
+    {
+      "id": "verify-1",
+      "label": "예약 완료 확인 · 확인 화면이 있으면 휴대폰에서 완료",
+      "kind": "checkpoint",
+      "selector": {
+        "content_description": "사람인지 확인하십시오"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "예약 성공",
+      "timeout_ms": 30000,
+      "duration_ms": 70,
+      "delay_ms": 500
+    },
+    {
+      "id": "return-1",
+      "label": "예약 화면으로",
+      "kind": "element",
+      "selector": {
+        "text": "예약 화면으로"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "예약 성공",
+      "duration_ms": 70,
+      "delay_ms": 1500
+    },
+    {
+      "id": "room-2",
+      "label": "스터디룸 2C 열기",
+      "kind": "element",
+      "selector": {
+        "text": "스터디룸 2C"
+      },
+      "package_name": "com.ssutoday",
+      "duration_ms": 70,
+      "delay_ms": 1500
+    },
+    {
+      "id": "reset-2",
+      "label": "10월 11일 확인 · 시간 선택 초기화",
+      "kind": "element",
+      "selector": {
+        "text": "초기화"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "2026년 10월 11일(일)",
+      "duration_ms": 70,
+      "delay_ms": 500
+    },
+    {
+      "id": "start-2",
+      "label": "14:00 시작 칸",
+      "kind": "element",
+      "selector": {
+        "time_slot": "14:00"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "스터디룸 2C",
+      "duration_ms": 70,
+      "delay_ms": 750
+    },
+    {
+      "id": "end-2",
+      "label": "14:30 마지막 칸",
+      "kind": "element",
+      "selector": {
+        "time_slot": "14:30"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "스터디룸 2C",
+      "duration_ms": 70,
+      "delay_ms": 750
+    },
+    {
+      "id": "submit-2",
+      "label": "14:00 ~ 15:00 · 이 시간으로 예약하기",
+      "kind": "element",
+      "selector": {
+        "text": "이 시간으로 예약하기"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "14:00 ~ 15:00",
+      "duration_ms": 70,
+      "delay_ms": 1500
+    },
+    {
+      "id": "confirm-2",
+      "label": "14:00 ~ 15:00 · 예약 확정",
+      "kind": "element",
+      "selector": {
+        "text": "예약 확정"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "14:00 ~ 15:00",
+      "duration_ms": 70,
+      "delay_ms": 1000
+    },
+    {
+      "id": "verify-2",
+      "label": "예약 완료 확인 · 확인 화면이 있으면 휴대폰에서 완료",
+      "kind": "checkpoint",
+      "selector": {
+        "content_description": "사람인지 확인하십시오"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "예약 성공",
+      "timeout_ms": 30000,
+      "duration_ms": 70,
+      "delay_ms": 500
+    },
+    {
+      "id": "return-2",
+      "label": "예약 화면으로",
+      "kind": "element",
+      "selector": {
+        "text": "예약 화면으로"
+      },
+      "package_name": "com.ssutoday",
+      "required_text": "예약 성공",
+      "duration_ms": 70,
+      "delay_ms": 1500
+    }
+  ]
+}

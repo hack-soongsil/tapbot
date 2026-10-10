@@ -27,6 +27,8 @@ import {
 } from './ui-tree/hierarchy-compression'
 import type { CompressedHierarchyRow } from './ui-tree/hierarchy-compression'
 import type { AndroidDebugController } from './useAndroidDebug'
+import { useSequenceEditor } from '../macro/useSequenceEditor'
+import { SequenceEditorPanel } from '../macro/SequenceEditorPanel'
 
 interface AndroidDebugWorkspaceProps {
   controller: AndroidDebugController
@@ -46,6 +48,7 @@ interface AndroidOverlayProps {
   uiBounds: AndroidUiBounds | null
   uiLabel: string | null
   pointerPath: AndroidPointerPoint[]
+  sequencePoints?: { x: number; y: number; number: number }[]
 }
 
 interface StableGeometry {
@@ -86,6 +89,7 @@ function AndroidOverlay({
   uiBounds,
   uiLabel,
   pointerPath,
+  sequencePoints = [],
 }: AndroidOverlayProps) {
   const scale = Math.max(width, height) / 900
   const pointerStart = pointerPath[0]
@@ -97,6 +101,19 @@ function AndroidOverlay({
       preserveAspectRatio="xMidYMid meet"
       aria-hidden="true"
     >
+      {sequencePoints.map((point) => (
+        <g key={point.number}>
+          <circle className="sequence-point" cx={point.x} cy={point.y} r={24 * scale} />
+          <text
+            className="sequence-point-label"
+            x={point.x}
+            y={point.y}
+            style={{ fontSize: 28 * scale }}
+          >
+            {point.number}
+          </text>
+        </g>
+      ))}
       {detections.map((detection) => (
         <g
           key={detection.id}
@@ -199,9 +216,7 @@ function macroIntent(status: string | undefined) {
   return 'none' as const
 }
 
-export function AndroidDebugWorkspace({
-  controller,
-}: AndroidDebugWorkspaceProps) {
+export function AndroidDebugWorkspace({ controller }: AndroidDebugWorkspaceProps) {
   const { status, debug } = controller
   const currentGeometry = useMemo(
     () =>
@@ -215,10 +230,22 @@ export function AndroidDebugWorkspace({
   )
   const frameWidth = stableGeometry.width
   const frameHeight = stableGeometry.height
+  const sequenceEditor = useSequenceEditor(
+    controller.deviceId,
+    frameWidth,
+    frameHeight,
+    status?.agent?.device.rotation ?? 0,
+  )
+  const setBackgroundReadsPaused = controller.setBackgroundReadsPaused
+  useEffect(() => {
+    setBackgroundReadsPaused(sequenceEditor.active)
+    return () => setBackgroundReadsPaused(false)
+  }, [sequenceEditor.active, setBackgroundReadsPaused])
   const canControl = Boolean(
     status?.connected &&
     status.agent?.accessibility_enabled &&
-    status.agent.remote_control_enabled,
+    status.agent.remote_control_enabled &&
+    !sequenceEditor.active,
   )
   const useStream = Boolean(status?.stream?.running && !controller.streamFailed)
   const imageSource = useStream
@@ -305,13 +332,25 @@ export function AndroidDebugWorkspace({
   }, [currentGeometry, isRecording])
 
   useEffect(() => {
-    if (!controller.manualTapEnabled || !status?.connected || controller.streamFailed) {
+    if (
+      !controller.manualTapEnabled ||
+      !status?.connected ||
+      controller.streamFailed ||
+      sequenceEditor.active ||
+      sequenceEditor.capture
+    ) {
       activePointer.current = null
       const reset = window.setTimeout(() => setRecordingPath([]), 0)
       return () => window.clearTimeout(reset)
     }
     return undefined
-  }, [controller.manualTapEnabled, controller.streamFailed, status?.connected])
+  }, [
+    controller.manualTapEnabled,
+    controller.streamFailed,
+    status?.connected,
+    sequenceEditor.active,
+    sequenceEditor.capture,
+  ])
 
   useEffect(
     () => () => {
@@ -331,6 +370,19 @@ export function AndroidDebugWorkspace({
     mapPointerToFrame(event.clientX, event.clientY, bounds, width, height)
 
   const handlePointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (sequenceEditor.capture && canControl && event.button === 0) {
+      const point = eventPoint(
+        event,
+        event.currentTarget.getBoundingClientRect(),
+        frameWidth,
+        frameHeight,
+      )
+      if (point) {
+        event.preventDefault()
+        sequenceEditor.addPoint(point.x, point.y)
+      }
+      return
+    }
     if (!controller.manualTapEnabled || !canControl || event.button !== 0) return
     const rect = event.currentTarget.getBoundingClientRect()
     const bounds = {
@@ -461,7 +513,7 @@ export function AndroidDebugWorkspace({
 
           <div className="android-live-shell">
             <div
-              className={`android-live-stage ${controller.manualTapEnabled ? 'is-tap-mode' : ''}`}
+              className={`android-live-stage ${controller.manualTapEnabled || sequenceEditor.capture ? 'is-tap-mode' : ''}`}
               style={{
                 aspectRatio: `${frameWidth.toString()} / ${frameHeight.toString()}`,
               }}
@@ -492,6 +544,14 @@ export function AndroidDebugWorkspace({
                 uiBounds={selectedUiBounds}
                 uiLabel={selectedUiLabel}
                 pointerPath={recordingPath.length > 0 ? recordingPath : recentPath}
+                sequencePoints={sequenceEditor.definition.steps.flatMap(
+                  (step, index) =>
+                    step.kind === 'point' &&
+                    step.x !== undefined &&
+                    step.y !== undefined
+                      ? [{ x: step.x, y: step.y, number: index + 1 }]
+                      : [],
+                )}
               />
               <div className="android-live-badges">
                 <Tag intent={useStream ? 'success' : 'warning'} minimal>
@@ -529,9 +589,10 @@ export function AndroidDebugWorkspace({
                 controller.manualTapEnabled ? 'Manual Control On' : 'Manual Control'
               }
               disabled={!canControl}
-              onClick={() =>
+              onClick={() => {
+                sequenceEditor.setCapture(false)
                 controller.setManualTapEnabled(!controller.manualTapEnabled)
-              }
+              }}
             />
             <Button
               icon="camera"
@@ -567,7 +628,7 @@ export function AndroidDebugWorkspace({
                 icon="play"
                 text="Start"
                 onClick={() => void controller.macroStart()}
-                disabled={!status?.connected}
+                disabled={!status?.connected || sequenceEditor.active}
               />
               <Button
                 icon="step-forward"
@@ -626,6 +687,23 @@ export function AndroidDebugWorkspace({
         </Card>
       </div>
 
+      <SequenceEditorPanel
+        editor={sequenceEditor}
+        selectedNode={selectedUiNode}
+        packageName={controller.uiTree?.package_name ?? null}
+        roomName={(() => {
+          const rooms =
+            controller.uiTree?.nodes.filter(
+              (node) => node.text && /^스터디룸 \d+[A-Z]$/.test(node.text),
+            ) ?? []
+          return rooms.length === 1 ? rooms[0]!.text : null
+        })()}
+        ready={Boolean(
+          status?.connected &&
+          status.agent?.accessibility_enabled &&
+          status.agent.remote_control_enabled,
+        )}
+      />
       <AndroidConsolePanel controller={controller} selectedDetection={selected} />
     </section>
   )

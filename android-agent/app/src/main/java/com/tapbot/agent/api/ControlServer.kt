@@ -5,6 +5,7 @@ import com.tapbot.agent.accessibility.ActionExecutionResult
 import com.tapbot.agent.accessibility.ActionOutcome
 import com.tapbot.agent.accessibility.GesturePoint
 import com.tapbot.agent.accessibility.TapBotAccessibilityService
+import com.tapbot.agent.accessibility.UiClickSelector
 import com.tapbot.agent.capture.CaptureNotReadyException
 import com.tapbot.agent.capture.ScreenCaptureProvider
 import com.tapbot.agent.capture.ScreenFrame
@@ -104,6 +105,7 @@ class ControlServer(
         session.method == Method.POST && session.uri in HOME_PATHS -> globalAction("home")
         session.method == Method.POST && session.uri in RECENTS_PATHS -> globalAction("recents")
         session.method == Method.GET && session.uri in UI_TREE_PATHS -> uiTree()
+        session.method == Method.POST && session.uri == "/api/ui/click" -> clickElement(readJson(session))
         session.uri.startsWith("/api/") ->
             jsonError(Response.Status.METHOD_NOT_ALLOWED, "method_not_allowed", "Unknown route or method")
         else -> jsonError(Response.Status.NOT_FOUND, "not_found", "Route not found")
@@ -193,6 +195,30 @@ class ControlServer(
         enforceRateLimit(tapRateLimiter, "tap")?.let { return it }
         Log.i(TAG, "Input command: tap request_id=${requestId()} x=$x y=$y duration_ms=$duration")
         return actionResponse("tap", service.tap(x, y, duration))
+    }
+
+    private fun clickElement(payload: JSONObject): Response {
+        remoteControlDisabled()?.let { return it }
+        val service = accessibilityService() ?: return accessibilityDisabled()
+        val source = payload.getJSONObject("selector")
+        fun field(json: JSONObject, key: String): String? =
+            json.optString(key).takeIf { it.isNotBlank() && it != "null" }
+        val selector = try {
+            UiClickSelector(
+                viewId = field(source, "view_id"), text = field(source, "text"),
+                contentDescription = field(source, "content_description"), nodePath = field(source, "node_path"),
+                packageName = field(payload, "package_name"), requiredText = field(payload, "required_text"),
+            )
+        } catch (error: IllegalArgumentException) {
+            return jsonError(Response.Status.BAD_REQUEST, "invalid_selector", "A stable selector or current node path is required")
+        }
+        enforceRateLimit(tapRateLimiter, "click_element")?.let { return it }
+        val result = service.clickElement(selector)
+        if (result.errorCode != null) return actionError(
+            Response.Status.CONFLICT, result.errorCode, "UI element click was not dispatched: ${result.errorCode}",
+            JSONObject().put("action_id", result.action.actionId).put("outcome_unknown", false),
+        )
+        return actionResponse("click_element", result.action)
     }
 
     private fun swipe(payload: JSONObject): Response {

@@ -29,3 +29,4 @@ android-agent/**/build/
 android-agent/.idea/
 android-agent/captures/
 android-agent/*.iml
+.env

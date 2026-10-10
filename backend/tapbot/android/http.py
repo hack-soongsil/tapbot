@@ -15,6 +15,7 @@ from tapbot.android.discovery import AndroidDiscoveryService
 from tapbot.android.models import EncodedAndroidFrame
 from tapbot.android.service import AndroidService
 from tapbot.events import EventLog
+from tapbot.macro.sequence import SequenceConflictError
 from tapbot.android.gesture import PointerGesture, PointerGestureBoundsError, PointerPoint
 
 
@@ -63,11 +64,15 @@ class AndroidHttpDependencies:
         *,
         discovery: AndroidDiscoveryService,
         manual_token: str | None = None,
+        input_guard: Callable[[str], None] | None = None,
+        input_operation: Callable[[str, Callable[[], Any]], Any] | None = None,
     ) -> None:
         self.registry = registry
         self.event_log = event_log
         self.discovery = discovery
         self.manual_token = manual_token
+        self.input_guard = input_guard
+        self.input_operation = input_operation
 
     def require_service(self, device_id: str | None = None) -> AndroidService:
         resolved_id = device_id or self.registry.default_device_id
@@ -87,6 +92,8 @@ class AndroidHttpDependencies:
         payload = {} if device_id is None else {"device_id": device_id}
         try:
             return await asyncio.to_thread(operation)
+        except SequenceConflictError as error:
+            raise HTTPException(409, str(error)) from error
         except AndroidAgentApiError as error:
             self.event_log.add(f"Android Agent API error: {error}", level="error", event_type="android.api.error", category="android", status="error", payload={**payload, "code": error.code, "request_id": error.request_id})
             raise HTTPException(error.status or 502, f"{error.code}: {error}") from error
@@ -98,6 +105,15 @@ class AndroidHttpDependencies:
         except (OSError, ValueError, RuntimeError) as error:
             self.event_log.add(f"Android operation failed: {error}", level="error", event_type="android.operation.error", category="android", status="error", payload=payload)
             raise HTTPException(500, str(error)) from error
+
+    async def call_input(self, operation: Callable[[], Any], *, device_id: str) -> Any:
+        def guarded() -> Any:
+            if self.input_operation:
+                return self.input_operation(device_id, operation)
+            if self.input_guard:
+                self.input_guard(device_id)
+            return operation()
+        return await self.call(guarded, device_id=device_id)
 
 
 def frame_response(frame: EncodedAndroidFrame) -> Response:
@@ -136,20 +152,22 @@ def create_android_router(deps: AndroidHttpDependencies) -> APIRouter:
     async def tap(device_id: str | None, value: TapRequest) -> dict[str, object]:
         duration(value.duration_ms)
         service = deps.require_service(device_id)
-        return await deps.call(lambda: service.manual_tap(value.x, value.y, duration_ms=value.duration_ms), device_id=service.device_id)
+        return await deps.call_input(lambda: service.manual_tap(value.x, value.y, duration_ms=value.duration_ms), device_id=service.device_id)
 
     async def swipe(device_id: str | None, value: SwipeRequest) -> dict[str, object]:
         duration(value.duration_ms)
         service = deps.require_service(device_id)
-        return await deps.call(lambda: service.manual_swipe(value.x1, value.y1, value.x2, value.y2, duration_ms=value.duration_ms), device_id=service.device_id)
+        return await deps.call_input(lambda: service.manual_swipe(value.x1, value.y1, value.x2, value.y2, duration_ms=value.duration_ms), device_id=service.device_id)
 
     async def execute_gesture(device_id: str | None, value: GestureRequest) -> dict[str, object]:
         service = deps.require_service(device_id)
         parsed = gesture(value)
-        return await deps.call(lambda: service.manual_gesture(parsed), device_id=service.device_id)
+        return await deps.call_input(lambda: service.manual_gesture(parsed), device_id=service.device_id)
 
     async def primitive(device_id: str | None, name: str) -> dict[str, object]:
         service = deps.require_service(device_id)
+        if name in {"back", "home"}:
+            return await deps.call_input(getattr(service, name), device_id=service.device_id)
         return await deps.call(getattr(service, name), device_id=service.device_id)
 
     async def vision_frame(device_id: str | None) -> Response:
